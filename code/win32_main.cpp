@@ -8,6 +8,12 @@
 
 #include "program_layer.cpp"
 
+#if defined(HANDMADE_INTERNAL_BUILD)
+LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(TB(static_cast<u64>(10)));
+#else
+LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(0);
+#endif
+
 struct SoundRenderData {
 	IMMDevice* device;
 	IAudioClient* audio;
@@ -31,6 +37,7 @@ static BitmapData globalBitmap;
 static BITMAPINFO globalBitmapInfo;
 static SoundRenderData globalSoundData;
 static InputData globalInputData;
+static LARGE_INTEGER globalPerformanceFreq;
 
 /* Some explanation on this code (for dynamic loading XInputGet/SetState() functions from XInput lib):
 	1. Defines are defining actual signature of these functions
@@ -136,7 +143,7 @@ void Win32InitAudioClient() {
 		LPCTSTR errMsg = err.ErrorMessage();
 	}
 	
-	REFERENCE_TIME requestedDuration = 1;  // NOTE: 1'000'000 * 100ns = 0.1sec
+	REFERENCE_TIME requestedDuration = 500000;  // NOTE: 1'000'000 * 100ns = 0.1sec
 	hr = audioClient->Initialize(
 		AUDCLNT_SHAREMODE_SHARED,
 		0,
@@ -189,6 +196,57 @@ void Win32InitAudioClient() {
 	globalSoundData.renderer = renderClient;
 	globalSoundData.requestedDuration = requestedDuration;
 	globalSoundData.bufferSizeInSamples = bufferSizeInSamples;
+}
+
+internal
+FileData DebugReadEntireFile(const char* filename) {
+	HANDLE file = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+	if (!file) {
+		// TODO: LOGGING
+		return FileData{ nullptr, 0 };
+	}
+	LARGE_INTEGER fileSize;
+	if (!GetFileSizeEx(file, &fileSize)) {
+		// TODO: LOGGING
+		CloseHandle(file);
+		return FileData{ nullptr, 0 };
+	}
+	// NOTE: For now support only reading files up to 4gb
+	Assert(fileSize.QuadPart < UINT32_MAX);
+	void* fileContent = VirtualAlloc(nullptr, fileSize.QuadPart, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	if (!fileContent) {
+		// TODO: LOGGING
+		CloseHandle(file);
+		return FileData{ nullptr, 0 };
+	}
+	DWORD readBytes = 0;
+	if (!ReadFile(file, fileContent, static_cast<DWORD>(fileSize.QuadPart), &readBytes, nullptr) && readBytes != fileSize.QuadPart) {
+		// TODO: LOGGING
+		VirtualFree(fileContent, 0, MEM_RELEASE);
+		CloseHandle(file);
+		return FileData{ nullptr, 0 };
+	}
+	CloseHandle(file);
+	return FileData{ fileContent, static_cast<u64>(fileSize.QuadPart) };
+}
+
+internal
+bool DebugWriteToFile(const char* filename, void* buffer, u64 size) {
+	HANDLE file = CreateFileA(filename, GENERIC_WRITE, FILE_SHARE_WRITE, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+	if (!file) {
+		// TODO: LOGGING
+		return false;
+	}
+	// NOTE: For now support only reading files up to 4gb
+	Assert(size < UINT32_MAX);
+	DWORD writtenBytes = 0;
+	if (!WriteFile(file, buffer, static_cast<DWORD>(size), &writtenBytes, nullptr) && writtenBytes != size) {
+		// TODO: LOGGING
+		CloseHandle(file);
+		return false;
+	}
+	CloseHandle(file);
+	return true;
 }
 
 internal
@@ -264,48 +322,7 @@ LRESULT CALLBACK Win32MainWindowCallback(
 	case WM_SYSKEYUP: 
 	case WM_KEYDOWN: 
 	case WM_KEYUP: {
-		u32 vkCode = wParam;
-		bool wasDown = lParam & (static_cast<LPARAM>(1) << 30);
-		bool isDown = !(lParam & (static_cast<LPARAM>(1) << 31));
-		if (wParam == 'Q') {
-
-		}
-		if (vkCode == 'W') {
-			globalInputData.isWDown = isDown;
-			if (wasDown) {
-				OutputDebugStringA("was down W\n");
-			}
-			else if (isDown) {
-				OutputDebugStringA("is down W\n");
-			}
-		}
-		else if (vkCode == 'A') {
-			globalInputData.isADown = isDown;
-		}
-		else if (vkCode == 'S') {
-			globalInputData.isSDown = isDown;
-		}
-		else if (vkCode == 'D') {
-			globalInputData.isDDown = isDown;
-		}
-		else if (vkCode == VK_UP) {
-			globalInputData.isUpDown = isDown;
-		}
-		else if (vkCode == VK_LEFT) {
-
-		}
-		else if (vkCode == VK_DOWN) {
-			globalInputData.isDownDown = isDown;
-		}
-		else if (vkCode == VK_RIGHT) {
-
-		}
-		else if (vkCode == VK_SPACE) {
-
-		}
-		else if (vkCode == VK_ESCAPE) {
-
-		}
+		Assert(!"User input should be collected in Win32ProcessOSMessages directly!");
 	} break;
 	case WM_ACTIVATEAPP: {
 		OutputDebugStringA("Window activated\n");
@@ -317,7 +334,94 @@ LRESULT CALLBACK Win32MainWindowCallback(
 	return result;
 }
 
+internal 
+void Win32ProcessOSMessages(InputData& inputData) {
+	MSG msg = {};
+	while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE)) {
+		switch (msg.message) {
+		case WM_QUIT: {
+			globalRunning = false;
+		} break;
+		case WM_SYSKEYDOWN:
+		case WM_SYSKEYUP:
+		case WM_KEYDOWN:
+		case WM_KEYUP: {
+			u32 vkCode = static_cast<u32>(msg.wParam);
+			bool wasDown = msg.lParam & (static_cast<LPARAM>(1) << 30);
+			bool isDown = !(msg.lParam & (static_cast<LPARAM>(1) << 31));
+			if (vkCode == 'W') {
+				inputData.isWDown = isDown;
+			}
+			else if (vkCode == 'A') {
+				inputData.isADown = isDown;
+			}
+			else if (vkCode == 'S') {
+				inputData.isSDown = isDown;
+			}
+			else if (vkCode == 'D') {
+				inputData.isDDown = isDown;
+			}
+			else if (vkCode == VK_UP) {
+				inputData.isUpDown = isDown;
+			}
+			else if (vkCode == VK_LEFT) {
+				inputData.isLeftDown = isDown;
+			}
+			else if (vkCode == VK_DOWN) {
+				inputData.isDownDown = isDown;
+			}
+			else if (vkCode == VK_RIGHT) {
+				inputData.isRightDown = isDown;
+			}
+			else if (vkCode == VK_SPACE) {
+				inputData.isSpaceDown = isDown;
+			}
+			else if (vkCode == VK_ESCAPE) {
+				inputData.isEscDown = isDown;
+			}
+		} break;
+		default: {
+			TranslateMessage(&msg);
+			DispatchMessageA(&msg);
+		}
+		}
+	}
+}
+
 internal
+void Win32GatherGamepadInput(InputData& inputData) {
+	for (DWORD controllerIndex = 0; controllerIndex < XUSER_MAX_COUNT; controllerIndex++) {
+		XINPUT_STATE state = {};
+		auto errCode = XInputGetState(controllerIndex, &state);
+		if (errCode != ERROR_SUCCESS) {
+			//TODO log errCode with error listed in Winerror.h
+			continue;
+		}
+		inputData.isWDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP;
+		inputData.isSDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
+		inputData.isADown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
+		inputData.isDDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
+		inputData.isSpaceDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_START;
+		inputData.isEscDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_BACK;
+		inputData.isLeftDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_A;
+		inputData.isRightDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_B;
+		inputData.isDownDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_X;
+		inputData.isUpDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_Y;
+	}
+}
+
+inline internal
+u64 Win32GetCurrentTimestamp() {
+	LARGE_INTEGER timestamp = {};
+	QueryPerformanceCounter(&timestamp);
+	return timestamp.QuadPart;
+}
+
+inline internal
+f32 Win32CalculateTimeElapsed(u64 startTime, u64 endTime) {
+	return static_cast<f32>(endTime - startTime) / static_cast<f32>(globalPerformanceFreq.QuadPart);
+}
+
 int CALLBACK WinMain(
 	HINSTANCE instance,
 	HINSTANCE prevInstance,
@@ -326,10 +430,14 @@ int CALLBACK WinMain(
 ) {
 	Win32LoadXInput();
 
-	CoInitialize(nullptr);
+	HRESULT hr = CoInitialize(nullptr);
+	if (!SUCCEEDED(hr)) {
+		// TODO log error with _com_error err.ErrorMessage()
+		return 0;
+	}
 	Win32InitAudioClient();
 
-	HRESULT hr = globalSoundData.audio->Start();
+	globalSoundData.audio->Start();
 	if (!SUCCEEDED(hr)) {
 		// TODO log error with _com_error err.ErrorMessage()
 		return 0;
@@ -366,51 +474,44 @@ int CALLBACK WinMain(
 		return -1;
 	}
 
+	// PART: Initializing program memory
+	ProgramMemory programMemory = {};
+	programMemory.permanentMemorySize = MB(64);
+	programMemory.transientMemorySize = GB(static_cast<u64>(4));
+	programMemory.permanentMemory = VirtualAlloc(
+		MEM_ALLOC_START,
+		programMemory.permanentMemorySize + programMemory.transientMemorySize,
+		MEM_RESERVE | MEM_COMMIT, 
+		PAGE_READWRITE
+	);
+	programMemory.transientMemory = reinterpret_cast<void*>(
+		reinterpret_cast<u8*>(programMemory.permanentMemory) + programMemory.permanentMemorySize
+	);
+	if (!programMemory.permanentMemory || !programMemory.transientMemory) {
+		// TODO log error
+		DWORD err = GetLastError();
+		return 0;
+	}
+	Assert(programMemory.permanentMemorySize >= sizeof(ProgramState));
+	ProgramState* state = reinterpret_cast<ProgramState*>(programMemory.permanentMemory);
+	state->toneHz = 255.;
+
 	// NOTE: We can use one devicecontext because we specified CS_OWNDC so we dont share context with anyone
 	HDC deviceContext = GetDC(window);
 	Win32ResizeBitmapMemory(globalBitmap, 1400, 900);
 	globalRunning = true;
-	int xOffset = 0;
-	int yOffset = 0;
-	LARGE_INTEGER performanceCounterStart = {};
-	LARGE_INTEGER performanceFrequency = {};
+
+	UINT schedulerGranularityMs = 1;
+	bool sleepIsGranular = timeBeginPeriod(schedulerGranularityMs) == NO_ERROR;
+	u32 frameRefreshHz = 60;
+	f32 targetFrameRefreshSeconds = 1.0f / static_cast<f32>(frameRefreshHz);
 	u64 rdtscStart = __rdtsc();
-	QueryPerformanceCounter(&performanceCounterStart);
-	QueryPerformanceFrequency(&performanceFrequency);
+	u64 frameStartTime = Win32GetCurrentTimestamp();
+	QueryPerformanceFrequency(&globalPerformanceFreq);
 	while (globalRunning) {
+		Win32ProcessOSMessages(globalInputData);
+		Win32GatherGamepadInput(globalInputData);
 
-		// PART: Processing all messages from windows OS
-		MSG msg = {};
-		while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE)) {
-			if (msg.message == WM_QUIT) {
-				globalRunning = false;
-			}
-			TranslateMessage(&msg);
-			DispatchMessageA(&msg);
-		}
-
-		// PART: Gathering user gamepad input
-		for (DWORD controllerIndex = 0; controllerIndex < XUSER_MAX_COUNT; controllerIndex++) {
-			XINPUT_STATE state = {};
-			auto errCode = XInputGetState(controllerIndex, &state);
-			if (errCode != ERROR_SUCCESS) {
-				//TODO log errCode with error listed in Winerror.h
-				continue;
-			}
-			bool btnUp = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP;
-			bool btnDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
-			bool btnLeft = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
-			bool btnRight = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
-			bool btnStart = state.Gamepad.wButtons & XINPUT_GAMEPAD_START;
-			bool btnBack = state.Gamepad.wButtons & XINPUT_GAMEPAD_BACK;
-			bool btnA = state.Gamepad.wButtons & XINPUT_GAMEPAD_A;
-			bool btnB = state.Gamepad.wButtons & XINPUT_GAMEPAD_B;
-			bool btnX = state.Gamepad.wButtons & XINPUT_GAMEPAD_X;
-			bool btnY = state.Gamepad.wButtons & XINPUT_GAMEPAD_Y;
-			if (btnUp) {
-				yOffset++;
-			}
-		}
 		// PART: Preparing SoundData structure for game main loop
 		UINT32 padding = 0;
 		globalSoundData.audio->GetCurrentPadding(&padding);
@@ -429,8 +530,38 @@ int CALLBACK WinMain(
 		soundData.nChannels = globalSoundData.dataFormat.Format.nChannels;
 
 		// PART: Game main loop
-		GameMainLoopFrame(globalBitmap, soundData, globalInputData);
+		GameMainLoopFrame(programMemory, globalBitmap, soundData, globalInputData);
 
+	
+		// PART: Timing stuff
+		u64 rdtscEnd = __rdtsc();
+		u64 frameEndTime = Win32GetCurrentTimestamp();
+		f32 secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
+		f32 desiredSleepTimeMs = 1000.0f * (targetFrameRefreshSeconds - secondsElapsedForFrame) - 5;
+		if (sleepIsGranular && desiredSleepTimeMs > schedulerGranularityMs) {
+			u64 start = Win32GetCurrentTimestamp();
+			Sleep(static_cast<DWORD>(desiredSleepTimeMs));
+			u64 end = Win32GetCurrentTimestamp();
+			f32 elapsed = Win32CalculateTimeElapsed(start, end);
+			frameEndTime = Win32GetCurrentTimestamp();
+			secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
+			Assert(secondsElapsedForFrame < targetFrameRefreshSeconds);
+		}
+		while (secondsElapsedForFrame < targetFrameRefreshSeconds) {
+			YieldProcessor();
+			frameEndTime = Win32GetCurrentTimestamp();
+			secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
+		}
+		float msElapsed = 1'000.f * secondsElapsedForFrame;
+		float fps = 1'000.f / msElapsed;
+		float megaCycles = static_cast<float>(rdtscEnd - rdtscStart) / 1'000'000.f;
+		rdtscStart = rdtscEnd;
+		frameStartTime = frameEndTime;
+		char buffer[256];
+		sprintf_s(buffer, "%0.2fms/f,  %0.2ffps/f,  %0.2fMc/f\n", msElapsed, fps, megaCycles);
+		OutputDebugStringA(buffer);
+
+		
 		// PART: Playing sound
 		hr = globalSoundData.renderer->ReleaseBuffer(framesAvailable, 0);
 		if (!SUCCEEDED(hr)) {
@@ -442,19 +573,6 @@ int CALLBACK WinMain(
 		auto dim = GetWindowDimension(window);
 		Win32DisplayWindow(deviceContext, globalBitmap, dim.width, dim.height);
 		ReleaseDC(window, deviceContext);
-
-		// PART: Timing stuff
-		u64 rdtscEnd = __rdtsc();
-		LARGE_INTEGER performanceCounterEnd = {};
-		QueryPerformanceCounter(&performanceCounterEnd);
-		float msElapsed = 1'000. * static_cast<float>(performanceCounterEnd.QuadPart - performanceCounterStart.QuadPart) / static_cast<float>(performanceFrequency.QuadPart);
-		float fps = 1'000 / msElapsed;
-		float megaCycles = static_cast<float>(rdtscEnd - rdtscStart) / 1'000'000.;
-		rdtscStart = rdtscEnd;
-		performanceCounterStart = performanceCounterEnd;
-		char buffer[256];
-		sprintf(buffer, "%0.2fms/f,  %0.2ffps/f,  %0.2fMc/f\n", msElapsed, fps, megaCycles);
-		OutputDebugStringA(buffer);
 	}
 
 	return 0;

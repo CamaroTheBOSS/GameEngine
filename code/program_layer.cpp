@@ -2,24 +2,14 @@
 
 internal
 void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
-	/*UINT32 padding = 0;
-	globalSoundData.audio->GetCurrentPadding(&padding);
-	UINT32 framesAvailable = dst.bufferSizeInSamples - padding;
-	if (framesAvailable == 0) {
-		return;
-	}*/
-
-	//void* bufferData = nullptr;
-	//HRESULT hr = globalSoundData.renderer->GetBuffer(framesAvailable, reinterpret_cast<BYTE**>(&bufferData));
-	//if (!SUCCEEDED(hr)) {
-	//	// TODO: log error
-	//	return;
-	//}
-
 	static float tSine = 0.;
 	static u64 runninngSampleIndex = 0;
 	float sampleInterval = static_cast<float>(dst.nSamplesPerSec) / (2 * PI * toneHz);
 	float* fData = reinterpret_cast<float*>(dst.data);
+	if (tSine > 40000.) {
+		// NOTE: sinf() seems to be inaccurate for high tSine values and quantization goes crazy 
+		tSine = 0;
+	}
 	for (int frame = 0; frame < dst.nSamples; frame++) {
 		tSine += 1.0f / sampleInterval;
 		float value = amplitude * sinf(tSine);
@@ -28,11 +18,6 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 		}
 		runninngSampleIndex++;
 	}
-	//hr = globalSoundData.renderer->ReleaseBuffer(framesAvailable, 0);
-	//if (!SUCCEEDED(hr)) {
-	//	// TODO log error with _com_error err.ErrorMessage()
-	//	return;
-	//}
 }
 
 internal
@@ -51,22 +36,26 @@ void RenderWeirdGradient(BitmapData& bitmap, int xOffset, int yOffset) {
 	}
 }
 
-void GameMainLoopFrame(BitmapData& bitmap, SoundData& soundData, InputData& inputData) {
-	static float offsetVelX = 0.;
-	static float offsetVelY = 0.;
-	static float offsetX = 0;
-	static float offsetY = 0;
-	static float toneHz = 255.;
+void GameMainLoopFrame(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, InputData& inputData) {
+	ProgramState* state = reinterpret_cast<ProgramState*>(memory.permanentMemory);
+	if (inputData.isADown) state->offsetVelX-= 0.1f;
+	if (inputData.isWDown) state->offsetVelY-= 0.1f;
+	if (inputData.isSDown) state->offsetVelY+= 0.1f;
+	if (inputData.isDDown) state->offsetVelX+= 0.1f;
+	if (inputData.isUpDown) state->toneHz++;
+	if (inputData.isDownDown) state->toneHz--;
+	state->offsetX += state->offsetVelX;
+	state->offsetY += state->offsetVelY;
 
-	if (inputData.isADown) offsetVelX-= 0.1;
-	if (inputData.isWDown) offsetVelY-= 0.1;
-	if (inputData.isSDown) offsetVelY+= 0.1;
-	if (inputData.isDDown) offsetVelX+= 0.1;
-	if (inputData.isUpDown) toneHz++;
-	if (inputData.isDownDown) toneHz--;
-	offsetX += offsetVelX;
-	offsetY += offsetVelY;
+	static bool fileRead = false;
+	if (!fileRead) {
+		FileData file = DebugReadEntireFile("sds");
+		if (file.content) {
+			DebugWriteToFile("some_other_file.cpp", file.content, file.size);
+		}
+		fileRead = true;
+	}
 
-	AddSineWaveToBuffer(soundData, 0.05, toneHz);
-	RenderWeirdGradient(bitmap, offsetX, offsetY);
+	AddSineWaveToBuffer(soundData, 0.05f, state->toneHz);
+	RenderWeirdGradient(bitmap, static_cast<int>(state->offsetX), static_cast<int>(state->offsetY));
 }
