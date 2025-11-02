@@ -26,10 +26,10 @@ typedef double f64;
 struct BitmapData {
 	// Platform independent buffer to render graphics
 	void* data;
-	int width;
-	int height;
-	int pitch;
-	int bytesPerPixel;
+	u32 width;
+	u32 height;
+	u32 pitch;
+	u32 bytesPerPixel;
 };
 
 struct SoundData {
@@ -57,6 +57,16 @@ struct InputData {
 	bool isRightDown = false;
 	bool isSpaceDown = false;
 	bool isEscDown = false;
+
+	// Mouse data
+	int mouseX;
+	int mouseY;
+	bool isMouseLDown = false;
+	bool isMouseMDown = false;
+	bool isMouseRDown = false;
+	bool isMouse1BDown = false;
+	bool isMouse2BDown = false;
+	
 };
 
 struct FileData {

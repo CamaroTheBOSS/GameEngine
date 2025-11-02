@@ -24,17 +24,17 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 }
 
 internal 
-void RenderRectangle(BitmapData& bitmap, int X, int Y, int W, int H) {
+void RenderRectangle(BitmapData& bitmap, u32 X, u32 Y, u32 W, u32 H) {
 	if (X > bitmap.width || Y > bitmap.height) {
 		return;
 	}
-	for (int row = Y; row < Y + H; row++) {
-		if (row > bitmap.height) {
+	for (u32 row = Y; row < Y + H; row++) {
+		if (row >= bitmap.height) {
 			continue;
 		}
 		u8* pixel = reinterpret_cast<u8*>(bitmap.data) + row * bitmap.pitch + X * bitmap.bytesPerPixel;
-		for (int col = X; col < X + W; col++) {
-			if (col > bitmap.width) {
+		for (u32 col = X; col < X + W; col++) {
+			if (col >= bitmap.width) {
 				continue;
 			}
 			pixel[0] = 255;
@@ -49,9 +49,9 @@ void RenderRectangle(BitmapData& bitmap, int X, int Y, int W, int H) {
 internal
 void RenderWeirdGradient(BitmapData& bitmap, int xOffset, int yOffset) {
 	u8* row = reinterpret_cast<u8*>(bitmap.data);
-	for (int y = 0; y < bitmap.height; y++) {
+	for (u32 y = 0; y < bitmap.height; y++) {
 		u8* pixel = reinterpret_cast<u8*>(row);
-		for (int x = 0; x < bitmap.width; x++) {
+		for (u32 x = 0; x < bitmap.width; x++) {
 			pixel[0] = static_cast<u8>(x + xOffset);
 			pixel[1] = static_cast<u8>(y + yOffset);
 			pixel[2] = 0;
@@ -102,4 +102,20 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	AddSineWaveToBuffer(soundData, 0.05f, state->toneHz);
 	RenderWeirdGradient(bitmap, static_cast<int>(state->offsetX), static_cast<int>(state->offsetY));
 	RenderRectangle(bitmap, static_cast<int>(state->playerX), static_cast<int>(state->playerY), 10, 10);
+	if (inputData.isMouseLDown) {
+		RenderRectangle(bitmap, 0, 0, 10, 10);
+	}
+	if (inputData.isMouseRDown) {
+		RenderRectangle(bitmap, 15, 0, 10, 10);
+	}
+	if (inputData.isMouseMDown) {
+		RenderRectangle(bitmap, 30, 0, 10, 10);
+	}
+	if (inputData.isMouse1BDown) {
+		RenderRectangle(bitmap, 45, 0, 10, 10);
+	}
+	if (inputData.isMouse2BDown) {
+		RenderRectangle(bitmap, 60, 0, 10, 10);
+	}
+	RenderRectangle(bitmap, inputData.mouseX, inputData.mouseY, 10, 10);
 }

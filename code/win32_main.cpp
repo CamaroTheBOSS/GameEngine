@@ -45,6 +45,8 @@ struct DebugLoopRecord {
 };
 
 struct Win32State {
+	HWND window;
+
 	/* Debug state */
 	DebugLoopRecord dLoopRecord;
 };
@@ -438,7 +440,7 @@ void Win32ResizeBitmapMemory(BitmapData& bitmap, int newWidth, int newHeight) {
 
 	globalBitmapInfo.bmiHeader.biSize = sizeof(globalBitmapInfo.bmiHeader);
 	globalBitmapInfo.bmiHeader.biWidth = bitmap.width;
-	globalBitmapInfo.bmiHeader.biHeight = -bitmap.height;
+	globalBitmapInfo.bmiHeader.biHeight = -static_cast<int>(bitmap.height);
 	globalBitmapInfo.bmiHeader.biPlanes = 1;
 	globalBitmapInfo.bmiHeader.biBitCount = 32;
 	globalBitmapInfo.bmiHeader.biCompression = BI_RGB;
@@ -508,6 +510,7 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, InputData&
 		case WM_QUIT: {
 			globalRunning = false;
 		} break;
+		//case WM_MOUSEDOWN:
 		case WM_SYSKEYDOWN:
 		case WM_SYSKEYUP:
 		case WM_KEYDOWN:
@@ -577,6 +580,16 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, InputData&
 		}
 		}
 	}
+	POINT point;
+	GetCursorPos(&point);
+	ScreenToClient(state.window, &point);
+	inputData.mouseX = point.x;
+	inputData.mouseY = point.y;
+	inputData.isMouseMDown = GetKeyState(VK_MBUTTON) >> 15;
+	inputData.isMouseRDown = GetKeyState(VK_RBUTTON) >> 15;
+	inputData.isMouseLDown = GetKeyState(VK_LBUTTON) >> 15;
+	inputData.isMouse1BDown = GetKeyState(VK_XBUTTON1) >> 15;
+	inputData.isMouse2BDown = GetKeyState(VK_XBUTTON2) >> 15;
 }
 
 internal
@@ -700,6 +713,7 @@ int CALLBACK WinMain(
 
 	// PART: Initializing program memory
 	Win32State win32State = {};
+	win32State.window = window;
 	ProgramMemory programMemory = Win32InitProgramMemory(win32State);
 	if (!programMemory.memoryBlock) {
 		// TODO: Logging
