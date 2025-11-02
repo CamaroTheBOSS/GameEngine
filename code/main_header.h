@@ -38,6 +38,7 @@ struct SoundData {
 	int nSamples;
 	int nSamplesPerSec;
 	int nChannels;
+	float tSine = 0.;
 };
 
 struct TimeData {
@@ -58,14 +59,6 @@ struct InputData {
 	bool isEscDown = false;
 };
 
-struct ProgramMemory {
-	// Platform independent memory arenas
-	u64 permanentMemorySize;
-	void* permanentMemory;
-	u64 transientMemorySize;
-	void* transientMemory;
-};
-
 struct FileData {
 	// Platform independent file content
 	void* content;
@@ -73,8 +66,25 @@ struct FileData {
 };
 
 /* Functionalities served by the platform layer for program layer */
-internal FileData DebugReadEntireFile(const char* filename);
-internal bool DebugWriteToFile(const char* filename, void* buffer, u64 size);
+#define DEBUG_READ_ENTIRE_FILE(name) FileData name(const char* filename)
+#define DEBUG_WRITE_FILE(name) bool name(const char* filename, void* buffer, u64 size)
+#define DEBUG_FREE_FILE(name) void name(FileData& file)
+typedef DEBUG_READ_ENTIRE_FILE(debug_read_entire_file);
+typedef DEBUG_WRITE_FILE(debug_write_file);
+typedef DEBUG_FREE_FILE(debug_free_file);
+/*----------------------------------------------------------------*/
+
+struct ProgramMemory {
+	// Platform independent memory arenas
+	u64 permanentMemorySize;
+	void* permanentMemory;
+	u64 transientMemorySize;
+	void* transientMemory;
+
+	debug_read_entire_file* debugReadEntireFile;
+	debug_write_file* debugWriteFile;
+	debug_free_file* debugFreeFile;
+};
 
 struct ProgramState {
 	// Global state of the program
@@ -84,3 +94,16 @@ struct ProgramState {
 	float offsetY;
 	float toneHz;
 };
+
+#include <stdlib.h>
+/* Functionalities served by the program layer for platform layer */
+#define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, InputData& inputData)
+typedef GAME_MAIN_LOOP_FRAME(game_main_loop_frame);
+extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {
+	float* data = reinterpret_cast<float*>(soundData.data);
+	for (int frame = 0; frame < soundData.nSamples; frame++) {
+		for (int channel = 0; channel < soundData.nChannels; channel++) {
+			*data++ = 0;
+		}
+	}
+}

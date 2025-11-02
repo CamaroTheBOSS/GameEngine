@@ -6,8 +6,6 @@
 #include <mmdeviceapi.h>
 #include <comdef.h>
 
-#include "program_layer.cpp"
-
 #if defined(HANDMADE_INTERNAL_BUILD)
 LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(TB(static_cast<u64>(10)));
 #else
@@ -58,6 +56,72 @@ static x_input_get_state* XInputGetStatePtr = XInputGetStateStub;
 static x_input_set_state* XInputSetStatePtr = XInputSetStateStub;
 #define XInputGetState XInputGetStatePtr
 #define XInputSetState XInputSetStatePtr
+
+struct Win32GameCode {
+	const char* pathToDll = "program_layer.dll";
+	const char* pathToTempDll = "program_layer_temp.dll";
+
+	HMODULE dll = nullptr;
+	u64 lastWriteTimestamp = 0;
+	bool isValid = false;
+
+	game_main_loop_frame* GameMainLoopFrame = GameMainLoopFrameStub;
+};
+
+internal
+bool Win32LoadGameCode(Win32GameCode& gameCode) {
+	bool success = CopyFileA(gameCode.pathToDll, gameCode.pathToTempDll, false);
+	gameCode.dll = LoadLibraryA(gameCode.pathToTempDll);
+	if (gameCode.dll) {
+		gameCode.GameMainLoopFrame = reinterpret_cast<game_main_loop_frame*>(GetProcAddress(gameCode.dll, "GameMainLoopFrame"));
+		gameCode.isValid = gameCode.GameMainLoopFrame != nullptr;
+		Assert(gameCode.isValid);
+	}
+	if (!gameCode.isValid) {
+		gameCode.GameMainLoopFrame = GameMainLoopFrameStub;
+	}
+	return success;
+}
+
+internal
+void Win32UnloadGameCode(Win32GameCode& gameCode) {
+	if (gameCode.dll) {
+		Assert(FreeLibrary(gameCode.dll));
+		gameCode.dll = nullptr;
+	}
+	Assert(!gameCode.dll);
+	gameCode.GameMainLoopFrame = GameMainLoopFrameStub;
+	gameCode.isValid = false;
+}
+
+internal
+u64 Win32GetLastWriteTime(const char* filename) {
+	struct _stat64i32 stats;
+	_stat(filename, &stats);
+	return stats.st_mtime;
+}
+
+internal
+bool Win32ReloadGameCode(Win32GameCode& gameCode) {
+#if 0
+	WIN32_FILE_ATTRIBUTE_DATA data;
+	GetFileAttributesExA(gameCode.pathToDll, GetFileExInfoStandard, &data);
+	if (CompareFileTime(&data.ftLastWriteTime, &gameCode.fileStatsData.ftLastWriteTime)) {
+		Win32UnloadGameCode(gameCode);
+		Win32LoadGameCode(gameCode);
+		gameCode.fileStatsData.ftLastWriteTime = data.ftLastWriteTime;
+	}
+#else
+	u64 lastWriteTime = Win32GetLastWriteTime(gameCode.pathToDll);
+	if (lastWriteTime != gameCode.lastWriteTimestamp) {
+		Win32UnloadGameCode(gameCode);
+		if (Win32LoadGameCode(gameCode)) {
+			gameCode.lastWriteTimestamp = lastWriteTime;
+		}
+	}
+#endif
+	return true;
+}
 
 internal
 void Win32LoadXInput() {
@@ -198,7 +262,6 @@ void Win32InitAudioClient() {
 	globalSoundData.bufferSizeInSamples = bufferSizeInSamples;
 }
 
-internal
 FileData DebugReadEntireFile(const char* filename) {
 	HANDLE file = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
 	if (!file) {
@@ -230,7 +293,6 @@ FileData DebugReadEntireFile(const char* filename) {
 	return FileData{ fileContent, static_cast<u64>(fileSize.QuadPart) };
 }
 
-internal
 bool DebugWriteToFile(const char* filename, void* buffer, u64 size) {
 	HANDLE file = CreateFileA(filename, GENERIC_WRITE, FILE_SHARE_WRITE, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 	if (!file) {
@@ -247,6 +309,10 @@ bool DebugWriteToFile(const char* filename, void* buffer, u64 size) {
 	}
 	CloseHandle(file);
 	return true;
+}
+
+void DebugFreeFile(FileData& file) {
+	VirtualFree(file.content, 0, MEM_RELEASE);
 }
 
 internal
@@ -476,6 +542,9 @@ int CALLBACK WinMain(
 
 	// PART: Initializing program memory
 	ProgramMemory programMemory = {};
+	programMemory.debugFreeFile = DebugFreeFile;
+	programMemory.debugReadEntireFile = DebugReadEntireFile;
+	programMemory.debugWriteFile = DebugWriteToFile;
 	programMemory.permanentMemorySize = MB(64);
 	programMemory.transientMemorySize = GB(static_cast<u64>(4));
 	programMemory.permanentMemory = VirtualAlloc(
@@ -495,6 +564,8 @@ int CALLBACK WinMain(
 	Assert(programMemory.permanentMemorySize >= sizeof(ProgramState));
 	ProgramState* state = reinterpret_cast<ProgramState*>(programMemory.permanentMemory);
 	state->toneHz = 255.;
+	Win32GameCode gameCode = {};
+	SoundData soundData = {};
 
 	// NOTE: We can use one devicecontext because we specified CS_OWNDC so we dont share context with anyone
 	HDC deviceContext = GetDC(window);
@@ -505,10 +576,12 @@ int CALLBACK WinMain(
 	bool sleepIsGranular = timeBeginPeriod(schedulerGranularityMs) == NO_ERROR;
 	u32 frameRefreshHz = 60;
 	f32 targetFrameRefreshSeconds = 1.0f / static_cast<f32>(frameRefreshHz);
+	u32 soundSamplesToWriteEachFrame = 12u + static_cast<u32>(globalSoundData.dataFormat.Format.nSamplesPerSec * targetFrameRefreshSeconds);
 	u64 rdtscStart = __rdtsc();
 	u64 frameStartTime = Win32GetCurrentTimestamp();
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 	while (globalRunning) {
+		Win32ReloadGameCode(gameCode);
 		Win32ProcessOSMessages(globalInputData);
 		Win32GatherGamepadInput(globalInputData);
 
@@ -516,10 +589,12 @@ int CALLBACK WinMain(
 		UINT32 padding = 0;
 		globalSoundData.audio->GetCurrentPadding(&padding);
 		UINT32 framesAvailable = globalSoundData.bufferSizeInSamples - padding;
+		if (framesAvailable > soundSamplesToWriteEachFrame) {
+			framesAvailable = soundSamplesToWriteEachFrame;
+		}
 		if (framesAvailable == 0) {
 			// TODO: log error
 		}
-		SoundData soundData = {};
 		hr = globalSoundData.renderer->GetBuffer(framesAvailable, reinterpret_cast<BYTE**>(&soundData.data));
 		if (!SUCCEEDED(hr)) {
 			_com_error err(hr);
@@ -530,7 +605,7 @@ int CALLBACK WinMain(
 		soundData.nChannels = globalSoundData.dataFormat.Format.nChannels;
 
 		// PART: Game main loop
-		GameMainLoopFrame(programMemory, globalBitmap, soundData, globalInputData);
+		gameCode.GameMainLoopFrame(programMemory, globalBitmap, soundData, globalInputData);
 
 	
 		// PART: Timing stuff
@@ -558,21 +633,20 @@ int CALLBACK WinMain(
 		rdtscStart = rdtscEnd;
 		frameStartTime = frameEndTime;
 		char buffer[256];
-		sprintf_s(buffer, "%0.2fms/f,  %0.2ffps/f,  %0.2fMc/f\n", msElapsed, fps, megaCycles);
+		sprintf_s(buffer, "%0.2fms/f,  %0.2ffps/f,  %0.2fMc/f,   frames_av %d\n", msElapsed, fps, megaCycles, framesAvailable);
 		OutputDebugStringA(buffer);
 
-		
+		// PART: Displaying window
+		auto dim = GetWindowDimension(window);
+		Win32DisplayWindow(deviceContext, globalBitmap, dim.width, dim.height);
+		ReleaseDC(window, deviceContext);
+
 		// PART: Playing sound
 		hr = globalSoundData.renderer->ReleaseBuffer(framesAvailable, 0);
 		if (!SUCCEEDED(hr)) {
 			_com_error err(hr);
 			LPCTSTR errMsg = err.ErrorMessage();
 		}
-
-		// PART: Displaying window
-		auto dim = GetWindowDimension(window);
-		Win32DisplayWindow(deviceContext, globalBitmap, dim.width, dim.height);
-		ReleaseDC(window, deviceContext);
 	}
 
 	return 0;

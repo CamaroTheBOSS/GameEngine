@@ -2,21 +2,20 @@
 
 internal
 void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
-	static float tSine = 0.;
 	static u64 runninngSampleIndex = 0;
 	float sampleInterval = static_cast<float>(dst.nSamplesPerSec) / (2 * PI * toneHz);
 	float* fData = reinterpret_cast<float*>(dst.data);
-	if (tSine > 40000.) {
-		// NOTE: sinf() seems to be inaccurate for high tSine values and quantization goes crazy 
-		tSine = 0;
-	}
 	for (int frame = 0; frame < dst.nSamples; frame++) {
-		tSine += 1.0f / sampleInterval;
-		float value = amplitude * sinf(tSine);
+		dst.tSine += 1.0f / sampleInterval;
+		float value = amplitude * sinf(dst.tSine);
 		for (size_t channel = 0; channel < dst.nChannels; channel++) {
 			*fData++ = value;
 		}
 		runninngSampleIndex++;
+	}
+	if (dst.tSine > 2 * PI * toneHz) {
+		// NOTE: sinf() seems to be inaccurate for high tSine values and quantization goes crazy 
+		dst.tSine -= 2 * PI * toneHz;
 	}
 }
 
@@ -36,7 +35,7 @@ void RenderWeirdGradient(BitmapData& bitmap, int xOffset, int yOffset) {
 	}
 }
 
-void GameMainLoopFrame(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, InputData& inputData) {
+extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = reinterpret_cast<ProgramState*>(memory.permanentMemory);
 	if (inputData.isADown) state->offsetVelX-= 0.1f;
 	if (inputData.isWDown) state->offsetVelY-= 0.1f;
@@ -49,9 +48,10 @@ void GameMainLoopFrame(ProgramMemory& memory, BitmapData& bitmap, SoundData& sou
 
 	static bool fileRead = false;
 	if (!fileRead) {
-		FileData file = DebugReadEntireFile("sds");
+		FileData file = memory.debugReadEntireFile(__FILE__);
 		if (file.content) {
-			DebugWriteToFile("some_other_file.cpp", file.content, file.size);
+			memory.debugWriteFile("some_other_file.cpp", file.content, file.size);
+			memory.debugFreeFile(file);
 		}
 		fileRead = true;
 	}
