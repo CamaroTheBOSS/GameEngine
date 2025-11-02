@@ -73,9 +73,11 @@ typedef DEBUG_READ_ENTIRE_FILE(debug_read_entire_file);
 typedef DEBUG_WRITE_FILE(debug_write_file);
 typedef DEBUG_FREE_FILE(debug_free_file);
 /*----------------------------------------------------------------*/
-
 struct ProgramMemory {
 	// Platform independent memory arenas
+	// NOTE: memoryBlock is whole memory block whereas the rest of the blocks are blocks inside memoryBlock
+	void* memoryBlock;
+	u64 memoryBlockSize;
 	u64 permanentMemorySize;
 	void* permanentMemory;
 	u64 transientMemorySize;
@@ -93,6 +95,8 @@ struct ProgramState {
 	float offsetX;
 	float offsetY;
 	float toneHz;
+	float playerX;
+	float playerY;
 };
 
 #include <stdlib.h>

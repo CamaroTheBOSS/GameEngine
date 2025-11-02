@@ -7,7 +7,11 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 	float* fData = reinterpret_cast<float*>(dst.data);
 	for (int frame = 0; frame < dst.nSamples; frame++) {
 		dst.tSine += 1.0f / sampleInterval;
+#if 0
 		float value = amplitude * sinf(dst.tSine);
+#else
+		float value = 0;
+#endif
 		for (size_t channel = 0; channel < dst.nChannels; channel++) {
 			*fData++ = value;
 		}
@@ -16,6 +20,29 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 	if (dst.tSine > 2 * PI * toneHz) {
 		// NOTE: sinf() seems to be inaccurate for high tSine values and quantization goes crazy 
 		dst.tSine -= 2 * PI * toneHz;
+	}
+}
+
+internal 
+void RenderRectangle(BitmapData& bitmap, int X, int Y, int W, int H) {
+	if (X > bitmap.width || Y > bitmap.height) {
+		return;
+	}
+	for (int row = Y; row < Y + H; row++) {
+		if (row > bitmap.height) {
+			continue;
+		}
+		u8* pixel = reinterpret_cast<u8*>(bitmap.data) + row * bitmap.pitch + X * bitmap.bytesPerPixel;
+		for (int col = X; col < X + W; col++) {
+			if (col > bitmap.width) {
+				continue;
+			}
+			pixel[0] = 255;
+			pixel[1] = 255;
+			pixel[2] = 255;
+			pixel[3] = 0;
+			pixel += 4;
+		}
 	}
 }
 
@@ -37,12 +64,28 @@ void RenderWeirdGradient(BitmapData& bitmap, int xOffset, int yOffset) {
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = reinterpret_cast<ProgramState*>(memory.permanentMemory);
-	if (inputData.isADown) state->offsetVelX-= 0.1f;
-	if (inputData.isWDown) state->offsetVelY-= 0.1f;
-	if (inputData.isSDown) state->offsetVelY+= 0.1f;
-	if (inputData.isDDown) state->offsetVelX+= 0.1f;
-	if (inputData.isUpDown) state->toneHz++;
-	if (inputData.isDownDown) state->toneHz--;
+	if (inputData.isADown) {
+		//state->offsetVelX -= 0.1f;
+		state->playerX -= 4;
+	}
+	if (inputData.isWDown)  {
+		//state->offsetVelY -= 0.1f;
+		state->playerY -= 4;
+	}
+	if (inputData.isSDown) {
+		//state->offsetVelY += 0.1f;
+		state->playerY += 4;
+	}
+	if (inputData.isDDown) {
+		//state->offsetVelX += 0.1f;
+		state->playerX += 4;
+	}
+	if (inputData.isUpDown) {
+		state->toneHz++;
+	}
+	if (inputData.isDownDown) {
+		state->toneHz--;
+	}
 	state->offsetX += state->offsetVelX;
 	state->offsetY += state->offsetVelY;
 
@@ -58,4 +101,5 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 	AddSineWaveToBuffer(soundData, 0.05f, state->toneHz);
 	RenderWeirdGradient(bitmap, static_cast<int>(state->offsetX), static_cast<int>(state->offsetY));
+	RenderRectangle(bitmap, static_cast<int>(state->playerX), static_cast<int>(state->playerY), 10, 10);
 }

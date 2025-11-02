@@ -24,6 +24,31 @@ struct SoundRenderData {
 	u64 runningSampleIndex = 0;
 };
 
+struct Win32GameCode {
+	const char* pathToDll = "program_layer.dll";
+	const char* pathToTempDll = "program_layer_temp.dll";
+
+	HMODULE dll = nullptr;
+	u64 lastWriteTimestamp = 0;
+	bool isValid = false;
+
+	game_main_loop_frame* GameMainLoopFrame = GameMainLoopFrameStub;
+};
+
+struct DebugLoopRecord {
+	const char* inputFilename = "loop.hmi";
+	const char* stateFilename = "loop.hmm";
+	HANDLE inputFileHandle = nullptr;
+	bool recording;
+	bool replaying;
+	void* stateMemoryBlock = nullptr;
+};
+
+struct Win32State {
+	/* Debug state */
+	DebugLoopRecord dLoopRecord;
+};
+
 noapi 
 struct ScreenDimension {
 	int width;
@@ -56,17 +81,6 @@ static x_input_get_state* XInputGetStatePtr = XInputGetStateStub;
 static x_input_set_state* XInputSetStatePtr = XInputSetStateStub;
 #define XInputGetState XInputGetStatePtr
 #define XInputSetState XInputSetStatePtr
-
-struct Win32GameCode {
-	const char* pathToDll = "program_layer.dll";
-	const char* pathToTempDll = "program_layer_temp.dll";
-
-	HMODULE dll = nullptr;
-	u64 lastWriteTimestamp = 0;
-	bool isValid = false;
-
-	game_main_loop_frame* GameMainLoopFrame = GameMainLoopFrameStub;
-};
 
 internal
 bool Win32LoadGameCode(Win32GameCode& gameCode) {
@@ -316,6 +330,92 @@ void DebugFreeFile(FileData& file) {
 }
 
 internal
+void Win32DebugStartRecordingInput(Win32State& state, ProgramMemory& memory) {
+	Assert(!state.dLoopRecord.recording);
+	Assert(!state.dLoopRecord.replaying);
+	HANDLE inputFile = CreateFileA(state.dLoopRecord.inputFilename, GENERIC_WRITE, FILE_SHARE_WRITE, 0,
+		OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+	if (!inputFile) {
+		// TODO: LOGGING
+		return;
+	}
+	CopyMemory(state.dLoopRecord.stateMemoryBlock, memory.memoryBlock, memory.memoryBlockSize);
+	state.dLoopRecord.inputFileHandle = inputFile;
+	state.dLoopRecord.recording = true;
+	state.dLoopRecord.replaying = false;
+}
+
+internal
+void Win32DebugRecordInput(Win32State& state, InputData& data) {
+	DWORD bytesWritten;
+	Assert(state.dLoopRecord.recording);
+	Assert(!state.dLoopRecord.replaying);
+	Assert(state.dLoopRecord.inputFileHandle);
+	if (!state.dLoopRecord.inputFileHandle) {
+		return;
+	}
+	if (!WriteFile(state.dLoopRecord.inputFileHandle, &data, sizeof(data), &bytesWritten, 0)) {
+		// TOOD: LOGGING
+		return;
+	}
+	Assert(bytesWritten == sizeof(data));
+}
+
+internal
+void Win32DebugEndRecordingInput(Win32State& state) {
+	Assert(state.dLoopRecord.recording);
+	Assert(!state.dLoopRecord.replaying);
+	CloseHandle(state.dLoopRecord.inputFileHandle);
+	state.dLoopRecord.inputFileHandle = nullptr;
+	state.dLoopRecord.recording = false;
+}
+
+internal
+void Win32DebugStartReplayingInput(Win32State& state, ProgramMemory& memory) {
+	Assert(!state.dLoopRecord.recording);
+	Assert(!state.dLoopRecord.replaying);
+	HANDLE inputFile = CreateFileA(state.dLoopRecord.inputFilename, GENERIC_READ, FILE_SHARE_READ, 0,
+		OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+	if (!inputFile) {
+		// TODO: LOGGING
+		return;
+	}
+	CopyMemory(memory.memoryBlock, state.dLoopRecord.stateMemoryBlock, memory.memoryBlockSize);
+	state.dLoopRecord.inputFileHandle = inputFile;
+	state.dLoopRecord.replaying = true;
+}
+
+internal
+void Win32DebugReplayInput(Win32State& state, ProgramMemory& memory, InputData& data) {
+	DWORD bytesRead;
+	Assert(!state.dLoopRecord.recording);
+	Assert(state.dLoopRecord.replaying);
+	Assert(state.dLoopRecord.inputFileHandle);
+	if (!state.dLoopRecord.inputFileHandle) {
+		return;
+	}
+	if (!ReadFile(state.dLoopRecord.inputFileHandle, &data, sizeof(data), &bytesRead, 0)) {
+		// TODO logging
+		return;
+	}
+	if (bytesRead != sizeof(data)) {
+		CopyMemory(memory.memoryBlock, state.dLoopRecord.stateMemoryBlock, memory.memoryBlockSize);
+		SetFilePointer(state.dLoopRecord.inputFileHandle, 0, 0, FILE_BEGIN);
+		return;
+	}
+	Assert(bytesRead == sizeof(data));
+}
+
+internal
+void Win32DebugEndReplayingInput(Win32State& state) {
+	Assert(!state.dLoopRecord.recording);
+	Assert(state.dLoopRecord.replaying);
+	CloseHandle(state.dLoopRecord.inputFileHandle);
+	state.dLoopRecord.inputFileHandle = nullptr;
+	state.dLoopRecord.replaying = false;
+}
+
+internal
 ScreenDimension GetWindowDimension(HWND window) {
 	RECT clientRect = {};
 	GetClientRect(window, &clientRect);
@@ -351,7 +451,7 @@ internal
 void Win32DisplayWindow(HDC deviceContext, BitmapData bitmap, int width, int height) {
 	StretchDIBits(
 		deviceContext,
-		0, 0, width, height,
+		0, 0, bitmap.width, bitmap.height,
 		0, 0, bitmap.width, bitmap.height,
 		bitmap.data,
 		&globalBitmapInfo,
@@ -401,7 +501,7 @@ LRESULT CALLBACK Win32MainWindowCallback(
 }
 
 internal 
-void Win32ProcessOSMessages(InputData& inputData) {
+void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, InputData& inputData) {
 	MSG msg = {};
 	while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE)) {
 		switch (msg.message) {
@@ -445,6 +545,31 @@ void Win32ProcessOSMessages(InputData& inputData) {
 			else if (vkCode == VK_ESCAPE) {
 				inputData.isEscDown = isDown;
 			}
+			else if (vkCode == 'L') {
+				if (!wasDown) {
+					if (state.dLoopRecord.recording == 0) {
+						if (state.dLoopRecord.replaying) {
+							Win32DebugEndReplayingInput(state);
+						}
+						Win32DebugStartRecordingInput(state, memory);
+					}
+					else {
+						if (state.dLoopRecord.recording) {
+							Win32DebugEndRecordingInput(state);
+						}
+						Win32DebugStartReplayingInput(state, memory);
+					}
+				}
+			}
+			else if (vkCode == 'P') {
+				inputData = InputData{};
+				if (state.dLoopRecord.replaying) {
+					Win32DebugEndReplayingInput(state);
+				}
+				if (state.dLoopRecord.recording) {
+					Win32DebugEndRecordingInput(state);
+				}
+			}
 		} break;
 		default: {
 			TranslateMessage(&msg);
@@ -486,6 +611,39 @@ u64 Win32GetCurrentTimestamp() {
 inline internal
 f32 Win32CalculateTimeElapsed(u64 startTime, u64 endTime) {
 	return static_cast<f32>(endTime - startTime) / static_cast<f32>(globalPerformanceFreq.QuadPart);
+}
+
+internal
+ProgramMemory Win32InitProgramMemory(Win32State& state) {
+	ProgramMemory programMemory = {};
+	programMemory.debugFreeFile = DebugFreeFile;
+	programMemory.debugReadEntireFile = DebugReadEntireFile;
+	programMemory.debugWriteFile = DebugWriteToFile;
+	programMemory.permanentMemorySize = MB(64);
+	programMemory.transientMemorySize = GB(static_cast<u64>(3));
+	programMemory.memoryBlockSize = programMemory.permanentMemorySize + programMemory.transientMemorySize;
+	programMemory.memoryBlock = VirtualAlloc(
+		MEM_ALLOC_START,
+		programMemory.permanentMemorySize + programMemory.transientMemorySize,
+		MEM_RESERVE | MEM_COMMIT,
+		PAGE_READWRITE
+	);
+	if (!programMemory.memoryBlock) {
+		// TODO log error
+		DWORD err = GetLastError();
+		return {};
+	}
+	programMemory.permanentMemory = programMemory.memoryBlock;
+	programMemory.transientMemory = reinterpret_cast<void*>(
+		reinterpret_cast<u8*>(programMemory.permanentMemory) + programMemory.permanentMemorySize
+		);
+	Assert(programMemory.permanentMemorySize >= sizeof(ProgramState));
+	state.dLoopRecord.stateMemoryBlock = VirtualAlloc(
+		0, programMemory.permanentMemorySize + programMemory.transientMemorySize,
+		MEM_RESERVE | MEM_COMMIT,
+		PAGE_READWRITE
+	);
+	return programMemory;
 }
 
 int CALLBACK WinMain(
@@ -541,31 +699,17 @@ int CALLBACK WinMain(
 	}
 
 	// PART: Initializing program memory
-	ProgramMemory programMemory = {};
-	programMemory.debugFreeFile = DebugFreeFile;
-	programMemory.debugReadEntireFile = DebugReadEntireFile;
-	programMemory.debugWriteFile = DebugWriteToFile;
-	programMemory.permanentMemorySize = MB(64);
-	programMemory.transientMemorySize = GB(static_cast<u64>(4));
-	programMemory.permanentMemory = VirtualAlloc(
-		MEM_ALLOC_START,
-		programMemory.permanentMemorySize + programMemory.transientMemorySize,
-		MEM_RESERVE | MEM_COMMIT, 
-		PAGE_READWRITE
-	);
-	programMemory.transientMemory = reinterpret_cast<void*>(
-		reinterpret_cast<u8*>(programMemory.permanentMemory) + programMemory.permanentMemorySize
-	);
-	if (!programMemory.permanentMemory || !programMemory.transientMemory) {
-		// TODO log error
-		DWORD err = GetLastError();
+	Win32State win32State = {};
+	ProgramMemory programMemory = Win32InitProgramMemory(win32State);
+	if (!programMemory.memoryBlock) {
+		// TODO: Logging
 		return 0;
 	}
-	Assert(programMemory.permanentMemorySize >= sizeof(ProgramState));
 	ProgramState* state = reinterpret_cast<ProgramState*>(programMemory.permanentMemory);
 	state->toneHz = 255.;
 	Win32GameCode gameCode = {};
 	SoundData soundData = {};
+
 
 	// NOTE: We can use one devicecontext because we specified CS_OWNDC so we dont share context with anyone
 	HDC deviceContext = GetDC(window);
@@ -582,8 +726,15 @@ int CALLBACK WinMain(
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 	while (globalRunning) {
 		Win32ReloadGameCode(gameCode);
-		Win32ProcessOSMessages(globalInputData);
+		Win32ProcessOSMessages(win32State, programMemory, globalInputData);
 		Win32GatherGamepadInput(globalInputData);
+		if (win32State.dLoopRecord.recording) {
+			Win32DebugRecordInput(win32State, globalInputData);
+		}
+		else if (win32State.dLoopRecord.replaying) {
+			Win32DebugReplayInput(win32State, programMemory, globalInputData);
+		}
+		
 
 		// PART: Preparing SoundData structure for game main loop
 		UINT32 padding = 0;
