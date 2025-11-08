@@ -115,11 +115,6 @@ struct TilePosition {
 	f32 Y;
 };
 
-struct PixelPosition {
-	f32 x;
-	f32 y;
-};
-
 struct TileMap {
 	u32* tiles;
 };

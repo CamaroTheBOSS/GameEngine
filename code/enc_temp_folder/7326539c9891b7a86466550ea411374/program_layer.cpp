@@ -290,7 +290,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 
 	f32 playerPixX = (state->playerPos.tileX * world.widthMeters + state->playerPos.X - playerWidth / 2.0f) * world.pixelsPerMeter + world.offsetPixelsX;
-	f32 playerPixY = bitmap.height - (state->playerPos.tileY * world.heightMeters + state->playerPos.Y + playerHeight) * world.pixelsPerMeter + world.offsetPixelsY;
+	f32 playerPixY = bitmap.height - (state->playerPos.tileY * world.heightMeters + state->playerPos.Y) * world.pixelsPerMeter + world.offsetPixelsY;
 	RenderRectangle(
 		bitmap,
 		playerPixX,
