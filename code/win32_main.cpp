@@ -451,9 +451,15 @@ void Win32ResizeBitmapMemory(BitmapData& bitmap, int newWidth, int newHeight) {
 
 internal
 void Win32DisplayWindow(HDC deviceContext, BitmapData bitmap, int width, int height) {
+	int offsetX = 10;
+	int offsetY = 10;
+	PatBlt(deviceContext, 0, 0, offsetX, 600, BLACKNESS);
+	PatBlt(deviceContext, offsetX, 0, 1000, offsetY, BLACKNESS);
+	PatBlt(deviceContext, offsetX + bitmap.width, 0, 1000, 600, BLACKNESS);
+	PatBlt(deviceContext, 0, offsetY + bitmap.height, 1000, 600, BLACKNESS);
 	StretchDIBits(
 		deviceContext,
-		0, 0, bitmap.width, bitmap.height,
+		offsetX, offsetY, bitmap.width, bitmap.height,
 		0, 0, bitmap.width, bitmap.height,
 		bitmap.data,
 		&globalBitmapInfo,
@@ -710,6 +716,9 @@ int CALLBACK WinMain(
 		//TODO log GetLastError()
 		return -1;
 	}
+	RECT rect;
+	GetClientRect(window, &rect);
+	MoveWindow(window, rect.left, rect.top, 1024, 600, true);
 
 	// PART: Initializing program memory
 	Win32State win32State = {};
@@ -719,15 +728,13 @@ int CALLBACK WinMain(
 		// TODO: Logging
 		return 0;
 	}
-	ProgramState* state = reinterpret_cast<ProgramState*>(programMemory.permanentMemory);
-	state->toneHz = 255.;
 	Win32GameCode gameCode = {};
 	SoundData soundData = {};
 
 
 	// NOTE: We can use one devicecontext because we specified CS_OWNDC so we dont share context with anyone
 	HDC deviceContext = GetDC(window);
-	Win32ResizeBitmapMemory(globalBitmap, 1400, 900);
+	Win32ResizeBitmapMemory(globalBitmap, 960, 540);
 	globalRunning = true;
 
 	UINT schedulerGranularityMs = 1;
@@ -748,6 +755,7 @@ int CALLBACK WinMain(
 		else if (win32State.dLoopRecord.replaying) {
 			Win32DebugReplayInput(win32State, programMemory, globalInputData);
 		}
+		globalInputData.dtFrame = targetFrameRefreshSeconds;
 		
 
 		// PART: Preparing SoundData structure for game main loop

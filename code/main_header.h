@@ -7,6 +7,8 @@
 #define GB(bytes) (MB(bytes) * 1024)
 #define TB(bytes) (GB(bytes) * 1024)
 #define Assert(expression) if (!(expression)) { *(char*)0 = 0; }
+#define scast(type, expression) static_cast<type>(expression)
+#define ptrcast(type, expression) reinterpret_cast<type*>(expression)
 
 #include <cstdint>
 #include <utility>
@@ -67,6 +69,7 @@ struct InputData {
 	bool isMouse1BDown = false;
 	bool isMouse2BDown = false;
 	
+	f32 dtFrame;
 };
 
 struct FileData {
@@ -98,15 +101,49 @@ struct ProgramMemory {
 	debug_free_file* debugFreeFile;
 };
 
+struct TilePosition {
+	// Map inside world
+	u32 tileMapX;
+	u32 tileMapY;
+
+	// Tile inside map
+	i32 tileX;
+	i32 tileY;
+
+	// Pos inside tile in meters
+	f32 X;
+	f32 Y;
+};
+
+struct PixelPosition {
+	f32 x;
+	f32 y;
+};
+
+struct TileMap {
+	u32* tiles;
+};
+
+struct World {
+	u32 sizeX;
+	u32 sizeY;
+	f32 widthMeters;
+	f32 heightMeters;
+	u32 widthPixels;
+	u32 heightPixels;
+	f32 pixelsPerMeter;
+	i32 offsetPixelsX;
+	i32 offsetPixelsY;
+
+	u32 allTileMapsSizeX;
+	u32 allTileMapsSizeY;
+	TileMap* tileMaps;
+};
+
 struct ProgramState {
 	// Global state of the program
-	float offsetVelX;
-	float offsetVelY;
-	float offsetX;
-	float offsetY;
-	float toneHz;
-	float playerX;
-	float playerY;
+	TilePosition playerPos;
+	bool isInitialized;
 };
 
 #include <stdlib.h>

@@ -23,26 +23,48 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 	}
 }
 
+#include "math.h"
+
+internal
+i32 RoundF32ToI32(f32 value) {
+	return scast(i32, roundf(value));
+}
+
+internal
+i32 FloorF32ToI32(f32 value) {
+	return scast(i32, floorf(value));
+}
+
 internal 
-void RenderRectangle(BitmapData& bitmap, u32 X, u32 Y, u32 W, u32 H) {
-	if (X > bitmap.width || Y > bitmap.height) {
-		return;
+void RenderRectangle(BitmapData& bitmap, f32 X1, f32 Y1, f32 X2, f32 Y2, f32 R, f32 G, f32 B) {
+	Assert(X1 < X2);
+	Assert(Y1 < Y2);
+	i32 minX = RoundF32ToI32(X1);
+	i32 maxX = RoundF32ToI32(X2);
+	i32 minY = RoundF32ToI32(Y1);
+	i32 maxY = RoundF32ToI32(Y2);
+	if (minX < 0) {
+		minX = 0;
 	}
-	for (u32 row = Y; row < Y + H; row++) {
-		if (row >= bitmap.height) {
-			continue;
+	if (minY < 0) {
+		minY = 0;
+	}
+	if (maxX > scast(i32, bitmap.width)) {
+		maxX = scast(i32, bitmap.width);
+	}
+	if (maxY > scast(i32, bitmap.height)) {
+		maxY = scast(i32, bitmap.height);
+	}
+	u32 color = (scast(u32, 255 * R) << 16) +
+				(scast(u32, 255 * G) << 8) +
+				(scast(u32, 255 * B) << 0);
+	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * bitmap.bytesPerPixel;
+	for (i32 Y = minY; Y < maxY; Y++) {
+		u32* pixel = ptrcast(u32, row);
+		for (i32 X = minX; X < maxX; X++) {
+			*pixel++ = color;
 		}
-		u8* pixel = reinterpret_cast<u8*>(bitmap.data) + row * bitmap.pitch + X * bitmap.bytesPerPixel;
-		for (u32 col = X; col < X + W; col++) {
-			if (col >= bitmap.width) {
-				continue;
-			}
-			pixel[0] = 255;
-			pixel[1] = 255;
-			pixel[2] = 255;
-			pixel[3] = 0;
-			pixel += 4;
-		}
+		row += bitmap.pitch;
 	}
 }
 
@@ -62,60 +84,270 @@ void RenderWeirdGradient(BitmapData& bitmap, int xOffset, int yOffset) {
 	}
 }
 
+u32 GetTileValue(World& world, u32 tileMapX, u32 tileMapY, u32 tileX, u32 tileY) {
+	Assert(tileMapX < world.allTileMapsSizeX);
+	Assert(tileMapY < world.allTileMapsSizeY);
+	Assert(tileX < world.sizeX);
+	Assert(tileY < world.sizeY);
+	u32* tiles = world.tileMaps[tileMapY * world.allTileMapsSizeX + tileMapX].tiles;
+	return tiles[tileY * world.sizeX + tileX];
+}
+
+bool IsTileMapPointEmpty(World& world, TilePosition& position) {
+	bool isEmpty = GetTileValue(
+		world, 
+		position.tileMapX, position.tileMapY, 
+		position.tileX, position.tileY
+	) == 0;
+	return isEmpty;
+}
+
+internal
+void FixTilePosition(World& world, TilePosition& position) {
+	f32 tileCoordX = position.X / scast(f32, world.widthPixels);
+	f32 tileCoordY = position.Y / scast(f32, world.heightPixels);
+	i32 tileAddX = FloorF32ToI32(tileCoordX);
+	i32 tileAddY = FloorF32ToI32(tileCoordY);
+	position.X -= scast(f32, tileAddX * scast(f32, world.widthPixels));
+	position.Y -= scast(f32, tileAddY * scast(f32, world.heightPixels));
+	position.tileX += tileAddX;
+	position.tileY += tileAddY;
+	i32 tileMapAddX = FloorF32ToI32(position.tileX / scast(f32, world.sizeX));
+	i32 tileMapAddY = FloorF32ToI32(position.tileY / scast(f32, world.sizeY));
+	position.tileX -= tileMapAddX * world.sizeX;
+	position.tileY -= tileMapAddY * world.sizeY;
+	position.tileMapX += tileMapAddX;
+	position.tileMapY += tileMapAddY;
+	Assert(position.tileMapX < world.allTileMapsSizeX);
+	Assert(position.tileMapY < world.allTileMapsSizeY);
+	Assert(position.tileX < scast(i32, world.sizeX));
+	Assert(position.tileY < scast(i32, world.sizeY));
+	Assert(position.X >= 0);
+	Assert(position.X < world.widthPixels);
+	Assert(position.Y >= 0);
+	Assert(position.Y < world.heightPixels);
+}
+
+TilePosition GetTilePosition(World& world, f32 pixelX, f32 pixelY) {
+	f32 rawNormalizedPosX = pixelX - scast(f32, world.offsetPixelsX);
+	f32 rawNormalizedPosY = pixelY - scast(f32, world.offsetPixelsY);
+	f32 rawTilePosX = rawNormalizedPosX / scast(f32, world.widthPixels);
+	f32 rawTilePosY = rawNormalizedPosY / scast(f32, world.heightPixels);
+	i32 tilePosX = FloorF32ToI32(rawTilePosX);
+	i32 tilePosY = FloorF32ToI32(rawTilePosY);
+	TilePosition tilePos;
+	tilePos.tileMapX = tilePosX / world.sizeX;
+	tilePos.tileMapY = tilePosY / world.sizeY;
+	tilePos.tileX = tilePosX - tilePos.tileMapX * world.sizeX;
+	tilePos.tileY = tilePosY - tilePos.tileMapY * world.sizeY;
+	tilePos.X = rawNormalizedPosX - tilePosX * world.widthPixels;
+	tilePos.Y = rawNormalizedPosY - tilePosY * world.heightPixels;
+	Assert(tilePos.tileMapX < world.allTileMapsSizeX);
+	Assert(tilePos.tileMapY < world.allTileMapsSizeY);
+	Assert(tilePos.tileX < scast(i32, world.sizeX));
+	Assert(tilePos.tileY < scast(i32, world.sizeY));
+	Assert(tilePos.X >= 0.f);
+	Assert(tilePos.X < world.widthPixels);
+	Assert(tilePos.Y >= 0.f);
+	Assert(tilePos.Y < world.heightPixels);
+	return tilePos;
+}
+
+PixelPosition GetPixelPosition(World& world, TilePosition& tilePosition) {
+	PixelPosition position;
+	position.x = tilePosition.tileX * world.widthPixels + tilePosition.X + world.offsetPixelsX;
+	position.y = tilePosition.tileY * world.heightPixels + tilePosition.Y + world.offsetPixelsY;
+	return position;
+}
+
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
-	ProgramState* state = reinterpret_cast<ProgramState*>(memory.permanentMemory);
-	if (inputData.isADown) {
-		//state->offsetVelX -= 0.1f;
-		state->playerX -= 4;
+	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
+	if (!state->isInitialized) {
+		state->playerPos.tileMapX = 0;
+		state->playerPos.tileMapY = 0;
+		state->playerPos.tileX = 3;
+		state->playerPos.tileY = 3;
+		state->playerPos.X = 0;
+		state->playerPos.Y = 0;
+		state->isInitialized = true;
 	}
-	if (inputData.isWDown)  {
-		//state->offsetVelY -= 0.1f;
-		state->playerY -= 4;
+
+	f32 moveX = 0.f;
+	f32 moveY = 0.f;
+	if (inputData.isADown) {
+		moveX -= 5.f;
+	}
+	if (inputData.isWDown) {
+		moveY -= 5.f;
 	}
 	if (inputData.isSDown) {
-		//state->offsetVelY += 0.1f;
-		state->playerY += 4;
+		moveY += 5.f;
 	}
 	if (inputData.isDDown) {
-		//state->offsetVelX += 0.1f;
-		state->playerX += 4;
+		moveX += 5.f;
 	}
-	if (inputData.isUpDown) {
-		state->toneHz++;
-	}
-	if (inputData.isDownDown) {
-		state->toneHz--;
-	}
-	state->offsetX += state->offsetVelX;
-	state->offsetY += state->offsetVelY;
+	u32 tileMap00[9][17] = {
+		{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1},
+		{1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0},
+		{1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1},
+		{1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1},
+	};
+	u32 tileMap01[9][17] = {
+		{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1},
+		{0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1},
+		{1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1},
+		{1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1},
+		{1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1},
+	};
+	u32 tileMap10[9][17] = {
+		{1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1},
+		{1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0},
+		{1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1},
+		{1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1},
+		{1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+	};
+	u32 tileMap11[9][17] = {
+		{1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1},
+		{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+	};
+	World world = {};
+	world.sizeX = 17;
+	world.sizeY = 9;
+	world.widthPixels = 60;
+	world.heightPixels = world.widthPixels;
+	world.widthMeters = 1.4f;
+	world.heightMeters = world.widthMeters;
+	world.pixelsPerMeter = world.widthPixels / world.widthMeters;
+	world.offsetPixelsX = -scast(i32, scast(f32, world.widthPixels) / 2.0f);
+	world.offsetPixelsY = 0;
+	world.allTileMapsSizeX = 2;
+	world.allTileMapsSizeY = 2;
+	
 
-	static bool fileRead = false;
-	if (!fileRead) {
-		FileData file = memory.debugReadEntireFile(__FILE__);
-		if (file.content) {
-			memory.debugWriteFile("some_other_file.cpp", file.content, file.size);
-			memory.debugFreeFile(file);
+	TileMap tilemaps[2][2];
+	tilemaps[0][0].tiles = ptrcast(u32, tileMap00);
+	tilemaps[0][1].tiles = ptrcast(u32, tileMap01);
+	tilemaps[1][0].tiles = ptrcast(u32, tileMap10);
+	tilemaps[1][1].tiles = ptrcast(u32, tileMap11);
+	world.tileMaps = ptrcast(TileMap, tilemaps);
+
+	f32 playerWidth = scast(f32, world.widthPixels) * 0.7f;
+	f32 playerHeight = scast(f32, world.widthPixels) * 0.9f;
+	TilePosition nextTilePosition = state->playerPos;
+	nextTilePosition.X += moveX;
+	nextTilePosition.Y += moveY;
+	TilePosition playerNextTilePosLeft = nextTilePosition;
+	playerNextTilePosLeft.X -= playerWidth / 2.0f;
+	FixTilePosition(world, playerNextTilePosLeft);
+	TilePosition playerNextTilePosRight = nextTilePosition;
+	playerNextTilePosRight.X += playerWidth / 2.0f;
+	FixTilePosition(world, playerNextTilePosRight);
+
+	
+	if (IsTileMapPointEmpty(world, playerNextTilePosLeft) &&
+		IsTileMapPointEmpty(world, playerNextTilePosRight)) {
+		state->playerPos.X += moveX;
+		state->playerPos.Y += moveY;
+		FixTilePosition(world, state->playerPos);
+	}
+
+	/*state->playerPos.X += moveX;
+	state->playerPos.Y += moveY;
+	FixTilePosition(world, state->playerPos);*/
+
+	RenderRectangle(bitmap, 0.f, 0.f, scast(f32, bitmap.width), scast(f32, bitmap.height), 1.0f, 0.f, 0.f);
+	for (u32 row = 0; row < world.sizeY; row++) {
+		for (u32 col = 0; col < world.sizeX; col++) {
+			f32 gray = 1.0f;
+			u32 tile = GetTileValue(world, state->playerPos.tileMapX, 
+				state->playerPos.tileMapY, col, row);
+			if (tile == 0) {
+				gray = 0.5f;
+			}
+			else if (tile == 1) {
+				gray = 1.0f;
+			}
+			if (row == scast(u32, state->playerPos.tileY) && col == scast(u32, state->playerPos.tileX)) {
+				gray = 0.2f;
+			}
+			f32 x1 = scast(f32, world.offsetPixelsX) + scast(f32, col * world.widthPixels);
+			f32 y1 = scast(f32, world.offsetPixelsY) + scast(f32, row * world.heightPixels);
+			f32 x2 = x1 + scast(f32, world.widthPixels);
+			f32 y2 = y1 + scast(f32, world.heightPixels);
+			RenderRectangle(bitmap, x1, y1, x2, y2, gray, gray, gray);
 		}
-		fileRead = true;
 	}
 
-	AddSineWaveToBuffer(soundData, 0.05f, state->toneHz);
-	RenderWeirdGradient(bitmap, static_cast<int>(state->offsetX), static_cast<int>(state->offsetY));
-	RenderRectangle(bitmap, static_cast<int>(state->playerX), static_cast<int>(state->playerY), 10, 10);
-	if (inputData.isMouseLDown) {
-		RenderRectangle(bitmap, 0, 0, 10, 10);
-	}
-	if (inputData.isMouseRDown) {
-		RenderRectangle(bitmap, 15, 0, 10, 10);
-	}
-	if (inputData.isMouseMDown) {
-		RenderRectangle(bitmap, 30, 0, 10, 10);
-	}
-	if (inputData.isMouse1BDown) {
-		RenderRectangle(bitmap, 45, 0, 10, 10);
-	}
-	if (inputData.isMouse2BDown) {
-		RenderRectangle(bitmap, 60, 0, 10, 10);
-	}
-	RenderRectangle(bitmap, inputData.mouseX, inputData.mouseY, 10, 10);
+	PixelPosition playerPixPos = GetPixelPosition(world, state->playerPos);
+	PixelPosition drawingPixPos = playerPixPos;
+	drawingPixPos.x -= playerWidth / 2.0f;
+	drawingPixPos.y -= playerHeight;
+	//f32 playerX = scast(f32, state->playerPos.tileX) * world.widthPixels + state->playerPos.X + world.offsetPixelsX - playerWidth / 2.0f;
+	//f32 playerY = scast(f32, state->playerPos.tileY) * world.heightPixels - state->playerPos.Y - world.offsetPixelsY + (world.heightPixels - playerHeight);
+	RenderRectangle(
+		bitmap,
+		drawingPixPos.x,
+		drawingPixPos.y,
+		drawingPixPos.x + playerWidth,
+		drawingPixPos.y + playerHeight,
+		0.f, 1.f, 1.f
+	);
+
+#if 0
+	PixelPosition playerNextPixelPosLeft = GetPixelPosition(world, playerNextTilePosLeft);
+	PixelPosition playerNextPixelPosRight = GetPixelPosition(world, playerNextTilePosRight);
+	RenderRectangle(
+		bitmap,
+		playerPixPos.x,
+		playerPixPos.y,
+		playerPixPos.x + 3,
+		playerPixPos.y + 3,
+		1.f, 0.f, 0.f
+	);
+	RenderRectangle(
+		bitmap,
+		playerCurrentPixelPos.x,
+		playerCurrentPixelPos.y,
+		playerCurrentPixelPos.x + 3,
+		playerCurrentPixelPos.y + 3,
+		1.f, 0.f, 1.f
+	);
+
+	RenderRectangle(
+		bitmap,
+		playerNextPixelPosLeft.x,
+		playerNextPixelPosLeft.y,
+		playerNextPixelPosLeft.x + 3,
+		playerNextPixelPosLeft.y + 3,
+		1.f, 1.f, 0.f
+	);
+	RenderRectangle(
+		bitmap,
+		playerNextPixelPosRight.x,
+		playerNextPixelPosRight.y,
+		playerNextPixelPosRight.x + 3,
+		playerNextPixelPosRight.y + 3,
+		1.f, 1.f, 0.f
+	);
+#endif
 }
