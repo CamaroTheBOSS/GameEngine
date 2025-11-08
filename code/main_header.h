@@ -129,10 +129,10 @@ struct World {
 	f32 pixelsPerMeter;
 	i32 offsetPixelsX;
 	i32 offsetPixelsY;
+	u32 chunkSizeX;
+	u32 chunkSizeY;
 
-	u32 allTileMapsSizeX;
-	u32 allTileMapsSizeY;
-	TileMap* tileMaps;
+	TileMap* tileMap;
 };
 
 struct ProgramState {

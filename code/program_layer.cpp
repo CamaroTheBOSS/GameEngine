@@ -85,12 +85,11 @@ void RenderWeirdGradient(BitmapData& bitmap, int xOffset, int yOffset) {
 }
 
 u32 GetTileValue(World& world, u32 tileMapX, u32 tileMapY, u32 tileX, u32 tileY) {
-	Assert(tileMapX < world.allTileMapsSizeX);
-	Assert(tileMapY < world.allTileMapsSizeY);
 	Assert(tileX < world.sizeX);
 	Assert(tileY < world.sizeY);
-	u32* tiles = world.tileMaps[tileMapY * world.allTileMapsSizeX + tileMapX].tiles;
-	return tiles[tileY * world.sizeX + tileX];
+	u32* tiles = world.tileMap->tiles;
+	// TODO tileY * 34 = tileY * chunkXSize i guess
+	return tiles[tileMapY * 34 * world.sizeY + tileMapX * world.sizeX + tileY * 34 + tileX];
 }
 
 bool IsTileMapPointEmpty(World& world, TilePosition& position) {
@@ -118,8 +117,6 @@ void FixTilePosition(World& world, TilePosition& position) {
 	position.tileY -= tileMapAddY * world.sizeY;
 	position.tileMapX += tileMapAddX;
 	position.tileMapY += tileMapAddY;
-	Assert(position.tileMapX < world.allTileMapsSizeX);
-	Assert(position.tileMapY < world.allTileMapsSizeY);
 	Assert(position.tileX < scast(i32, world.sizeX));
 	Assert(position.tileY < scast(i32, world.sizeY));
 	Assert(position.X >= 0);
@@ -142,8 +139,8 @@ TilePosition GetTilePosition(World& world, f32 pixelX, f32 pixelY) {
 	tilePos.tileY = tilePosY - tilePos.tileMapY * world.sizeY;
 	tilePos.X = rawNormalizedPosX - tilePosX * world.widthMeters;
 	tilePos.Y = rawNormalizedPosY - tilePosY * world.heightMeters;
-	Assert(tilePos.tileMapX < world.allTileMapsSizeX);
-	Assert(tilePos.tileMapY < world.allTileMapsSizeY);
+	//Assert(tilePos.tileMapX < world.allTileMapsSizeX);
+	//Assert(tilePos.tileMapY < world.allTileMapsSizeY);
 	Assert(tilePos.tileX < scast(i32, world.sizeX));
 	Assert(tilePos.tileY < scast(i32, world.sizeY));
 	Assert(tilePos.X >= 0.f);
@@ -181,50 +178,27 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 	moveX *= inputData.dtFrame;
 	moveY *= inputData.dtFrame;
-	u32 tileMap00[9][17] = {
-		{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1},
-		{1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0},
-		{1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1},
-		{1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1},
-		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1},
+	u32 tileMap[18][34] = {
+		{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1},
+		{1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+		{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 	};
-	u32 tileMap01[9][17] = {
-		{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1},
-		{0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1},
-		{1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1},
-		{1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1},
-		{1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1},
-	};
-	u32 tileMap10[9][17] = {
-		{1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1},
-		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1},
-		{1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0},
-		{1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1},
-		{1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1},
-		{1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-	};
-	u32 tileMap11[9][17] = {
-		{1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1},
-		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1},
-		{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-	};
+	
 	World world = {};
 	world.sizeX = 17;
 	world.sizeY = 9;
@@ -235,16 +209,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	world.pixelsPerMeter = world.widthPixels / world.widthMeters;
 	world.offsetPixelsX = -scast(i32, scast(f32, world.widthPixels) / 2.0f);
 	world.offsetPixelsY = 0;
-	world.allTileMapsSizeX = 2;
-	world.allTileMapsSizeY = 2;
-	
-
-	TileMap tilemaps[2][2];
-	tilemaps[0][0].tiles = ptrcast(u32, tileMap00);
-	tilemaps[0][1].tiles = ptrcast(u32, tileMap01);
-	tilemaps[1][0].tiles = ptrcast(u32, tileMap10);
-	tilemaps[1][1].tiles = ptrcast(u32, tileMap11);
-	world.tileMaps = ptrcast(TileMap, tilemaps);
+	world.chunkSizeX = 256;
+	world.chunkSizeY = 256;
+	TileMap tilemap;
+	tilemap.tiles = ptrcast(u32, tileMap);
+	world.tileMap = &tilemap;
 
 	f32 playerWidth = scast(f32, world.widthMeters) * 0.7f;
 	f32 playerHeight = scast(f32, world.heightMeters) * 0.9f;
