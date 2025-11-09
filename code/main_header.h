@@ -123,9 +123,19 @@ struct TileChunkPosition {
 
 struct MemoryArena {
 	u8* data;
-	u64 size;
+	u64 capacity;
 	u64 used;
 };
+
+inline internal
+void* PushSize_(MemoryArena& arena, u64 size) {
+	Assert(arena.used + size <= arena.capacity);
+	void* ptr = arena.data + arena.used;
+	arena.used += size;
+	return ptr;
+}
+#define PushStructSize(arena, type) PushSize_(arena, sizeof(type))
+#define PushArray(arena, length, type) PushSize_(arena, (length) * sizeof(type))
 
 struct TileChunk {
 	u32* tiles;
@@ -148,13 +158,13 @@ struct TileMap {
 };
 
 struct World {
-	MemoryArena worldArena;
 	TileMap tilemap;
 };
 
 struct ProgramState {
 	// Global state of the program
 	TilePosition playerPos;
+	MemoryArena worldArena;
 	World world;
 	bool isInitialized;
 };

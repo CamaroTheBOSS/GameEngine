@@ -794,7 +794,7 @@ int CALLBACK WinMain(
 			f32 elapsed = Win32CalculateTimeElapsed(start, end);
 			frameEndTime = Win32GetCurrentTimestamp();
 			secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
-			Assert(secondsElapsedForFrame < targetFrameRefreshSeconds);
+			//Assert(secondsElapsedForFrame < targetFrameRefreshSeconds);
 		}
 		while (secondsElapsedForFrame < targetFrameRefreshSeconds) {
 			YieldProcessor();
