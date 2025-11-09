@@ -135,23 +135,20 @@ struct TileMap {
 	u32 chunkCountX;
 	u32 chunkCountY;
 	u32 chunkCountZ;
-	u32 chunkSizeX;
-	u32 chunkSizeY;
-	u32 chunkSizeZ;
-
+	u32 chunkDim;
 	u32 chunkShift;
 	u32 chunkMask;
 
 	u32 tileCountX;
 	u32 tileCountY;
-
 	f32 widthMeters;
 	f32 heightMeters;
+
 	TileChunk* tileChunks;
 };
 
 struct World {
-	MemoryArena tileArena;
+	MemoryArena worldArena;
 	TileMap tilemap;
 };
 

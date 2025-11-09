@@ -93,8 +93,6 @@ TileChunkPosition GetTileChunkPosition(TileMap& tilemap, u32 absX, u32 absY, u32
 	chunkPos.relTileX = absX & tilemap.chunkMask;
 	chunkPos.relTileY = absY & tilemap.chunkMask;
 	// Make sure we have enough bits to store it in absX;
-	Assert(tilemap.tileCountX - 1 <= tilemap.chunkMask);
-	Assert(tilemap.tileCountY - 1 <= tilemap.chunkMask);
 	return chunkPos;
 }
 
@@ -113,8 +111,8 @@ TileChunk* GetTileChunk(TileMap& tilemap, u32 chunkX, u32 chunkY, u32 chunkZ) {
 
 inline internal
 u32 GetTileValue(TileMap& tilemap, TileChunk* chunk, u32 relX, u32 relY) {
-	if (chunk && chunk->tiles && relY < tilemap.chunkSizeY && relX < tilemap.chunkSizeX) {
-		return chunk->tiles[relY * tilemap.chunkSizeX + relX];
+	if (chunk && chunk->tiles && relY < tilemap.chunkDim && relX < tilemap.chunkDim) {
+		return chunk->tiles[relY * tilemap.chunkDim + relX];
 	}
 	return 0;
 }
@@ -129,8 +127,8 @@ u32 GetTileValue(TileMap& tilemap, u32 absX, u32 absY) {
 
 inline internal
 void SetTileValue(TileMap& tilemap, TileChunk* chunk, u32 relX, u32 relY, u32 tileValue) {
-	if (chunk && chunk->tiles && relY < tilemap.chunkSizeY && relX < tilemap.chunkSizeX) {
-		chunk->tiles[relY * tilemap.chunkSizeX + relX] = tileValue;
+	if (chunk && chunk->tiles && relY < tilemap.chunkDim && relX < tilemap.chunkDim) {
+		chunk->tiles[relY * tilemap.chunkDim + relX] = tileValue;
 	}
 }
 
@@ -138,8 +136,12 @@ inline internal
 void SetTileValue(TileMap& tilemap, u32 absX, u32 absY, u32 tileValue) {
 	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, 0);
 	TileChunk* chunk = GetTileChunk(tilemap, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
-	Assert(chunk);
-	SetTileValue(tilemap, chunk, chunkPos.relTileX, chunkPos.relTileY, tileValue);
+	//Assert(chunk);
+	if (chunk) {
+		SetTileValue(tilemap, chunk, chunkPos.relTileX, chunkPos.relTileY, tileValue);
+	}
+	
+	
 }
 
 inline internal
@@ -203,9 +205,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->playerPos.X = 0;
 		state->playerPos.Y = 0;
 
-		state->world.tileArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
-		state->world.tileArena.size = memory.permanentMemorySize - sizeof(ProgramState);
-		state->world.tileArena.used = 0;
+		state->world.worldArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
+		state->world.worldArena.size = memory.permanentMemorySize - sizeof(ProgramState);
+		state->world.worldArena.used = 0;
 
 		state->world.tilemap.tileCountX = 17;
 		state->world.tilemap.tileCountY = 9;
@@ -214,38 +216,53 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->world.tilemap.chunkCountX = 1;
 		state->world.tilemap.chunkCountY = 1;
 		state->world.tilemap.chunkCountZ = 1;
-		state->world.tilemap.chunkSizeX = chunk_count_dim;
-		state->world.tilemap.chunkSizeY = chunk_count_dim;
-		state->world.tilemap.chunkSizeZ = 1;
-		state->world.tilemap.chunkShift = 5;
+		state->world.tilemap.chunkShift = 4;
 		state->world.tilemap.chunkMask = (1 << state->world.tilemap.chunkShift) - 1;
+		state->world.tilemap.chunkDim = (1 << state->world.tilemap.chunkShift);
 		state->world.tilemap.tileChunks = &tileChunk;
 		//TODO central point is 0,0 at tile
 		//TODO pixelsPerMeters as world property?
-		u32* tile = tileChunk.tiles;
-		u32 screenX = 0;
-		u32 screenY = 0;
-		for (u32 screenIndex = 0; screenIndex < 100; screenIndex++) {
-			for (u32 tileY = 0; tileY < state->world.tilemap.tileCountY; tileY++) {
-				for (u32 tileX = 0; tileX < state->world.tilemap.tileCountX; tileX++) {
-					u32 absTileX = screenX * state->world.tilemap.tileCountX + tileX;
-					u32 absTileY = screenY * state->world.tilemap.tileCountY + tileY;
+		bool doorLeft = true;
+		bool doorRight = true;
+		bool doorUp = true;
+		bool doorDown = true;
+		for (u32 screenY = 0; screenY < 5; screenY++) {
+			for (u32 screenX = 0; screenX < 4; screenX++) {
+				for (u32 tileY = 0; tileY < state->world.tilemap.tileCountY; tileY++) {
+					for (u32 tileX = 0; tileX < state->world.tilemap.tileCountX; tileX++) {
+						u32 absTileX = screenX * state->world.tilemap.tileCountX + tileX;
+						u32 absTileY = screenY * state->world.tilemap.tileCountY + tileY;
 
-					u32 tileValue = 1;
-					if (tileX == 0) {
-						tileValue = 2;
+						u32 tileValue = 1;
+						if (tileX == 0) {
+							tileValue = 2;
+							if (doorLeft && tileY == state->world.tilemap.tileCountY / 2) {
+								tileValue = 1;
+							}
+						} 
+						else if (tileY == 0) {
+							tileValue = 2;
+							if (doorDown && tileX == state->world.tilemap.tileCountX / 2) {
+								tileValue = 1;
+							}
+						} 
+						else if (tileX == state->world.tilemap.tileCountX - 1) {
+							tileValue = 2;
+							if (doorRight && tileY == state->world.tilemap.tileCountY / 2) {
+								tileValue = 1;
+							}
+						}
+						else if (tileY == state->world.tilemap.tileCountY - 1) {
+							tileValue = 2;
+							if (doorUp && tileX == state->world.tilemap.tileCountX / 2) {
+								tileValue = 1;
+							}
+						}
+						SetTileValue(state->world.tilemap, absTileX, absTileY, tileValue);
 					}
-					SetTileValue(state->world.tilemap, absTileX, absTileY, tileValue);
 				}
 			}
-			if (screenIndex % 5) {
-				screenY++;
-			}
-			else {
-				screenX++;
-			}
 		}
-	
 		state->isInitialized = true;
 	}
 
