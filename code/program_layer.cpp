@@ -226,7 +226,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 	f32 moveX = 0.f;
 	f32 moveY = 0.f;
-	f32 speed = 0.2f;
+	f32 speed = 1.0f;
 	if (inputData.isADown) {
 		moveX -= 5.f;
 	}
