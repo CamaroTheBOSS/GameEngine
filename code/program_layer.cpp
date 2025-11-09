@@ -170,8 +170,8 @@ void SetTileValue(MemoryArena& arena, TileMap& tilemap, u32 absX, u32 absY, u32 
 }
 
 inline internal
-bool IsWorldPointEmpty(TileMap& tilemap, u32 absX, u32 absY) {
-	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, 0);
+bool IsWorldPointEmpty(TileMap& tilemap, u32 absX, u32 absY, u32 absZ) {
+	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, absZ);
 	TileChunk* chunk = GetTileChunk(tilemap, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
 	bool isEmpty = GetTileValue(tilemap, chunk, chunkPos.relTileX, chunkPos.relTileY) == 1;
 	return isEmpty;
@@ -191,12 +191,12 @@ void FixTilePosition(TileMap& tilemap, TilePosition& position) {
 	Assert(position.Y < tilemap.heightMeters);
 }
 
-static u32 globalAbsZ = 0;
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	if (!state->isInitialized) {
 		state->playerPos.absX = 3;
 		state->playerPos.absY = 3;
+		state->playerPos.absZ = 0;
 		state->playerPos.X = 0;
 		state->playerPos.Y = 0;
 
@@ -222,22 +222,12 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		//TODO central point is 0,0 at tile
 		//TODO pixelsPerMeters as world property?
 
-		/*for (u32 chunkY = 0; chunkY < state->world.tilemap.chunkCountY; chunkY++) {
-			for (u32 chunkX = 0; chunkX < state->world.tilemap.chunkCountX; chunkX++) {
-				state->world.tilemap.tileChunks[chunkY * state->world.tilemap.chunkCountX + chunkX].tiles =
-					ptrcast(u32, PushArray(
-						state->worldArena, 
-						state->world.tilemap.chunkDim * state->world.tilemap.chunkDim, 
-						u32
-					));
-			}
-		}*/
-
 		bool doorLeft = false;
 		bool doorRight = false;
 		bool doorUp = false;
 		bool doorDown = false;
-		bool goAnotherLevel = false;
+		bool lvlJustChanged = false;
+		bool ladder = false;
 		u32 screenX = 0;
 		u32 screenY = 0;
 		u32 randomNIdx = 0;
@@ -246,9 +236,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			randomNIdx = (randomNIdx + 1) % ArrayCount(randomNumbers, u32);
 			u32 randomNumber = randomNumbers[randomNIdx];
 			u32 mod = randomNumber % 3;
-			if (goAnotherLevel) {
+			if (ladder) {
 				mod = randomNumber % 2;
-				goAnotherLevel = false;
+				ladder = false;
 			}
 			if (mod == 0) {
 				doorRight = true;
@@ -257,7 +247,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				doorUp = true;
 			}
 			else if (mod == 2) {
-				goAnotherLevel = true;
+				ladder = true;
 			}
 
 			for (u32 tileY = 0; tileY < state->world.tilemap.tileCountY; tileY++) {
@@ -290,11 +280,17 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 							tileValue = 1;
 						}
 					}
-					if (goAnotherLevel && absTileZ == 0 && tileX == 1 && tileY == 1) {
+					if (ladder && absTileZ == 0 && tileX == 1 && tileY == 1) {
 						tileValue = 3; // Ladder up
-					} 
-					else if (goAnotherLevel && absTileZ == 1 && tileX == 2 && tileY == 2) {
+					}
+					else if (ladder && absTileZ == 1 && tileX == 2 && tileY == 2) {
 						tileValue = 4; // Ladder down
+					}
+					else if (lvlJustChanged && absTileZ == 0 && tileX == 1 && tileY == 1) {
+						tileValue = 3; // Ladder up
+					}
+					else if (lvlJustChanged && absTileZ == 1 && tileX == 2 && tileY == 2) {
+						tileValue = 4; // Ladder up
 					}
 					SetTileValue(state->worldArena, state->world.tilemap, absTileX, absTileY, absTileZ, tileValue);
 				}
@@ -310,8 +306,12 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			else if (mod == 1) {
 				screenY++;
 			}
-			if (goAnotherLevel) {
+			if (ladder) {
+				lvlJustChanged = true;
 				absTileZ = scast(u32, !absTileZ);
+			}
+			else {
+				lvlJustChanged = false;
 			}
 		}
 		state->isInitialized = true;
@@ -319,6 +319,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 	f32 moveX = 0.f;
 	f32 moveY = 0.f;
+	f32 speed = 1.0f;
 	if (inputData.isADown) {
 		moveX -= 5.f;
 	}
@@ -330,9 +331,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 	if (inputData.isDDown) {
 		moveX += 5.f;
+	} if (inputData.isSpaceDown) {
+		speed = 4.0f;
 	}
-	moveX *= inputData.dtFrame;
-	moveY *= inputData.dtFrame;
+	moveX *= speed * inputData.dtFrame;
+	moveY *= speed * inputData.dtFrame;
 	
 	f32 playerWidth = state->world.tilemap.widthMeters * 0.7f;
 	f32 playerHeight = state->world.tilemap.heightMeters * 0.9f;
@@ -346,15 +349,22 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	playerNextTilePosRight.X += playerWidth / 2.0f;
 	FixTilePosition(state->world.tilemap, playerNextTilePosRight);
 
-	if (IsWorldPointEmpty(state->world.tilemap, playerNextTilePosLeft.absX, playerNextTilePosLeft.absY) &&
-		IsWorldPointEmpty(state->world.tilemap, playerNextTilePosRight.absX, playerNextTilePosRight.absY)) {
+	if (IsWorldPointEmpty(state->world.tilemap, playerNextTilePosLeft.absX, playerNextTilePosLeft.absY, playerNextTilePosLeft.absZ) &&
+		IsWorldPointEmpty(state->world.tilemap, playerNextTilePosRight.absX, playerNextTilePosRight.absY, playerNextTilePosRight.absZ)) {
 		state->playerPos.X += moveX;
 		state->playerPos.Y += moveY;
 		FixTilePosition(state->world.tilemap, state->playerPos);
 	}
+	if (GetTileValue(state->world.tilemap, playerNextTilePosLeft.absX, playerNextTilePosLeft.absY, playerNextTilePosLeft.absZ) == 3 ||
+		GetTileValue(state->world.tilemap, playerNextTilePosRight.absX, playerNextTilePosRight.absY, playerNextTilePosRight.absZ) == 3) {
+		state->playerPos.absZ = 1;
+	} else if ( GetTileValue(state->world.tilemap, playerNextTilePosLeft.absX, playerNextTilePosLeft.absY, playerNextTilePosLeft.absZ) == 4 ||
+				GetTileValue(state->world.tilemap, playerNextTilePosRight.absX, playerNextTilePosRight.absY, playerNextTilePosRight.absZ) == 4) {
+		state->playerPos.absZ = 0;
+	}
 	
 	//f32 pixelsPerMeter = 42.85714f;
-	f32 pixelsPerMeter = 6.85714f;
+	f32 pixelsPerMeter = 3.85714f;
 	f32 tilemapOffsetX = -state->world.tilemap.widthMeters * pixelsPerMeter / 2.0f;
 	f32 tilemapOffsetY = 0.f;
 	u32 playerAbsX = state->playerPos.absX;
@@ -374,7 +384,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				state->world.tilemap, 
 				playerMapX + scast(u32, col),
 				playerMapY + scast(u32, row),
-				0
+				state->playerPos.absZ
 			);
 			if (tile == 4) {
 				R = 0.f;

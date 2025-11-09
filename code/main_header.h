@@ -106,6 +106,7 @@ struct TilePosition {
 	// 28 bytes = chunk pos, 4 bytes = tile pos inside chunk
 	u32 absX;
 	u32 absY;
+	u32 absZ;
 
 	// Pos inside tile in meters
 	f32 X;
