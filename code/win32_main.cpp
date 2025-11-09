@@ -341,6 +341,7 @@ void Win32DebugStartRecordingInput(Win32State& state, ProgramMemory& memory) {
 		// TODO: LOGGING
 		return;
 	}
+	SetEndOfFile(inputFile);
 	CopyMemory(state.dLoopRecord.stateMemoryBlock, memory.memoryBlock, memory.memoryBlockSize);
 	state.dLoopRecord.inputFileHandle = inputFile;
 	state.dLoopRecord.recording = true;

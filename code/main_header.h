@@ -102,42 +102,63 @@ struct ProgramMemory {
 };
 
 struct TilePosition {
-	// Map inside world
-	u32 tileMapX;
-	u32 tileMapY;
-
-	// Tile inside map
-	i32 tileX;
-	i32 tileY;
+	// 28 bytes = chunk pos, 4 bytes = tile pos inside chunk
+	u32 absX;
+	u32 absY;
 
 	// Pos inside tile in meters
 	f32 X;
 	f32 Y;
 };
 
-struct TileMap {
+struct TileChunkPosition {
+	u32 chunkX;
+	u32 chunkY;
+	u32 chunkZ;
+
+	// tile index relative to chunk
+	u32 relTileX;
+	u32 relTileY;
+};
+
+struct MemoryArena {
+	u8* data;
+	u64 size;
+	u64 used;
+};
+
+struct TileChunk {
 	u32* tiles;
 };
 
-struct World {
-	u32 sizeX;
-	u32 sizeY;
-	f32 widthMeters;
-	f32 heightMeters;
-	u32 widthPixels;
-	u32 heightPixels;
-	f32 pixelsPerMeter;
-	i32 offsetPixelsX;
-	i32 offsetPixelsY;
+struct TileMap {
+	u32 chunkCountX;
+	u32 chunkCountY;
+	u32 chunkCountZ;
 	u32 chunkSizeX;
 	u32 chunkSizeY;
+	u32 chunkSizeZ;
 
-	TileMap* tileMap;
+	u32 chunkShift;
+	u32 chunkMask;
+
+	u32 tileCountX;
+	u32 tileCountY;
+
+	f32 widthMeters;
+	f32 heightMeters;
+	TileChunk* tileChunks;
+};
+
+struct World {
+	MemoryArena tileArena;
+	TileMap tilemap;
 };
 
 struct ProgramState {
 	// Global state of the program
 	TilePosition playerPos;
+	World world;
 	bool isInitialized;
 };
 
