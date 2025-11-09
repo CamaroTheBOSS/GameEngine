@@ -141,8 +141,8 @@ u32 GetTileValue(TileMap& tilemap, TileChunk* chunk, u32 relX, u32 relY) {
 }
 
 inline internal
-u32 GetTileValue(TileMap& tilemap, u32 absX, u32 absY) {
-	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, 0);
+u32 GetTileValue(TileMap& tilemap, u32 absX, u32 absY, u32 absZ) {
+	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, absZ);
 	TileChunk* chunk = GetTileChunk(tilemap, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
 	u32 value = GetTileValue(tilemap, chunk, chunkPos.relTileX, chunkPos.relTileY);
 	return value;
@@ -156,8 +156,8 @@ void SetTileValue(TileMap& tilemap, TileChunk* chunk, u32 relX, u32 relY, u32 ti
 }
 
 inline internal
-void SetTileValue(MemoryArena& arena, TileMap& tilemap, u32 absX, u32 absY, u32 tileValue) {
-	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, 0);
+void SetTileValue(MemoryArena& arena, TileMap& tilemap, u32 absX, u32 absY, u32 absZ, u32 tileValue) {
+	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, absZ);
 	TileChunk* chunk = GetTileChunk(tilemap, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
 	if (!chunk->tiles) {
 		u32 tileChunkSize = tilemap.chunkDim * tilemap.chunkDim;
@@ -191,6 +191,7 @@ void FixTilePosition(TileMap& tilemap, TilePosition& position) {
 	Assert(position.Y < tilemap.heightMeters);
 }
 
+static u32 globalAbsZ = 0;
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	if (!state->isInitialized) {
@@ -209,13 +210,13 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->world.tilemap.heightMeters = state->world.tilemap.widthMeters;
 		state->world.tilemap.chunkCountX = 32;
 		state->world.tilemap.chunkCountY = 32;
-		state->world.tilemap.chunkCountZ = 1;
+		state->world.tilemap.chunkCountZ = 2;
 		state->world.tilemap.chunkShift = 4;
 		state->world.tilemap.chunkMask = (1 << state->world.tilemap.chunkShift) - 1;
 		state->world.tilemap.chunkDim = (1 << state->world.tilemap.chunkShift);
 		state->world.tilemap.tileChunks = ptrcast(TileChunk, PushArray(
 			state->worldArena,
-			state->world.tilemap.chunkCountX * state->world.tilemap.chunkCountY,
+			state->world.tilemap.chunkCountX * state->world.tilemap.chunkCountY * state->world.tilemap.chunkCountZ,
 			TileChunk
 		));
 		//TODO central point is 0,0 at tile
@@ -236,17 +237,27 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		bool doorRight = false;
 		bool doorUp = false;
 		bool doorDown = false;
+		bool goAnotherLevel = false;
 		u32 screenX = 0;
 		u32 screenY = 0;
 		u32 randomNIdx = 0;
-		for (u32 screenIndex = 0; screenIndex < 10; screenIndex++) {
+		u32 absTileZ = 0;
+		for (u32 screenIndex = 0; screenIndex < 20; screenIndex++) {
 			randomNIdx = (randomNIdx + 1) % ArrayCount(randomNumbers, u32);
 			u32 randomNumber = randomNumbers[randomNIdx];
-			if (randomNumber % 2) {
+			u32 mod = randomNumber % 3;
+			if (goAnotherLevel) {
+				mod = randomNumber % 2;
+				goAnotherLevel = false;
+			}
+			if (mod == 0) {
 				doorRight = true;
 			}
-			else {
+			else if (mod == 1) {
 				doorUp = true;
+			}
+			else if (mod == 2) {
+				goAnotherLevel = true;
 			}
 
 			for (u32 tileY = 0; tileY < state->world.tilemap.tileCountY; tileY++) {
@@ -279,18 +290,28 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 							tileValue = 1;
 						}
 					}
-					SetTileValue(state->worldArena, state->world.tilemap, absTileX, absTileY, tileValue);
+					if (goAnotherLevel && absTileZ == 0 && tileX == 1 && tileY == 1) {
+						tileValue = 3; // Ladder up
+					} 
+					else if (goAnotherLevel && absTileZ == 1 && tileX == 2 && tileY == 2) {
+						tileValue = 4; // Ladder down
+					}
+					SetTileValue(state->worldArena, state->world.tilemap, absTileX, absTileY, absTileZ, tileValue);
 				}
 			}
 			doorLeft = doorRight;
 			doorDown = doorUp;
 			doorUp = false;
 			doorRight = false;
-			if (randomNumber % 2) {
+
+			if (mod == 0) {
 				screenX++;
 			}
-			else {
+			else if (mod == 1) {
 				screenY++;
+			}
+			if (goAnotherLevel) {
+				absTileZ = scast(u32, !absTileZ);
 			}
 		}
 		state->isInitialized = true;
@@ -331,6 +352,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->playerPos.Y += moveY;
 		FixTilePosition(state->world.tilemap, state->playerPos);
 	}
+	
 	//f32 pixelsPerMeter = 42.85714f;
 	f32 pixelsPerMeter = 6.85714f;
 	f32 tilemapOffsetX = -state->world.tilemap.widthMeters * pixelsPerMeter / 2.0f;
@@ -339,34 +361,54 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	u32 playerAbsY = state->playerPos.absY;
 	u32 playerRelX = playerAbsX % state->world.tilemap.tileCountX;
 	u32 playerRelY = playerAbsY % state->world.tilemap.tileCountY;
+	
 	RenderRectangle(bitmap, 0.f, 0.f, scast(f32, bitmap.width), scast(f32, bitmap.height), 1.0f, 0.f, 0.f);
 	for (i32 row = 0; row < 256; row++) {
 		for (i32 col = 0; col < 256; col++) {
-			f32 gray = 1.0f;
+			f32 R = 1.f;
+			f32 G = 1.f;
+			f32 B = 1.f;
 			u32 playerMapX = (playerAbsX / state->world.tilemap.tileCountX) * state->world.tilemap.tileCountX;
 			u32 playerMapY = (playerAbsY / state->world.tilemap.tileCountY) * state->world.tilemap.tileCountY;
 			u32 tile = GetTileValue(
 				state->world.tilemap, 
 				playerMapX + scast(u32, col),
-				playerMapY + scast(u32, row)
+				playerMapY + scast(u32, row),
+				0
 			);
-			if (tile == 2) {
-				gray = 1.0f;
+			if (tile == 4) {
+				R = 0.f;
+				G = 0.f;
+				B = 1.f;
+			}
+			else if (tile == 3) {
+				R = 1.f;
+				G = 0.f;
+				B = 0.f;
+			}
+			else if (tile == 2) {
+				R = 1.f;
+				G = 1.f;
+				B = 1.f;
 			}
 			else if (tile == 1) {
-				gray = 0.5f;
+				R = 0.5f;
+				G = 0.5f;
+				B = 0.5f;
 			}
 			else if (tile == 0) {
 				continue;
 			}
 			if (scast(u32, row) == playerRelY && scast(u32, col) == playerRelX) {
-				gray = 0.2f;
+				R = 0.2f;
+				G = 0.2f;
+				B = 0.2f;
 			}
 			f32 x1 = tilemapOffsetX + col * state->world.tilemap.widthMeters * pixelsPerMeter;
 			f32 y1 = bitmap.height + tilemapOffsetY - (row + 1) * state->world.tilemap.heightMeters * pixelsPerMeter;
 			f32 x2 = x1 + state->world.tilemap.widthMeters * pixelsPerMeter;
 			f32 y2 = y1 + state->world.tilemap.heightMeters * pixelsPerMeter;
-			RenderRectangle(bitmap, x1, y1, x2, y2, gray, gray, gray);
+			RenderRectangle(bitmap, x1, y1, x2, y2, R, G, B);
 		}
 	}
 	f32 playerPixX = (playerRelX * state->world.tilemap.widthMeters + state->playerPos.X - playerWidth / 2.0f) * pixelsPerMeter + tilemapOffsetX;
