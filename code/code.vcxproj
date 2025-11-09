@@ -134,12 +134,13 @@
     <None Include="build.bat" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="math.cpp" />
     <ClCompile Include="program_layer.cpp" />
     <ClCompile Include="win32_main.cpp" />
+    <ClCompile Include="world.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="main_header.h" />
-    <ClInclude Include="something.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -102,27 +102,6 @@ struct ProgramMemory {
 	debug_free_file* debugFreeFile;
 };
 
-struct TilePosition {
-	// 28 bytes = chunk pos, 4 bytes = tile pos inside chunk
-	u32 absX;
-	u32 absY;
-	u32 absZ;
-
-	// Pos inside tile in meters
-	f32 X;
-	f32 Y;
-};
-
-struct TileChunkPosition {
-	u32 chunkX;
-	u32 chunkY;
-	u32 chunkZ;
-
-	// tile index relative to chunk
-	u32 relTileX;
-	u32 relTileY;
-};
-
 struct MemoryArena {
 	u8* data;
 	u64 capacity;
@@ -139,6 +118,28 @@ void* PushSize_(MemoryArena& arena, u64 size) {
 #define PushStructSize(arena, type) PushSize_(arena, sizeof(type))
 #define PushArray(arena, length, type) PushSize_(arena, (length) * sizeof(type))
 
+struct TilePosition {
+	// 28 bytes = chunk pos, 4 bytes = tile pos inside chunk
+	u32 absX;
+	u32 absY;
+	u32 absZ;
+
+	// Pos inside tile in meters
+	f32 X;
+	f32 Y;
+};
+
+struct TileChunkPosition {
+	// chunk index
+	u32 chunkX;
+	u32 chunkY;
+	u32 chunkZ;
+
+	// tile index relative to chunk
+	u32 relTileX;
+	u32 relTileY;
+};
+
 struct TileChunk {
 	u32* tiles;
 };
@@ -153,8 +154,8 @@ struct TileMap {
 
 	u32 tileCountX;
 	u32 tileCountY;
-	f32 widthMeters;
-	f32 heightMeters;
+	f32 tileSizeInMetersX;
+	f32 tileSizeInMetersY;
 
 	TileChunk* tileChunks;
 };
@@ -183,3 +184,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {
 		}
 	}
 }
+
+/* Common functionalities used across whole engine for LSP purposes */
+internal i32 FloorF32ToI32(f32);
+internal i32 RoundF32ToI32(f32);
