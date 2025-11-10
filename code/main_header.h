@@ -1,4 +1,28 @@
 #pragma once
+#if !defined(COMPILER_MSVC)
+#define COMPILER_MSVC 0
+#endif
+
+#if !defined(COMPILER_LLVM)
+#define COMPILER_LLVM 0
+#endif
+
+#if !defined(COMPILER_GPLUSPLUS)
+#define COMPILER_GPLUSPLUS 0
+#endif
+
+#if !COMPILER_MSVC && !COMPILER_LLVM && !COMPILER_GPLUSPLUS
+#if defined(_MSC_VER)
+#define COMPILER_MSVC 1
+#endif
+#if defined(__GNUC__)
+#define COMPILER_GPLUSPLUS 1
+#endif
+#if defined(__clang__)
+#define COMPILER_LLVM 1
+#endif
+#endif
+
 #define internal static
 #define noapi
 #define PI 3.14159f
@@ -165,11 +189,22 @@ struct World {
 	TileMap tilemap;
 };
 
+struct LoadedBitmap {
+	u32* data;
+	u32 height;
+	u32 width;
+	u32 bytesPerPixel;
+	u32 alignX;
+	u32 alignY;
+};
+
 struct ProgramState {
 	// Global state of the program
 	TilePosition playerPos;
 	MemoryArena worldArena;
 	World world;
+	u32 playerFaceDirection;
+	LoadedBitmap playerBitmaps[4];
 	bool isInitialized;
 };
 

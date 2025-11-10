@@ -1,5 +1,5 @@
 #include "main_header.h"
-#include "math.cpp"
+#include "intrinsics.cpp"
 #include "world.cpp"
 
 internal
@@ -50,8 +50,6 @@ static u32 randomNumbers[] = {
 
 internal 
 void RenderRectangle(BitmapData& bitmap, f32 X1, f32 Y1, f32 X2, f32 Y2, f32 R, f32 G, f32 B) {
-	//Assert(X1 < X2);
-	//Assert(Y1 < Y2);
 	i32 minX = RoundF32ToI32(X1);
 	i32 maxX = RoundF32ToI32(X2);
 	i32 minY = RoundF32ToI32(Y1);
@@ -82,6 +80,57 @@ void RenderRectangle(BitmapData& bitmap, f32 X1, f32 Y1, f32 X2, f32 Y2, f32 R, 
 }
 
 internal
+void RenderBitmap(BitmapData& screenBitmap, LoadedBitmap& loadedBitmap, f32 X1, f32 Y1) {
+	i32 minX = RoundF32ToI32(X1) - loadedBitmap.alignX;
+	i32 maxX = minX + loadedBitmap.width;
+	i32 minY = RoundF32ToI32(Y1) - loadedBitmap.alignY;
+	i32 maxY = minY + loadedBitmap.height;
+	i32 offsetX = 0;
+	i32 offsetY = 0;
+	if (minX < 0) {
+		offsetX = -minX;
+		minX = 0;
+	}
+	if (minY < 0) {
+		offsetY = -minY;
+		minY = 0;
+	}
+	if (maxX > scast(i32, screenBitmap.width)) {
+		maxX = scast(i32, screenBitmap.width);
+	}
+	if (maxY > scast(i32, screenBitmap.height)) {
+		maxY = scast(i32, screenBitmap.height);
+	}
+	u32 loadedBitmapPitch = loadedBitmap.width * loadedBitmap.bytesPerPixel;
+	u8* dstRow = ptrcast(u8, screenBitmap.data) + minY * screenBitmap.pitch + minX * screenBitmap.bytesPerPixel;
+	u8* srcRow = ptrcast(u8, loadedBitmap.data + (loadedBitmap.height - 1 - offsetY) * (loadedBitmap.width) + offsetX);
+	for (i32 Y = minY; Y < maxY; Y++) {
+		u32* dstPixel = ptrcast(u32, dstRow);
+		u32* srcPixel = ptrcast(u32, srcRow);
+		for (i32 X = minX; X < maxX; X++) {
+			f32 dR = scast(f32, (*dstPixel >> 16) & 0xFF);
+			f32 dG = scast(f32, (*dstPixel >> 8) & 0xFF);
+			f32 dB = scast(f32, (*dstPixel >> 0) & 0xFF);
+
+			f32 sA = scast(f32, (*srcPixel >> 24) & 0xFF) / 255.f;
+			f32 sR = scast(f32, (*srcPixel >> 16) & 0xFF);
+			f32 sG = scast(f32, (*srcPixel >> 8) & 0xFF);
+			f32 sB = scast(f32, (*srcPixel >> 0) & 0xFF);
+
+			u8 r = scast(u8, sA * sR + (1 - sA) * dR);
+			u8 g = scast(u8, sA * sG + (1 - sA) * dG);
+			u8 b = scast(u8, sA * sB + (1 - sA) * dB);
+
+			*dstPixel++ = (r << 16) | (g << 8) | (b << 0);
+			srcPixel++;
+		}
+		dstRow += screenBitmap.pitch;
+		srcRow -= loadedBitmapPitch;
+	}
+}
+
+
+internal
 void RenderWeirdGradient(BitmapData& bitmap, int xOffset, int yOffset) {
 	u8* row = reinterpret_cast<u8*>(bitmap.data);
 	for (u32 y = 0; y < bitmap.height; y++) {
@@ -95,6 +144,63 @@ void RenderWeirdGradient(BitmapData& bitmap, int xOffset, int yOffset) {
 		}
 		row += bitmap.pitch;
 	}
+}
+
+#pragma pack(push, 1)
+struct BmpHeader {
+	u16 signature; // must be 0x42 = BMP
+	u32 fileSize;
+	u32 reservedZeros;
+	u32 bitmapOffset; // where pixels starts
+	u32 headerSize;
+	u32 width;
+	u32 height;
+	u16 planes;
+	u16 bitsPerPixel;
+	u32 compression;
+	u32 imageSize;
+	u32 resolutionPixPerMeterX;
+	u32 resolutionPixPerMeterY;
+	u32 colorsUsed;
+	u32 ColorsImportant;
+	u32 redMask;
+	u32 greenMask;
+	u32 blueMask;
+	u32 alphaMask;
+};
+#pragma pack(pop)
+
+LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char* filename) {
+	FileData bmpData = debugReadEntireFile(filename);
+	if (!bmpData.content) {
+		return {};
+	}
+	BmpHeader* header = ptrcast(BmpHeader, bmpData.content);
+	Assert(header->compression == 3);
+	Assert(header->bitsPerPixel == 32);
+	u32 redShift = LeastSignificantHighBit(header->redMask).index;
+	u32 greenShift = LeastSignificantHighBit(header->greenMask).index;
+	u32 blueShift = LeastSignificantHighBit(header->blueMask).index;
+	u32 alphaShift = LeastSignificantHighBit(header->alphaMask).index;
+
+	LoadedBitmap result = {};
+	result.data = ptrcast(u32, ptrcast(u8, bmpData.content) + header->bitmapOffset);
+	result.height = header->height;
+	result.width = header->width;
+	result.bytesPerPixel = header->bitsPerPixel / 8;
+
+	u32* pixels = result.data;
+	for (u32 Y = 0; Y < header->height; Y++) {
+		for (u32 X = 0; X < header->width; X++) {
+			u32 A = (*pixels >> alphaShift) & 0xFF;
+			u32 R = (*pixels >> redShift) & 0xFF;
+			u32 G = (*pixels >> greenShift) & 0xFF;
+			u32 B = (*pixels >> blueShift) & 0xFF;
+			*pixels++ = (A << 24) + (R << 16) + (G << 8) + (B << 0);
+		}
+	}
+	
+	return result;
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
@@ -221,8 +327,23 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				lvlJustChanged = false;
 			}
 		}
+		state->playerBitmaps[0] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-right.bmp");
+		state->playerBitmaps[0].alignX = 0;
+		state->playerBitmaps[0].alignY = 55;
+		
+		state->playerBitmaps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-left.bmp");
+		state->playerBitmaps[1].alignX = 0;
+		state->playerBitmaps[1].alignY = 55;
 
-		FileData bmpData = memory.debugReadEntireFile("test/hero-right.bmp");
+		state->playerBitmaps[2] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-up.bmp");
+		state->playerBitmaps[2].alignX = 0;
+		state->playerBitmaps[2].alignY = 55;
+
+		state->playerBitmaps[3] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-down.bmp");
+		state->playerBitmaps[3].alignX = 0;
+		state->playerBitmaps[3].alignY = 55;
+
+		state->playerFaceDirection = 0;
 
 		state->isInitialized = true;
 	}
@@ -231,15 +352,19 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	f32 moveY = 0.f;
 	f32 speed = 1.0f;
 	if (inputData.isADown) {
+		state->playerFaceDirection = 1;
 		moveX -= 5.f;
 	}
 	if (inputData.isWDown) {
+		state->playerFaceDirection = 2;
 		moveY += 5.f;
 	}
 	if (inputData.isSDown) {
+		state->playerFaceDirection = 3;
 		moveY -= 5.f;
 	}
 	if (inputData.isDDown) {
+		state->playerFaceDirection = 0;
 		moveX += 5.f;
 	} if (inputData.isSpaceDown) {
 		speed = 4.0f;
@@ -358,4 +483,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		0.f, 1.f, 1.f
 	);
 
+	RenderBitmap(
+		bitmap, 
+		state->playerBitmaps[state->playerFaceDirection],
+		playerPixMinX, 
+		playerPixMaxY
+	);
 }
