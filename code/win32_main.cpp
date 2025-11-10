@@ -25,8 +25,8 @@ struct SoundRenderData {
 };
 
 struct Win32GameCode {
-	const char* pathToDll = "program_layer.dll";
-	const char* pathToTempDll = "program_layer_temp.dll";
+	char pathToDll[MY_MAX_PATH] = "program_layer.dll";
+	char pathToTempDll[MY_MAX_PATH] = "program_layer_temp.dll";
 
 	HMODULE dll = nullptr;
 	u64 lastWriteTimestamp = 0;
@@ -46,6 +46,9 @@ struct DebugLoopRecord {
 
 struct Win32State {
 	HWND window;
+	char exeFilePath[MY_MAX_PATH];
+	char exeDirectory[MY_MAX_PATH];
+	char* exeFileName;
 
 	/* Debug state */
 	DebugLoopRecord dLoopRecord;
@@ -119,15 +122,6 @@ u64 Win32GetLastWriteTime(const char* filename) {
 
 internal
 bool Win32ReloadGameCode(Win32GameCode& gameCode) {
-#if 0
-	WIN32_FILE_ATTRIBUTE_DATA data;
-	GetFileAttributesExA(gameCode.pathToDll, GetFileExInfoStandard, &data);
-	if (CompareFileTime(&data.ftLastWriteTime, &gameCode.fileStatsData.ftLastWriteTime)) {
-		Win32UnloadGameCode(gameCode);
-		Win32LoadGameCode(gameCode);
-		gameCode.fileStatsData.ftLastWriteTime = data.ftLastWriteTime;
-	}
-#else
 	u64 lastWriteTime = Win32GetLastWriteTime(gameCode.pathToDll);
 	if (lastWriteTime != gameCode.lastWriteTimestamp) {
 		Win32UnloadGameCode(gameCode);
@@ -135,7 +129,6 @@ bool Win32ReloadGameCode(Win32GameCode& gameCode) {
 			gameCode.lastWriteTimestamp = lastWriteTime;
 		}
 	}
-#endif
 	return true;
 }
 
@@ -287,6 +280,7 @@ FileData DebugReadEntireFile(const char* filename) {
 	LARGE_INTEGER fileSize;
 	if (!GetFileSizeEx(file, &fileSize)) {
 		// TODO: LOGGING
+		int err = GetLastError();
 		CloseHandle(file);
 		return FileData{ nullptr, 0 };
 	}
@@ -666,6 +660,31 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	return programMemory;
 }
 
+u64 StringLength(char* str) {
+	u64 result = 0;
+	while (*str != '\0') {
+		result++;
+	}
+	return result;
+}
+
+u64 CopyString(char* src, u64 srcSize, char* dst, u64 dstSize) {
+	u32 copied = 0;
+	while (*src != '\0' && copied < dstSize - 1 && copied < srcSize) {
+		*dst++ = *src++;
+		copied++;
+	}
+	*dst = '\0';
+	return copied;
+}
+
+u64 ConcatenateString(char* first, u64 firstSize, char* second, u64 secondSize, char* dst, u64 dstSize) {
+	u64 length = CopyString(first, firstSize, dst, dstSize);
+	dst += length;
+	length += CopyString(second, secondSize, dst, dstSize - length);
+	return length;
+}
+
 int CALLBACK WinMain(
 	HINSTANCE instance,
 	HINSTANCE prevInstance,
@@ -732,6 +751,21 @@ int CALLBACK WinMain(
 	Win32GameCode gameCode = {};
 	SoundData soundData = {};
 
+
+	DWORD length = GetModuleFileNameA(0, win32State.exeFilePath, MY_MAX_PATH);
+	char* tmpChar = win32State.exeFilePath;
+	for (u32 charIndex = 0; charIndex < length; charIndex++) {
+		if (*tmpChar == '\\') {
+			win32State.exeFileName = tmpChar + 1;
+		}
+		tmpChar++;
+	}
+	CopyString(win32State.exeFilePath, win32State.exeFileName - win32State.exeFilePath, win32State.exeDirectory, MY_MAX_PATH);
+	char tmpStr[MY_MAX_PATH];
+	CopyString(gameCode.pathToDll, MY_MAX_PATH, tmpStr, MY_MAX_PATH);
+	ConcatenateString(win32State.exeDirectory, MY_MAX_PATH, tmpStr, MY_MAX_PATH, gameCode.pathToDll, MY_MAX_PATH);
+	CopyString(gameCode.pathToTempDll, MY_MAX_PATH, tmpStr, MY_MAX_PATH);
+	ConcatenateString(win32State.exeDirectory, MY_MAX_PATH, tmpStr, MY_MAX_PATH, gameCode.pathToTempDll, MY_MAX_PATH);
 
 	// NOTE: We can use one devicecontext because we specified CS_OWNDC so we dont share context with anyone
 	HDC deviceContext = GetDC(window);

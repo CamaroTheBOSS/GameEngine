@@ -9,7 +9,8 @@
 #define Assert(expression) if (!(expression)) { *(char*)0 = 0; }
 #define scast(type, expression) static_cast<type>(expression)
 #define ptrcast(type, expression) reinterpret_cast<type*>(expression)
-#define ArrayCount(arr, type) (sizeof(arr) / sizeof(type)); 
+#define ArrayCount(arr, type) (sizeof(arr) / sizeof(type));
+#define MY_MAX_PATH 255
 
 #include <cstdint>
 #include <utility>
