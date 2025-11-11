@@ -1,17 +1,17 @@
-#include "main_header.h"
-#include "math.h"
+#pragma once
+#include "engine_common.h"
 
-internal
+inline
 i32 RoundF32ToI32(f32 value) {
 	return scast(i32, roundf(value));
 }
 
-internal
+inline
 i32 FloorF32ToI32(f32 value) {
 	return scast(i32, floorf(value));
 }
 
-internal
+inline
 u32 FloorF32ToU32(f32 value) {
 	return scast(u32, floorf(value));
 }
@@ -21,7 +21,8 @@ struct BitwiseSearchResult {
 	u32 index;
 };
 
-internal BitwiseSearchResult LeastSignificantHighBit(u32 value) {
+inline 
+BitwiseSearchResult LeastSignificantHighBit(u32 value) {
 	BitwiseSearchResult result = {};
 #if COMPILER_MSVC
 	_BitScanForward(ptrcast(unsigned long, &result.index), value);

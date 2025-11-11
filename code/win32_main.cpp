@@ -1,4 +1,4 @@
-#include "main_header.h"
+#include "engine.h"
 
 #include <windows.h>
 #include <Xinput.h>
@@ -25,8 +25,8 @@ struct SoundRenderData {
 };
 
 struct Win32GameCode {
-	char pathToDll[MY_MAX_PATH] = "program_layer.dll";
-	char pathToTempDll[MY_MAX_PATH] = "program_layer_temp.dll";
+	char pathToDll[MY_MAX_PATH] = "engine.dll";
+	char pathToTempDll[MY_MAX_PATH] = "engine_temp.dll";
 
 	HMODULE dll = nullptr;
 	u64 lastWriteTimestamp = 0;

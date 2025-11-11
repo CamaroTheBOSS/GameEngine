@@ -1,6 +1,5 @@
-#include "main_header.h"
-#include "intrinsics.cpp"
-#include "world.cpp"
+#include "engine.h"
+#include "engine_world.cpp"
 
 internal
 void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
@@ -210,8 +209,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->playerPos.absX = 3;
 		state->playerPos.absY = 3;
 		state->playerPos.absZ = 0;
-		state->playerPos.X = 0;
-		state->playerPos.Y = 0;
+		state->playerPos.offset.X = 0;
+		state->playerPos.offset.Y = 0;
 
 		state->worldArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
 		state->worldArena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
@@ -219,8 +218,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 		tilemap.tileCountX = 17;
 		tilemap.tileCountY = 9;
-		tilemap.tileSizeInMetersX = 1.4f;
-		tilemap.tileSizeInMetersY = tilemap.tileSizeInMetersX;
+		tilemap.tileSizeInMeters.X = 1.4f;
+		tilemap.tileSizeInMeters.Y = tilemap.tileSizeInMeters.X;
 		tilemap.chunkCountX = 32;
 		tilemap.chunkCountY = 32;
 		tilemap.chunkCountZ = 2;
@@ -236,8 +235,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->cameraPos.absX = tilemap.tileCountX / 2;
 		state->cameraPos.absY = tilemap.tileCountY / 2;
 		state->cameraPos.absZ = 0;
-		state->cameraPos.X = 0;
-		state->cameraPos.Y = 0;
+		state->cameraPos.offset.X = 0;
+		state->cameraPos.offset.Y = 0;
 
 		//TODO pixelsPerMeters as world property?
 
@@ -354,47 +353,45 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->isInitialized = true;
 	}
 
-	f32 moveX = 0.f;
-	f32 moveY = 0.f;
+	V2 movement = {};
 	f32 speed = 1.0f;
 	if (inputData.isADown) {
 		state->playerFaceDirection = 1;
-		moveX -= 5.f;
+		movement.X -= 5.f;
 	}
 	if (inputData.isWDown) {
 		state->playerFaceDirection = 2;
-		moveY += 5.f;
+		movement.Y += 5.f;
 	}
 	if (inputData.isSDown) {
 		state->playerFaceDirection = 3;
-		moveY -= 5.f;
+		movement.Y -= 5.f;
 	}
 	if (inputData.isDDown) {
 		state->playerFaceDirection = 0;
-		moveX += 5.f;
+		movement.X += 5.f;
 	} if (inputData.isSpaceDown) {
 		speed = 4.0f;
 	}
 	if (inputData.isEscDown) {
-		state->playerPos.X = 0.f;
-		state->playerPos.Y = 0.f;
+		state->playerPos.offset.X = 0.f;
+		state->playerPos.offset.Y = 0.f;
 	}
-	moveX *= speed * inputData.dtFrame;
-	moveY *= speed * inputData.dtFrame;
+	movement *= speed * inputData.dtFrame;
 	
-	f32 playerWidth = tilemap.tileSizeInMetersX * 0.7f;
-	f32 playerHeight = tilemap.tileSizeInMetersY * 0.9f;
+	f32 playerWidth = tilemap.tileSizeInMeters.X * 0.7f;
+	f32 playerHeight = tilemap.tileSizeInMeters.Y * 0.9f;
 	TilePosition nextPlayerPosition = state->playerPos;
-	nextPlayerPosition.X += moveX;
-	nextPlayerPosition.Y += moveY;
+	nextPlayerPosition.offset.X += movement.X;
+	nextPlayerPosition.offset.Y += movement.Y;
 	FixTilePosition(tilemap, nextPlayerPosition);
 
 	TilePosition playerNextTilePosLeft = nextPlayerPosition;
-	playerNextTilePosLeft.X -= playerWidth / 2.0f;
+	playerNextTilePosLeft.offset.X -= playerWidth / 2.0f;
 	FixTilePosition(tilemap, playerNextTilePosLeft);
 
 	TilePosition playerNextTilePosRight = nextPlayerPosition;
-	playerNextTilePosRight.X += playerWidth / 2.0f;
+	playerNextTilePosRight.offset.X += playerWidth / 2.0f;
 	FixTilePosition(tilemap, playerNextTilePosRight);
 
 	if (IsWorldPointEmpty(tilemap, nextPlayerPosition) &&
@@ -410,23 +407,23 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				state->playerPos.absZ = 0;
 			}
 		}
-		state->playerPos.X += moveX;
-		state->playerPos.Y += moveY;
+		state->playerPos.offset.X += movement.X;
+		state->playerPos.offset.Y += movement.Y;
 		FixTilePosition(tilemap, state->playerPos);
 	}
 
 	DiffTilePosition cameraPlayerDiff = Subtract(tilemap, state->playerPos, state->cameraPos);
-	i32 cameraMoveX = scast(i32, (cameraPlayerDiff.dX / (tilemap.tileSizeInMetersX * scast(f32, tilemap.tileCountX) / 2.f)));
-	i32 cameraMoveY = scast(i32, (cameraPlayerDiff.dY / (tilemap.tileSizeInMetersY * scast(f32, tilemap.tileCountY) / 2.f)));
+	i32 cameraMoveX = scast(i32, (cameraPlayerDiff.dX / (tilemap.tileSizeInMeters.X * scast(f32, tilemap.tileCountX) / 2.f)));
+	i32 cameraMoveY = scast(i32, (cameraPlayerDiff.dY / (tilemap.tileSizeInMeters.Y * scast(f32, tilemap.tileCountY) / 2.f)));
 	state->cameraPos.absX += cameraMoveX * tilemap.tileCountX;
 	state->cameraPos.absY += cameraMoveY * tilemap.tileCountY;
 	state->cameraPos.absZ = state->playerPos.absZ;
 
 	f32 pixelsPerMeter = 42.85714f;
 	//f32 pixelsPerMeter = 3.85714f;
-	f32 tileSizePixelsX = tilemap.tileSizeInMetersX * pixelsPerMeter;
-	f32 tileSizePixelsY = tilemap.tileSizeInMetersY * pixelsPerMeter;
-	f32 lowerStartX = -tilemap.tileSizeInMetersX * pixelsPerMeter / 2.0f;
+	f32 tileSizePixelsX = tilemap.tileSizeInMeters.X * pixelsPerMeter;
+	f32 tileSizePixelsY = tilemap.tileSizeInMeters.Y * pixelsPerMeter;
+	f32 lowerStartX = -tilemap.tileSizeInMeters.X * pixelsPerMeter / 2.0f;
 	f32 lowerStartY = scast(f32, bitmap.height);
 	u32 playerAbsX = state->playerPos.absX;
 	u32 playerAbsY = state->playerPos.absY;
@@ -486,9 +483,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			RenderRectangle(bitmap, minX, minY, maxX, maxY, R, G, B);
 		}
 	}
-	f32 playerPixMinX = lowerStartX + (playerRelX * tilemap.tileSizeInMetersX + state->playerPos.X - playerWidth / 2.0f) * pixelsPerMeter + tileSizePixelsX / 2.0f;
+	f32 playerPixMinX = lowerStartX + (playerRelX * tilemap.tileSizeInMeters.X + state->playerPos.offset.X - playerWidth / 2.0f) * pixelsPerMeter + tileSizePixelsX / 2.0f;
 	f32 playerPixMaxX = playerPixMinX + pixelsPerMeter * playerWidth;
-	f32 playerPixMaxY = lowerStartY - (playerRelY * tilemap.tileSizeInMetersY + state->playerPos.Y) * pixelsPerMeter - tileSizePixelsY / 2.0f;
+	f32 playerPixMaxY = lowerStartY - (playerRelY * tilemap.tileSizeInMeters.Y + state->playerPos.offset.Y) * pixelsPerMeter - tileSizePixelsY / 2.0f;
 	f32 playerPixMinY = playerPixMaxY - pixelsPerMeter * playerHeight;
 	RenderRectangle(
 		bitmap,
@@ -499,9 +496,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		0.f, 1.f, 1.f
 	);
 
-	f32 debugPointX1 = lowerStartX + (playerAbsX * tilemap.tileSizeInMetersX + state->playerPos.X) * pixelsPerMeter + tileSizePixelsX / 2.0f;
+	f32 debugPointX1 = lowerStartX + (playerAbsX * tilemap.tileSizeInMeters.X + state->playerPos.offset.X) * pixelsPerMeter + tileSizePixelsX / 2.0f;
 	f32 debugPointX2 = debugPointX1 + 3;
-	f32 debugPointY2 = lowerStartY - (playerAbsY * tilemap.tileSizeInMetersY + state->playerPos.Y) * pixelsPerMeter - tileSizePixelsY / 2.0f;
+	f32 debugPointY2 = lowerStartY - (playerAbsY * tilemap.tileSizeInMeters.Y + state->playerPos.offset.Y) * pixelsPerMeter - tileSizePixelsY / 2.0f;
 	f32 debugPointY1 = debugPointY2 - 3;
 	RenderRectangle(
 		bitmap,

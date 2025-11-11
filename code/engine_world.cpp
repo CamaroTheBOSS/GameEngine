@@ -1,6 +1,6 @@
-#include "main_header.h"
+#include "engine_world.h"
 
-inline internal
+inline
 TileChunkPosition GetTileChunkPosition(TileMap& tilemap, u32 absX, u32 absY, u32 absZ) {
 	TileChunkPosition chunkPos;
 	chunkPos.chunkX = absX >> tilemap.chunkShift;
@@ -12,7 +12,7 @@ TileChunkPosition GetTileChunkPosition(TileMap& tilemap, u32 absX, u32 absY, u32
 	return chunkPos;
 }
 
-inline internal
+inline
 TileChunk* GetTileChunk(TileMap& tilemap, u32 chunkX, u32 chunkY, u32 chunkZ) {
 	TileChunk* tileChunk = 0;
 	if (chunkX >= 0 && chunkX < tilemap.chunkCountX &&
@@ -25,7 +25,7 @@ TileChunk* GetTileChunk(TileMap& tilemap, u32 chunkX, u32 chunkY, u32 chunkZ) {
 	return tileChunk;
 }
 
-inline internal
+inline
 u32 GetTileValue(TileMap& tilemap, TileChunk* chunk, u32 relX, u32 relY) {
 	if (chunk && chunk->tiles && relY < tilemap.chunkDim && relX < tilemap.chunkDim) {
 		return chunk->tiles[relY * tilemap.chunkDim + relX];
@@ -33,7 +33,7 @@ u32 GetTileValue(TileMap& tilemap, TileChunk* chunk, u32 relX, u32 relY) {
 	return 0;
 }
 
-inline internal
+inline
 u32 GetTileValue(TileMap& tilemap, u32 absX, u32 absY, u32 absZ) {
 	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, absZ);
 	TileChunk* chunk = GetTileChunk(tilemap, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
@@ -41,19 +41,19 @@ u32 GetTileValue(TileMap& tilemap, u32 absX, u32 absY, u32 absZ) {
 	return value;
 }
 
-inline internal
+inline
 u32 GetTileValue(TileMap& tilemap, TilePosition& position) {
 	return GetTileValue(tilemap, position.absX, position.absY, position.absZ);
 }
 
-inline internal
+inline
 void SetTileValue(TileMap& tilemap, TileChunk* chunk, u32 relX, u32 relY, u32 tileValue) {
 	if (chunk && chunk->tiles && relY < tilemap.chunkDim && relX < tilemap.chunkDim) {
 		chunk->tiles[relY * tilemap.chunkDim + relX] = tileValue;
 	}
 }
 
-inline internal
+inline
 void SetTileValue(MemoryArena& arena, TileMap& tilemap, u32 absX, u32 absY, u32 absZ, u32 tileValue) {
 	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, absZ);
 	TileChunk* chunk = GetTileChunk(tilemap, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
@@ -67,7 +67,7 @@ void SetTileValue(MemoryArena& arena, TileMap& tilemap, u32 absX, u32 absY, u32 
 	SetTileValue(tilemap, chunk, chunkPos.relTileX, chunkPos.relTileY, tileValue);
 }
 
-inline internal
+inline
 bool IsWorldPointEmpty(TileMap& tilemap, u32 absX, u32 absY, u32 absZ) {
 	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, absZ);
 	TileChunk* chunk = GetTileChunk(tilemap, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
@@ -76,12 +76,12 @@ bool IsWorldPointEmpty(TileMap& tilemap, u32 absX, u32 absY, u32 absZ) {
 	return isEmpty;
 }
 
-inline internal
+inline
 bool IsWorldPointEmpty(TileMap& tilemap, TilePosition& position) {
 	return IsWorldPointEmpty(tilemap, position.absX, position.absY, position.absZ);
 }
 
-inline internal
+inline
 bool AreOnTheSameTile(TilePosition& first, TilePosition& second) {
 	bool result = first.absX == second.absX &&
 		first.absY == second.absY &&
@@ -89,18 +89,18 @@ bool AreOnTheSameTile(TilePosition& first, TilePosition& second) {
 	return result;
 }
 
-inline internal
+inline
 void FixTilePosition(TileMap& tilemap, TilePosition& position) {
-	i32 offsetX = RoundF32ToI32(position.X / tilemap.tileSizeInMetersX);
-	i32 offsetY = RoundF32ToI32(position.Y / tilemap.tileSizeInMetersY);
+	i32 offsetX = RoundF32ToI32(position.offset.X / tilemap.tileSizeInMeters.X);
+	i32 offsetY = RoundF32ToI32(position.offset.Y / tilemap.tileSizeInMeters.Y);
 	position.absX += offsetX;
 	position.absY += offsetY;
-	position.X -= offsetX * tilemap.tileSizeInMetersX;
-	position.Y -= offsetY * tilemap.tileSizeInMetersY;
-	Assert(position.X >= -tilemap.tileSizeInMetersX / 2.0f);
-	Assert(position.Y >= -tilemap.tileSizeInMetersY / 2.0f);
-	Assert(position.X <= tilemap.tileSizeInMetersX / 2.0f);
-	Assert(position.Y <= tilemap.tileSizeInMetersY / 2.0f);
+	position.offset.X -= offsetX * tilemap.tileSizeInMeters.X;
+	position.offset.Y -= offsetY * tilemap.tileSizeInMeters.Y;
+	Assert(position.offset.X >= -tilemap.tileSizeInMeters.X / 2.0f);
+	Assert(position.offset.Y >= -tilemap.tileSizeInMeters.Y / 2.0f);
+	Assert(position.offset.X <= tilemap.tileSizeInMeters.X / 2.0f);
+	Assert(position.offset.Y <= tilemap.tileSizeInMeters.Y / 2.0f);
 }
 
 struct DiffTilePosition {
@@ -109,13 +109,13 @@ struct DiffTilePosition {
 	f32 dZ;
 };
 
-inline internal
+inline
 DiffTilePosition Subtract(TileMap& tilemap, TilePosition& first, TilePosition& second) {
 	DiffTilePosition diff = {};
-	f32 firstMetersX = scast(f32, first.absX * tilemap.tileSizeInMetersX) + first.X;
-	f32 firstMetersY = scast(f32, first.absY * tilemap.tileSizeInMetersY) + first.Y;
-	f32 secondMetersX = scast(f32, second.absX * tilemap.tileSizeInMetersX) + second.X;
-	f32 secondMetersY = scast(f32, second.absY * tilemap.tileSizeInMetersY) + second.Y;
+	f32 firstMetersX = scast(f32, first.absX * tilemap.tileSizeInMeters.X) + first.offset.X;
+	f32 firstMetersY = scast(f32, first.absY * tilemap.tileSizeInMeters.Y) + first.offset.Y;
+	f32 secondMetersX = scast(f32, second.absX * tilemap.tileSizeInMeters.X) + second.offset.X;
+	f32 secondMetersY = scast(f32, second.absY * tilemap.tileSizeInMeters.Y) + second.offset.Y;
 	diff.dX = firstMetersX - secondMetersX;
 	diff.dY = firstMetersY - secondMetersY;
 	diff.dZ = scast(f32, first.absZ) - scast(f32, second.absZ);

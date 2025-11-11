@@ -23,18 +23,27 @@
     <ClCompile Include="win32_main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="program_layer.cpp">
+    <ClCompile Include="engine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="world.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="engine_intrinsics.h">
+      <Filter>Header Files</Filter>
     </ClCompile>
-    <ClCompile Include="intrinsics.cpp">
+    <ClCompile Include="engine_math.h">
+      <Filter>Header Files</Filter>
+    </ClCompile>
+    <ClCompile Include="engine_world.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="main_header.h">
+    <ClInclude Include="engine.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="engine_world.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="engine_common.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
