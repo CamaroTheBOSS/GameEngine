@@ -393,10 +393,43 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	playerNextTilePosRight.offset.X += playerSize.X / 2.0f;
 	FixTilePosition(tilemap, playerNextTilePosRight);
 
-	if (IsWorldPointEmpty(tilemap, nextPlayerPosition) &&
-		IsWorldPointEmpty(tilemap, playerNextTilePosLeft) &&
-		IsWorldPointEmpty(tilemap, playerNextTilePosRight)) 
+	bool collided = false;
+	TilePosition collisionPos = {};
+	TilePosition playerCurrPosForCollision = state->playerPos;
+	if (!IsWorldPointEmpty(tilemap, nextPlayerPosition)) {
+		collided = true;
+		collisionPos = nextPlayerPosition;
+	}
+	else if (!IsWorldPointEmpty(tilemap, playerNextTilePosLeft)) {
+		collided = true;
+		collisionPos = playerNextTilePosLeft;
+		playerCurrPosForCollision.offset.X -= playerSize.X / 2.0f;
+		FixTilePosition(tilemap, playerCurrPosForCollision);
+	}
+	else if (!IsWorldPointEmpty(tilemap, playerNextTilePosRight)) {
+		collided = true;
+		collisionPos = playerNextTilePosRight;
+		playerCurrPosForCollision.offset.X += playerSize.X / 2.0f;
+		FixTilePosition(tilemap, playerCurrPosForCollision);
+	}
+
+	if (collided)
 	{
+		V2 normalToWall = V2{ 0, 0 };
+		if (collisionPos.absX < playerCurrPosForCollision.absX) {
+			normalToWall = V2{ 1, 0 };
+		} else if (collisionPos.absX > playerCurrPosForCollision.absX) {
+			normalToWall = V2{ -1, 0 };
+		}
+		else if (collisionPos.absY < playerCurrPosForCollision.absY) {
+			normalToWall = V2{ 0, 1 };
+		}
+		else if (collisionPos.absY > playerCurrPosForCollision.absY) {
+			normalToWall = V2{ 0, -1 };
+		}
+		state->playerVelocity -= 2.f * Inner(state->playerVelocity, normalToWall) * normalToWall;
+	}
+	else {
 		bool theSameTile = AreOnTheSameTile(state->playerPos, nextPlayerPosition);
 		state->playerPos = nextPlayerPosition;
 		if (!theSameTile) {

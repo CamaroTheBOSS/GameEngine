@@ -72,4 +72,9 @@ inline
 f32 Squared(f32 A) {
 	return A * A;
 }
+
+inline // Inner / Scalar / Dot
+f32 Inner(V2 A, V2 B) {
+	return A.X * B.X + A.Y * B.Y;
+}
 #pragma warning(pop)
