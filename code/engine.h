@@ -96,6 +96,7 @@ struct ProgramState {
 	TilePosition playerPos;
 	MemoryArena worldArena;
 	World world;
+	V2 playerVelocity;
 	u32 playerFaceDirection;
 	LoadedBitmap playerBitmaps[4];
 	bool isInitialized;

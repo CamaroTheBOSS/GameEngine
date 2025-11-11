@@ -67,4 +67,9 @@ V2& operator-=(V2& A, V2 B) {
 	A.Y -= B.Y;
 	return A;
 }
+
+inline
+f32 Squared(f32 A) {
+	return A * A;
+}
 #pragma warning(pop)

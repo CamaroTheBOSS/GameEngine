@@ -48,11 +48,11 @@ static u32 randomNumbers[] = {
 };
 
 internal 
-void RenderRectangle(BitmapData& bitmap, f32 X1, f32 Y1, f32 X2, f32 Y2, f32 R, f32 G, f32 B) {
-	i32 minX = RoundF32ToI32(X1);
-	i32 maxX = RoundF32ToI32(X2);
-	i32 minY = RoundF32ToI32(Y1);
-	i32 maxY = RoundF32ToI32(Y2);
+void RenderRectangle(BitmapData& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B) {
+	i32 minX = RoundF32ToI32(start.X);
+	i32 maxX = RoundF32ToI32(end.X);
+	i32 minY = RoundF32ToI32(start.Y);
+	i32 maxY = RoundF32ToI32(end.Y);
 	if (minX < 0) {
 		minX = 0;
 	}
@@ -79,10 +79,10 @@ void RenderRectangle(BitmapData& bitmap, f32 X1, f32 Y1, f32 X2, f32 Y2, f32 R, 
 }
 
 internal
-void RenderBitmap(BitmapData& screenBitmap, LoadedBitmap& loadedBitmap, f32 X1, f32 Y1) {
-	i32 minX = RoundF32ToI32(X1) - loadedBitmap.alignX;
+void RenderBitmap(BitmapData& screenBitmap, LoadedBitmap& loadedBitmap, V2 position) {
+	i32 minX = RoundF32ToI32(position.X) - loadedBitmap.alignX;
 	i32 maxX = minX + loadedBitmap.width;
-	i32 minY = RoundF32ToI32(Y1) - loadedBitmap.alignY;
+	i32 minY = RoundF32ToI32(position.Y) - loadedBitmap.alignY;
 	i32 maxY = minY + loadedBitmap.height;
 	i32 offsetX = 0;
 	i32 offsetY = 0;
@@ -209,8 +209,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->playerPos.absX = 3;
 		state->playerPos.absY = 3;
 		state->playerPos.absZ = 0;
-		state->playerPos.offset.X = 0;
-		state->playerPos.offset.Y = 0;
+		state->playerPos.offset = V2{ 0, 0 };
+		state->playerVelocity = V2{ 0, 0 };
 
 		state->worldArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
 		state->worldArena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
@@ -218,8 +218,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 		tilemap.tileCountX = 17;
 		tilemap.tileCountY = 9;
-		tilemap.tileSizeInMeters.X = 1.4f;
-		tilemap.tileSizeInMeters.Y = tilemap.tileSizeInMeters.X;
+		tilemap.tileSizeInMeters = V2{ 1.4f , 1.4f };
 		tilemap.chunkCountX = 32;
 		tilemap.chunkCountY = 32;
 		tilemap.chunkCountZ = 2;
@@ -235,8 +234,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->cameraPos.absX = tilemap.tileCountX / 2;
 		state->cameraPos.absY = tilemap.tileCountY / 2;
 		state->cameraPos.absZ = 0;
-		state->cameraPos.offset.X = 0;
-		state->cameraPos.offset.Y = 0;
+		state->cameraPos.offset = V2{0, 0};
 
 		//TODO pixelsPerMeters as world property?
 
@@ -353,52 +351,55 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->isInitialized = true;
 	}
 
-	V2 movement = {};
-	f32 speed = 1.0f;
+	V2 playerAcceleration = {};
+	f32 speed = 15.0f;
 	if (inputData.isADown) {
 		state->playerFaceDirection = 1;
-		movement.X -= 5.f;
+		playerAcceleration.X -= 5.f;
 	}
 	if (inputData.isWDown) {
 		state->playerFaceDirection = 2;
-		movement.Y += 5.f;
+		playerAcceleration.Y += 5.f;
 	}
 	if (inputData.isSDown) {
 		state->playerFaceDirection = 3;
-		movement.Y -= 5.f;
+		playerAcceleration.Y -= 5.f;
 	}
 	if (inputData.isDDown) {
 		state->playerFaceDirection = 0;
-		movement.X += 5.f;
+		playerAcceleration.X += 5.f;
 	} if (inputData.isSpaceDown) {
-		speed = 4.0f;
+		speed = 50.0f;
 	}
 	if (inputData.isEscDown) {
-		state->playerPos.offset.X = 0.f;
-		state->playerPos.offset.Y = 0.f;
+		state->playerPos.offset = V2{ 0, 0 };
 	}
-	movement *= speed * inputData.dtFrame;
-	
-	f32 playerWidth = tilemap.tileSizeInMeters.X * 0.7f;
-	f32 playerHeight = tilemap.tileSizeInMeters.Y * 0.9f;
+	playerAcceleration *= speed;
+	playerAcceleration -= 10.0f * state->playerVelocity;
+
+	V2 playerSize = { tilemap.tileSizeInMeters.X * 0.7f,
+					  tilemap.tileSizeInMeters.Y * 0.9f };
 	TilePosition nextPlayerPosition = state->playerPos;
-	nextPlayerPosition.offset.X += movement.X;
-	nextPlayerPosition.offset.Y += movement.Y;
+	nextPlayerPosition.offset += 0.5f * playerAcceleration * Squared(inputData.dtFrame) +
+								state->playerVelocity * inputData.dtFrame;
+	state->playerVelocity += playerAcceleration * inputData.dtFrame;
 	FixTilePosition(tilemap, nextPlayerPosition);
 
 	TilePosition playerNextTilePosLeft = nextPlayerPosition;
-	playerNextTilePosLeft.offset.X -= playerWidth / 2.0f;
+	playerNextTilePosLeft.offset.X -= playerSize.X / 2.0f;
 	FixTilePosition(tilemap, playerNextTilePosLeft);
 
 	TilePosition playerNextTilePosRight = nextPlayerPosition;
-	playerNextTilePosRight.offset.X += playerWidth / 2.0f;
+	playerNextTilePosRight.offset.X += playerSize.X / 2.0f;
 	FixTilePosition(tilemap, playerNextTilePosRight);
 
 	if (IsWorldPointEmpty(tilemap, nextPlayerPosition) &&
 		IsWorldPointEmpty(tilemap, playerNextTilePosLeft) &&
 		IsWorldPointEmpty(tilemap, playerNextTilePosRight)) 
 	{
-		if (!AreOnTheSameTile(state->playerPos, nextPlayerPosition)) {
+		bool theSameTile = AreOnTheSameTile(state->playerPos, nextPlayerPosition);
+		state->playerPos = nextPlayerPosition;
+		if (!theSameTile) {
 			u32 tileValue = GetTileValue(tilemap, nextPlayerPosition);
 			if (tileValue == 3) {
 				state->playerPos.absZ = 1;
@@ -407,9 +408,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				state->playerPos.absZ = 0;
 			}
 		}
-		state->playerPos.offset.X += movement.X;
-		state->playerPos.offset.Y += movement.Y;
-		FixTilePosition(tilemap, state->playerPos);
 	}
 
 	DiffTilePosition cameraPlayerDiff = Subtract(tilemap, state->playerPos, state->cameraPos);
@@ -420,11 +418,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	state->cameraPos.absZ = state->playerPos.absZ;
 
 	f32 pixelsPerMeter = 42.85714f;
-	//f32 pixelsPerMeter = 3.85714f;
-	f32 tileSizePixelsX = tilemap.tileSizeInMeters.X * pixelsPerMeter;
-	f32 tileSizePixelsY = tilemap.tileSizeInMeters.Y * pixelsPerMeter;
-	f32 lowerStartX = -tilemap.tileSizeInMeters.X * pixelsPerMeter / 2.0f;
-	f32 lowerStartY = scast(f32, bitmap.height);
+	//pixelsPerMeter = 3.85714f;
+	V2 tileSizePixels = { tilemap.tileSizeInMeters.X * pixelsPerMeter,
+						  tilemap.tileSizeInMeters.Y * pixelsPerMeter };
+	V2 lowerStart = { -tilemap.tileSizeInMeters.X * pixelsPerMeter / 2.0f,
+					  scast(f32, bitmap.height) };
 	u32 playerAbsX = state->playerPos.absX;
 	u32 playerAbsY = state->playerPos.absY;
 	u32 playerRelX = playerAbsX % tilemap.tileCountX;
@@ -432,7 +430,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	u32 cameraRelX = state->cameraPos.absX % tilemap.tileCountX;
 	u32 cameraRelY = state->cameraPos.absY % tilemap.tileCountY;
 	
-	RenderRectangle(bitmap, 0.f, 0.f, scast(f32, bitmap.width), scast(f32, bitmap.height), 1.0f, 0.f, 0.f);
+	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 1.0f, 0.f, 0.f);
 	for (i32 relRow = -20; relRow < 20; relRow++) {
 		for (i32 relCol = -20; relCol < 20; relCol++) {
 			f32 R = 1.f;
@@ -474,45 +472,41 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				G = 0.2f;
 				B = 0.2f;
 			}
-			f32 cenX = lowerStartX + (cameraRelX + relCol) * tileSizePixelsX;
-			f32 cenY = lowerStartY - (cameraRelY + relRow) * tileSizePixelsY;
-			f32 minX = cenX;
-			f32 maxX = minX + tileSizePixelsX;
-			f32 maxY = cenY;
-			f32 minY = maxY - tileSizePixelsY;
-			RenderRectangle(bitmap, minX, minY, maxX, maxY, R, G, B);
+			V2 center = { lowerStart.X + (cameraRelX + relCol) * tileSizePixels.X,
+						  lowerStart.Y - (cameraRelY + relRow) * tileSizePixels.Y};
+			V2 min = { center.X,
+					   center.Y - tileSizePixels.Y};
+			V2 max = { min.X + tileSizePixels.X,
+					   center.Y };
+			RenderRectangle(bitmap, min, max, R, G, B);
 		}
 	}
-	f32 playerPixMinX = lowerStartX + (playerRelX * tilemap.tileSizeInMeters.X + state->playerPos.offset.X - playerWidth / 2.0f) * pixelsPerMeter + tileSizePixelsX / 2.0f;
-	f32 playerPixMaxX = playerPixMinX + pixelsPerMeter * playerWidth;
-	f32 playerPixMaxY = lowerStartY - (playerRelY * tilemap.tileSizeInMeters.Y + state->playerPos.offset.Y) * pixelsPerMeter - tileSizePixelsY / 2.0f;
-	f32 playerPixMinY = playerPixMaxY - pixelsPerMeter * playerHeight;
+
+	f32 playerPixMinX = lowerStart.X + (playerRelX * tilemap.tileSizeInMeters.X + state->playerPos.offset.X - playerSize.X / 2.0f) * pixelsPerMeter + tileSizePixels.X / 2.0f;
+	f32 playerPixMaxX = playerPixMinX + pixelsPerMeter * playerSize.X;
+	f32 playerPixMaxY = lowerStart.Y - (playerRelY * tilemap.tileSizeInMeters.Y + state->playerPos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
+	f32 playerPixMinY = playerPixMaxY - pixelsPerMeter * playerSize.Y;
 	RenderRectangle(
 		bitmap,
-		playerPixMinX,
-		playerPixMinY,
-		playerPixMaxX,
-		playerPixMaxY,
+		V2{ playerPixMinX , playerPixMinY },
+		V2{ playerPixMaxX , playerPixMaxY },
 		0.f, 1.f, 1.f
 	);
 
-	f32 debugPointX1 = lowerStartX + (playerAbsX * tilemap.tileSizeInMeters.X + state->playerPos.offset.X) * pixelsPerMeter + tileSizePixelsX / 2.0f;
+	f32 debugPointX1 = lowerStart.X + (playerAbsX * tilemap.tileSizeInMeters.X + state->playerPos.offset.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
 	f32 debugPointX2 = debugPointX1 + 3;
-	f32 debugPointY2 = lowerStartY - (playerAbsY * tilemap.tileSizeInMeters.Y + state->playerPos.offset.Y) * pixelsPerMeter - tileSizePixelsY / 2.0f;
+	f32 debugPointY2 = lowerStart.Y - (playerAbsY * tilemap.tileSizeInMeters.Y + state->playerPos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
 	f32 debugPointY1 = debugPointY2 - 3;
 	RenderRectangle(
 		bitmap,
-		debugPointX1,
-		debugPointY1,
-		debugPointX2,
-		debugPointY2,
+		V2{ debugPointX1 , debugPointY1 },
+		V2{ debugPointX2 , debugPointY2 },
 		1.f, 0.f, 0.f
 	);
 
-	/*RenderBitmap(
+	RenderBitmap(
 		bitmap, 
 		state->playerBitmaps[state->playerFaceDirection],
-		playerPixMinX, 
-		playerPixMaxY
-	);*/
+		V2{ playerPixMinX , playerPixMinY + playerSize.Y * pixelsPerMeter }
+	);
 }
