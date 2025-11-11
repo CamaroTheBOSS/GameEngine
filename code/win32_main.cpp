@@ -66,6 +66,7 @@ static BITMAPINFO globalBitmapInfo;
 static SoundRenderData globalSoundData;
 static InputData globalInputData;
 static LARGE_INTEGER globalPerformanceFreq;
+WINDOWPLACEMENT globalWindowPos = { sizeof(globalWindowPos) };
 
 /* Some explanation on this code (for dynamic loading XInputGet/SetState() functions from XInput lib):
 	1. Defines are defining actual signature of these functions
@@ -446,20 +447,59 @@ void Win32ResizeBitmapMemory(BitmapData& bitmap, int newWidth, int newHeight) {
 
 internal
 void Win32DisplayWindow(HDC deviceContext, BitmapData bitmap, int width, int height) {
-	int offsetX = 10;
-	int offsetY = 10;
-	PatBlt(deviceContext, 0, 0, offsetX, 600, BLACKNESS);
-	PatBlt(deviceContext, offsetX, 0, 1000, offsetY, BLACKNESS);
-	PatBlt(deviceContext, offsetX + bitmap.width, 0, 1000, 600, BLACKNESS);
-	PatBlt(deviceContext, 0, offsetY + bitmap.height, 1000, 600, BLACKNESS);
-	StretchDIBits(
-		deviceContext,
-		offsetX, offsetY, bitmap.width, bitmap.height,
-		0, 0, bitmap.width, bitmap.height,
-		bitmap.data,
-		&globalBitmapInfo,
-		DIB_RGB_COLORS, SRCCOPY
-	);
+	// TODO change that to more shipping quality version of fullscreen
+	if (2 * bitmap.width <= scast(u32, width) && 2 * bitmap.height <= scast(u32, height)) {
+		StretchDIBits(
+			deviceContext,
+			0, 0, width, height,
+			0, 0, bitmap.width, bitmap.height,
+			bitmap.data,
+			&globalBitmapInfo,
+			DIB_RGB_COLORS, SRCCOPY
+		);
+	}
+	else {
+		int offsetX = 10;
+		int offsetY = 10;
+		PatBlt(deviceContext, 0, 0, offsetX, 600, BLACKNESS);
+		PatBlt(deviceContext, offsetX, 0, 1000, offsetY, BLACKNESS);
+		PatBlt(deviceContext, offsetX + bitmap.width, 0, 1920, 1080, BLACKNESS);
+		PatBlt(deviceContext, 0, offsetY + bitmap.height, 1000, 600, BLACKNESS);
+		StretchDIBits(
+			deviceContext,
+			offsetX, offsetY, bitmap.width, bitmap.height,
+			0, 0, bitmap.width, bitmap.height,
+			bitmap.data,
+			&globalBitmapInfo,
+			DIB_RGB_COLORS, SRCCOPY
+		);
+	}
+}
+
+internal
+void ToggleFullscreen(HWND window) {
+	DWORD style = GetWindowLong(window, GWL_STYLE);
+	if (style & WS_OVERLAPPEDWINDOW) {
+		MONITORINFO monitorInfo = { sizeof(monitorInfo) };
+		if (GetWindowPlacement(window, &globalWindowPos) &&
+			GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY), &monitorInfo)) {
+			SetWindowLong(window, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
+			SetWindowPos(window, HWND_TOP,
+				monitorInfo.rcMonitor.left, monitorInfo.rcMonitor.top,
+				monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left,
+				monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top,
+				SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+			);
+		}
+	}
+	else {
+		SetWindowLong(window, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
+		SetWindowPlacement(window, &globalWindowPos);
+		SetWindowPos(window, NULL, 0, 0, 0, 0,
+			SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+			SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+		);
+	}
 }
 
 internal
@@ -517,8 +557,9 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, InputData&
 		case WM_KEYDOWN:
 		case WM_KEYUP: {
 			u32 vkCode = static_cast<u32>(msg.wParam);
-			bool wasDown = msg.lParam & (static_cast<LPARAM>(1) << 30);
-			bool isDown = !(msg.lParam & (static_cast<LPARAM>(1) << 31));
+			bool wasDown = msg.lParam & (scast(LPARAM, 1) << 30);
+			bool isDown = !(msg.lParam & (scast(LPARAM, 1) << 31));
+			bool altIsDown = (msg.lParam & (scast(LPARAM, 1) << 29));
 			if (vkCode == 'W') {
 				inputData.isWDown = isDown;
 			}
@@ -572,6 +613,11 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, InputData&
 				}
 				if (state.dLoopRecord.recording) {
 					Win32DebugEndRecordingInput(state);
+				}
+			}
+			else if (vkCode == VK_RETURN && altIsDown) {
+				if (!wasDown) {
+					ToggleFullscreen(msg.hwnd);
 				}
 			}
 		} break;
@@ -711,6 +757,7 @@ int CALLBACK WinMain(
 	windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
 	windowClass.lpfnWndProc = Win32MainWindowCallback;
 	windowClass.hInstance = instance;
+	windowClass.hCursor = LoadCursor(0, IDC_ARROW);
 	windowClass.lpszClassName = "HandmadeWindowClass";
 
 	if (!RegisterClassExA(&windowClass)) {
