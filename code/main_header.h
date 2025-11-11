@@ -200,6 +200,7 @@ struct LoadedBitmap {
 
 struct ProgramState {
 	// Global state of the program
+	TilePosition cameraPos;
 	TilePosition playerPos;
 	MemoryArena worldArena;
 	World world;
@@ -223,4 +224,5 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {
 
 /* Common functionalities used across whole engine for LSP purposes */
 internal i32 FloorF32ToI32(f32);
+internal u32 FloorF32ToU32(f32);
 internal i32 RoundF32ToI32(f32);

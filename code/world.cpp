@@ -102,3 +102,22 @@ void FixTilePosition(TileMap& tilemap, TilePosition& position) {
 	Assert(position.X <= tilemap.tileSizeInMetersX / 2.0f);
 	Assert(position.Y <= tilemap.tileSizeInMetersY / 2.0f);
 }
+
+struct DiffTilePosition {
+	f32 dX;
+	f32 dY;
+	f32 dZ;
+};
+
+inline internal
+DiffTilePosition Subtract(TileMap& tilemap, TilePosition& first, TilePosition& second) {
+	DiffTilePosition diff = {};
+	f32 firstMetersX = scast(f32, first.absX * tilemap.tileSizeInMetersX) + first.X;
+	f32 firstMetersY = scast(f32, first.absY * tilemap.tileSizeInMetersY) + first.Y;
+	f32 secondMetersX = scast(f32, second.absX * tilemap.tileSizeInMetersX) + second.X;
+	f32 secondMetersY = scast(f32, second.absY * tilemap.tileSizeInMetersY) + second.Y;
+	diff.dX = firstMetersX - secondMetersX;
+	diff.dY = firstMetersY - secondMetersY;
+	diff.dZ = scast(f32, first.absZ) - scast(f32, second.absZ);
+	return diff;
+}

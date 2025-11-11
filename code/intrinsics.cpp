@@ -11,6 +11,11 @@ i32 FloorF32ToI32(f32 value) {
 	return scast(i32, floorf(value));
 }
 
+internal
+u32 FloorF32ToU32(f32 value) {
+	return scast(u32, floorf(value));
+}
+
 struct BitwiseSearchResult {
 	bool found;
 	u32 index;
