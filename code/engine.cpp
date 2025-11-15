@@ -202,15 +202,163 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 	return result;
 }
 
+inline internal
+u32 AddEntity(ProgramState* state, const Entity& entity) {
+	if (state->entityCount < ArrayCount(state->entities, Entity)) {
+		state->entities[state->entityCount] = entity;
+		state->entityCount++;
+		return state->entityCount - 1;
+	}
+	return 0;
+}
+
+inline internal
+Entity* GetEntity(ProgramState* state, u32 index) {
+	Entity* entity = 0;
+	if (index > 0 && index < state->entityCount) {
+		entity = &state->entities[index];
+	}
+	return entity;
+}
+
+inline internal
+u32 InitializePlayer(ProgramState* state) {
+	Entity player = {};
+	player.pos.absX = 3;
+	player.pos.absY = 3;
+	player.pos.absZ = 0;
+	player.pos.offset = V2{ 0, 0 };
+	player.vel = V2{ 0, 0 };
+	player.faceDir = 0;
+	player.size = { state->world.tilemap.tileSizeInMeters.X * 0.7f,
+					state->world.tilemap.tileSizeInMeters.Y * 0.9f };
+	u32 index = AddEntity(state, player);
+	if (!state->cameraEntityIndex) {
+		state->cameraEntityIndex = index;
+	}
+	return index;
+}
+
+internal
+void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
+	if (!player) {
+		return;
+	}
+	V2 playerAcceleration = {};
+	f32 speed = 15.0f;
+	if (controller.isADown) {
+		player->faceDir = 1;
+		playerAcceleration.X -= 5.f;
+	}
+	if (controller.isWDown) {
+		player->faceDir = 2;
+		playerAcceleration.Y += 5.f;
+	}
+	if (controller.isSDown) {
+		player->faceDir = 3;
+		playerAcceleration.Y -= 5.f;
+	}
+	if (controller.isDDown) {
+		player->faceDir = 0;
+		playerAcceleration.X += 5.f;
+	}
+	if (controller.isSpaceDown) {
+		speed = 50.0f;
+	}
+	if (controller.isEscDown) {
+		player->pos.offset = V2{ 0, 0 };
+	}
+	playerAcceleration *= speed;
+	playerAcceleration -= 10.0f * player->vel;
+
+	TilePosition nextPlayerPosition = player->pos;
+	nextPlayerPosition.offset += 0.5f * playerAcceleration * Squared(controller.dtFrame) +
+		player->vel * controller.dtFrame;
+	player->vel += playerAcceleration * controller.dtFrame;
+	FixTilePosition(tilemap, nextPlayerPosition);
+
+	TilePosition playerNextTilePosLeft = nextPlayerPosition;
+	playerNextTilePosLeft.offset.X -= player->size.X / 2.0f;
+	FixTilePosition(tilemap, playerNextTilePosLeft);
+
+	TilePosition playerNextTilePosRight = nextPlayerPosition;
+	playerNextTilePosRight.offset.X += player->size.X / 2.0f;
+	FixTilePosition(tilemap, playerNextTilePosRight);
+
+	bool collided = false;
+	TilePosition collisionPos = {};
+	TilePosition playerCurrPosForCollision = player->pos;
+	if (!IsWorldPointEmpty(tilemap, nextPlayerPosition)) {
+		collided = true;
+		collisionPos = nextPlayerPosition;
+	}
+	else if (!IsWorldPointEmpty(tilemap, playerNextTilePosLeft)) {
+		collided = true;
+		collisionPos = playerNextTilePosLeft;
+		playerCurrPosForCollision.offset.X -= player->size.X / 2.0f;
+		FixTilePosition(tilemap, playerCurrPosForCollision);
+	}
+	else if (!IsWorldPointEmpty(tilemap, playerNextTilePosRight)) {
+		collided = true;
+		collisionPos = playerNextTilePosRight;
+		playerCurrPosForCollision.offset.X += player->size.X / 2.0f;
+		FixTilePosition(tilemap, playerCurrPosForCollision);
+	}
+
+	if (collided)
+	{
+		V2 normalToWall = V2{ 0, 0 };
+		if (collisionPos.absX < playerCurrPosForCollision.absX) {
+			normalToWall = V2{ 1, 0 };
+		}
+		else if (collisionPos.absX > playerCurrPosForCollision.absX) {
+			normalToWall = V2{ -1, 0 };
+		}
+		else if (collisionPos.absY < playerCurrPosForCollision.absY) {
+			normalToWall = V2{ 0, 1 };
+		}
+		else if (collisionPos.absY > playerCurrPosForCollision.absY) {
+			normalToWall = V2{ 0, -1 };
+		}
+		player->vel -= 2.f * Inner(player->vel, normalToWall) * normalToWall;
+	}
+	else {
+		bool theSameTile = AreOnTheSameTile(player->pos, nextPlayerPosition);
+		player->pos = nextPlayerPosition;
+		if (!theSameTile) {
+			u32 tileValue = GetTileValue(tilemap, nextPlayerPosition);
+			if (tileValue == 3) {
+				player->pos.absZ = 1;
+			}
+			else if (tileValue == 4) {
+				player->pos.absZ = 0;
+			}
+		}
+	}
+}
+
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	TileMap& tilemap = state->world.tilemap;
 	if (!state->isInitialized) {
-		state->playerPos.absX = 3;
-		state->playerPos.absY = 3;
-		state->playerPos.absZ = 0;
-		state->playerPos.offset = V2{ 0, 0 };
-		state->playerVelocity = V2{ 0, 0 };
+		AddEntity(state, {}); // Added null entity
+		state->playerEntityIndexes[KB_CONTROLLER_IDX] = InitializePlayer(state);
+
+		state->playerMoveAnim[0] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-right.bmp");
+		state->playerMoveAnim[0].alignX = 0;
+		state->playerMoveAnim[0].alignY = 55;
+
+		state->playerMoveAnim[1] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-left.bmp");
+		state->playerMoveAnim[1].alignX = 0;
+		state->playerMoveAnim[1].alignY = 55;
+
+		state->playerMoveAnim[2] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-up.bmp");
+		state->playerMoveAnim[2].alignX = 0;
+		state->playerMoveAnim[2].alignY = 55;
+
+		state->playerMoveAnim[3] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-down.bmp");
+		state->playerMoveAnim[3].alignX = 0;
+		state->playerMoveAnim[3].alignY = 55;
 
 		state->worldArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
 		state->worldArena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
@@ -330,125 +478,25 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				lvlJustChanged = false;
 			}
 		}
-		state->playerBitmaps[0] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-right.bmp");
-		state->playerBitmaps[0].alignX = 0;
-		state->playerBitmaps[0].alignY = 55;
-		
-		state->playerBitmaps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-left.bmp");
-		state->playerBitmaps[1].alignX = 0;
-		state->playerBitmaps[1].alignY = 55;
-
-		state->playerBitmaps[2] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-up.bmp");
-		state->playerBitmaps[2].alignX = 0;
-		state->playerBitmaps[2].alignY = 55;
-
-		state->playerBitmaps[3] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-down.bmp");
-		state->playerBitmaps[3].alignX = 0;
-		state->playerBitmaps[3].alignY = 55;
-
-		state->playerFaceDirection = 0;
 
 		state->isInitialized = true;
 	}
 
-	V2 playerAcceleration = {};
-	f32 speed = 15.0f;
-	if (inputData.isADown) {
-		state->playerFaceDirection = 1;
-		playerAcceleration.X -= 5.f;
+	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
+		Entity* player = GetEntity(state, state->playerEntityIndexes[playerIdx]);
+		MovePlayer(tilemap, controllers[KB_CONTROLLER_IDX], player);
 	}
-	if (inputData.isWDown) {
-		state->playerFaceDirection = 2;
-		playerAcceleration.Y += 5.f;
+	
+	Entity* cameraEntity = GetEntity(state, state->cameraEntityIndex);
+	if (cameraEntity) {
+		DiffTilePosition cameraPlayerDiff = Subtract(tilemap, cameraEntity->pos, state->cameraPos);
+		i32 cameraMoveX = scast(i32, (cameraPlayerDiff.dX / (tilemap.tileSizeInMeters.X * scast(f32, tilemap.tileCountX) / 2.f)));
+		i32 cameraMoveY = scast(i32, (cameraPlayerDiff.dY / (tilemap.tileSizeInMeters.Y * scast(f32, tilemap.tileCountY) / 2.f)));
+		state->cameraPos.absX += cameraMoveX * tilemap.tileCountX;
+		state->cameraPos.absY += cameraMoveY * tilemap.tileCountY;
+		state->cameraPos.absZ = cameraEntity->pos.absZ;
 	}
-	if (inputData.isSDown) {
-		state->playerFaceDirection = 3;
-		playerAcceleration.Y -= 5.f;
-	}
-	if (inputData.isDDown) {
-		state->playerFaceDirection = 0;
-		playerAcceleration.X += 5.f;
-	} if (inputData.isSpaceDown) {
-		speed = 50.0f;
-	}
-	if (inputData.isEscDown) {
-		state->playerPos.offset = V2{ 0, 0 };
-	}
-	playerAcceleration *= speed;
-	playerAcceleration -= 10.0f * state->playerVelocity;
-
-	V2 playerSize = { tilemap.tileSizeInMeters.X * 0.7f,
-					  tilemap.tileSizeInMeters.Y * 0.9f };
-	TilePosition nextPlayerPosition = state->playerPos;
-	nextPlayerPosition.offset += 0.5f * playerAcceleration * Squared(inputData.dtFrame) +
-								state->playerVelocity * inputData.dtFrame;
-	state->playerVelocity += playerAcceleration * inputData.dtFrame;
-	FixTilePosition(tilemap, nextPlayerPosition);
-
-	TilePosition playerNextTilePosLeft = nextPlayerPosition;
-	playerNextTilePosLeft.offset.X -= playerSize.X / 2.0f;
-	FixTilePosition(tilemap, playerNextTilePosLeft);
-
-	TilePosition playerNextTilePosRight = nextPlayerPosition;
-	playerNextTilePosRight.offset.X += playerSize.X / 2.0f;
-	FixTilePosition(tilemap, playerNextTilePosRight);
-
-	bool collided = false;
-	TilePosition collisionPos = {};
-	TilePosition playerCurrPosForCollision = state->playerPos;
-	if (!IsWorldPointEmpty(tilemap, nextPlayerPosition)) {
-		collided = true;
-		collisionPos = nextPlayerPosition;
-	}
-	else if (!IsWorldPointEmpty(tilemap, playerNextTilePosLeft)) {
-		collided = true;
-		collisionPos = playerNextTilePosLeft;
-		playerCurrPosForCollision.offset.X -= playerSize.X / 2.0f;
-		FixTilePosition(tilemap, playerCurrPosForCollision);
-	}
-	else if (!IsWorldPointEmpty(tilemap, playerNextTilePosRight)) {
-		collided = true;
-		collisionPos = playerNextTilePosRight;
-		playerCurrPosForCollision.offset.X += playerSize.X / 2.0f;
-		FixTilePosition(tilemap, playerCurrPosForCollision);
-	}
-
-	if (collided)
-	{
-		V2 normalToWall = V2{ 0, 0 };
-		if (collisionPos.absX < playerCurrPosForCollision.absX) {
-			normalToWall = V2{ 1, 0 };
-		} else if (collisionPos.absX > playerCurrPosForCollision.absX) {
-			normalToWall = V2{ -1, 0 };
-		}
-		else if (collisionPos.absY < playerCurrPosForCollision.absY) {
-			normalToWall = V2{ 0, 1 };
-		}
-		else if (collisionPos.absY > playerCurrPosForCollision.absY) {
-			normalToWall = V2{ 0, -1 };
-		}
-		state->playerVelocity -= 2.f * Inner(state->playerVelocity, normalToWall) * normalToWall;
-	}
-	else {
-		bool theSameTile = AreOnTheSameTile(state->playerPos, nextPlayerPosition);
-		state->playerPos = nextPlayerPosition;
-		if (!theSameTile) {
-			u32 tileValue = GetTileValue(tilemap, nextPlayerPosition);
-			if (tileValue == 3) {
-				state->playerPos.absZ = 1;
-			}
-			else if (tileValue == 4) {
-				state->playerPos.absZ = 0;
-			}
-		}
-	}
-
-	DiffTilePosition cameraPlayerDiff = Subtract(tilemap, state->playerPos, state->cameraPos);
-	i32 cameraMoveX = scast(i32, (cameraPlayerDiff.dX / (tilemap.tileSizeInMeters.X * scast(f32, tilemap.tileCountX) / 2.f)));
-	i32 cameraMoveY = scast(i32, (cameraPlayerDiff.dY / (tilemap.tileSizeInMeters.Y * scast(f32, tilemap.tileCountY) / 2.f)));
-	state->cameraPos.absX += cameraMoveX * tilemap.tileCountX;
-	state->cameraPos.absY += cameraMoveY * tilemap.tileCountY;
-	state->cameraPos.absZ = state->playerPos.absZ;
+	
 
 	f32 pixelsPerMeter = 42.85714f;
 	//pixelsPerMeter = 3.85714f;
@@ -456,8 +504,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 						  tilemap.tileSizeInMeters.Y * pixelsPerMeter };
 	V2 lowerStart = { -tilemap.tileSizeInMeters.X * pixelsPerMeter / 2.0f,
 					  scast(f32, bitmap.height) };
-	u32 playerAbsX = state->playerPos.absX;
-	u32 playerAbsY = state->playerPos.absY;
+	u32 playerAbsX = cameraEntity->pos.absX; // TODO NO PLAYERABSX IN RENDERING TILEMAP!!!! ONLY CAMERA
+	u32 playerAbsY = cameraEntity->pos.absY;
 	u32 playerRelX = playerAbsX % tilemap.tileCountX;
 	u32 playerRelY = playerAbsY % tilemap.tileCountY;
 	u32 cameraRelX = state->cameraPos.absX % tilemap.tileCountX;
@@ -515,10 +563,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 
-	f32 playerPixMinX = lowerStart.X + (playerRelX * tilemap.tileSizeInMeters.X + state->playerPos.offset.X - playerSize.X / 2.0f) * pixelsPerMeter + tileSizePixels.X / 2.0f;
-	f32 playerPixMaxX = playerPixMinX + pixelsPerMeter * playerSize.X;
-	f32 playerPixMaxY = lowerStart.Y - (playerRelY * tilemap.tileSizeInMeters.Y + state->playerPos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
-	f32 playerPixMinY = playerPixMaxY - pixelsPerMeter * playerSize.Y;
+	f32 playerPixMinX = lowerStart.X + (playerRelX * tilemap.tileSizeInMeters.X + cameraEntity->pos.offset.X - cameraEntity->size.X / 2.0f) * pixelsPerMeter + tileSizePixels.X / 2.0f;
+	f32 playerPixMaxX = playerPixMinX + pixelsPerMeter * cameraEntity->size.X;
+	f32 playerPixMaxY = lowerStart.Y - (playerRelY * tilemap.tileSizeInMeters.Y + cameraEntity->pos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
+	f32 playerPixMinY = playerPixMaxY - pixelsPerMeter * cameraEntity->size.Y;
 	RenderRectangle(
 		bitmap,
 		V2{ playerPixMinX , playerPixMinY },
@@ -526,9 +574,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		0.f, 1.f, 1.f
 	);
 
-	f32 debugPointX1 = lowerStart.X + (playerAbsX * tilemap.tileSizeInMeters.X + state->playerPos.offset.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
+	f32 debugPointX1 = lowerStart.X + (playerAbsX * tilemap.tileSizeInMeters.X + cameraEntity->pos.offset.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
 	f32 debugPointX2 = debugPointX1 + 3;
-	f32 debugPointY2 = lowerStart.Y - (playerAbsY * tilemap.tileSizeInMeters.Y + state->playerPos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
+	f32 debugPointY2 = lowerStart.Y - (playerAbsY * tilemap.tileSizeInMeters.Y + cameraEntity->pos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
 	f32 debugPointY1 = debugPointY2 - 3;
 	RenderRectangle(
 		bitmap,
@@ -537,9 +585,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		1.f, 0.f, 0.f
 	);
 
-	RenderBitmap(
+	/*RenderBitmap(
 		bitmap, 
-		state->playerBitmaps[state->playerFaceDirection],
-		V2{ playerPixMinX , playerPixMinY + playerSize.Y * pixelsPerMeter }
-	);
+		state->playerMoveAnim[cameraEntity->faceDir],
+		V2{ playerPixMinX , playerPixMinY + cameraEntity->size.Y * pixelsPerMeter }
+	);*/
 }

@@ -23,7 +23,9 @@ struct TimeData {
 	// Platform independent struct for everything connected with time like delta between frames.
 };
 
-struct InputData {
+#define MAX_CONTROLLERS 5
+#define KB_CONTROLLER_IDX (MAX_CONTROLLERS - 4)
+struct Controller {
 	// Platform independent user input
 	bool isWDown = false;
 	bool isSDown = false;
@@ -77,10 +79,6 @@ struct ProgramMemory {
 	debug_free_file* debugFreeFile;
 };
 
-struct World {
-	TileMap tilemap;
-};
-
 struct LoadedBitmap {
 	u32* data;
 	u32 height;
@@ -90,21 +88,33 @@ struct LoadedBitmap {
 	u32 alignY;
 };
 
+struct Entity {
+	TilePosition pos;
+	V2 size;
+	V2 vel;
+	u32 faceDir;
+};
+
+struct World {
+	TileMap tilemap;
+};
+
 struct ProgramState {
 	// Global state of the program
 	TilePosition cameraPos;
-	TilePosition playerPos;
 	MemoryArena worldArena;
 	World world;
-	V2 playerVelocity;
-	u32 playerFaceDirection;
-	LoadedBitmap playerBitmaps[4];
+	Entity entities[256];
+	u32 playerEntityIndexes[MAX_CONTROLLERS];
+	u32 cameraEntityIndex;
+	LoadedBitmap playerMoveAnim[4];
+	u32 entityCount;
 	bool isInitialized;
 };
 
 #include <stdlib.h>
 /* Functionalities served by the program layer for platform layer */
-#define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, InputData& inputData)
+#define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, Controller* controllers)
 typedef GAME_MAIN_LOOP_FRAME(game_main_loop_frame);
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {
 	float* data = reinterpret_cast<float*>(soundData.data);

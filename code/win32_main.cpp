@@ -64,7 +64,6 @@ static bool globalRunning;
 static BitmapData globalBitmap;
 static BITMAPINFO globalBitmapInfo;
 static SoundRenderData globalSoundData;
-static InputData globalInputData;
 static LARGE_INTEGER globalPerformanceFreq;
 WINDOWPLACEMENT globalWindowPos = { sizeof(globalWindowPos) };
 
@@ -344,7 +343,7 @@ void Win32DebugStartRecordingInput(Win32State& state, ProgramMemory& memory) {
 }
 
 internal
-void Win32DebugRecordInput(Win32State& state, InputData& data) {
+void Win32DebugRecordInput(Win32State& state, Controller& data) {
 	DWORD bytesWritten;
 	Assert(state.dLoopRecord.recording);
 	Assert(!state.dLoopRecord.replaying);
@@ -384,7 +383,7 @@ void Win32DebugStartReplayingInput(Win32State& state, ProgramMemory& memory) {
 }
 
 internal
-void Win32DebugReplayInput(Win32State& state, ProgramMemory& memory, InputData& data) {
+void Win32DebugReplayInput(Win32State& state, ProgramMemory& memory, Controller& data) {
 	DWORD bytesRead;
 	Assert(!state.dLoopRecord.recording);
 	Assert(state.dLoopRecord.replaying);
@@ -544,7 +543,7 @@ LRESULT CALLBACK Win32MainWindowCallback(
 }
 
 internal 
-void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, InputData& inputData) {
+void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller& controller) {
 	MSG msg = {};
 	while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE)) {
 		switch (msg.message) {
@@ -561,34 +560,34 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, InputData&
 			bool isDown = !(msg.lParam & (scast(LPARAM, 1) << 31));
 			bool altIsDown = (msg.lParam & (scast(LPARAM, 1) << 29));
 			if (vkCode == 'W') {
-				inputData.isWDown = isDown;
+				controller.isWDown = isDown;
 			}
 			else if (vkCode == 'A') {
-				inputData.isADown = isDown;
+				controller.isADown = isDown;
 			}
 			else if (vkCode == 'S') {
-				inputData.isSDown = isDown;
+				controller.isSDown = isDown;
 			}
 			else if (vkCode == 'D') {
-				inputData.isDDown = isDown;
+				controller.isDDown = isDown;
 			}
 			else if (vkCode == VK_UP) {
-				inputData.isUpDown = isDown;
+				controller.isUpDown = isDown;
 			}
 			else if (vkCode == VK_LEFT) {
-				inputData.isLeftDown = isDown;
+				controller.isLeftDown = isDown;
 			}
 			else if (vkCode == VK_DOWN) {
-				inputData.isDownDown = isDown;
+				controller.isDownDown = isDown;
 			}
 			else if (vkCode == VK_RIGHT) {
-				inputData.isRightDown = isDown;
+				controller.isRightDown = isDown;
 			}
 			else if (vkCode == VK_SPACE) {
-				inputData.isSpaceDown = isDown;
+				controller.isSpaceDown = isDown;
 			}
 			else if (vkCode == VK_ESCAPE) {
-				inputData.isEscDown = isDown;
+				controller.isEscDown = isDown;
 			}
 			else if (vkCode == 'L') {
 				if (!wasDown) {
@@ -607,7 +606,7 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, InputData&
 				}
 			}
 			else if (vkCode == 'P') {
-				inputData = InputData{};
+				controller = {};
 				if (state.dLoopRecord.replaying) {
 					Win32DebugEndReplayingInput(state);
 				}
@@ -630,35 +629,33 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, InputData&
 	POINT point;
 	GetCursorPos(&point);
 	ScreenToClient(state.window, &point);
-	inputData.mouseX = point.x;
-	inputData.mouseY = point.y;
-	inputData.isMouseMDown = GetKeyState(VK_MBUTTON) >> 15;
-	inputData.isMouseRDown = GetKeyState(VK_RBUTTON) >> 15;
-	inputData.isMouseLDown = GetKeyState(VK_LBUTTON) >> 15;
-	inputData.isMouse1BDown = GetKeyState(VK_XBUTTON1) >> 15;
-	inputData.isMouse2BDown = GetKeyState(VK_XBUTTON2) >> 15;
+	controller.mouseX = point.x;
+	controller.mouseY = point.y;
+	controller.isMouseMDown = GetKeyState(VK_MBUTTON) >> 15;
+	controller.isMouseRDown = GetKeyState(VK_RBUTTON) >> 15;
+	controller.isMouseLDown = GetKeyState(VK_LBUTTON) >> 15;
+	controller.isMouse1BDown = GetKeyState(VK_XBUTTON1) >> 15;
+	controller.isMouse2BDown = GetKeyState(VK_XBUTTON2) >> 15;
 }
 
 internal
-void Win32GatherGamepadInput(InputData& inputData) {
-	for (DWORD controllerIndex = 0; controllerIndex < XUSER_MAX_COUNT; controllerIndex++) {
+void Win32GatherGamepadInput(Controller& controller, DWORD cIndex) {
 		XINPUT_STATE state = {};
-		auto errCode = XInputGetState(controllerIndex, &state);
+		auto errCode = XInputGetState(cIndex, &state);
 		if (errCode != ERROR_SUCCESS) {
 			//TODO log errCode with error listed in Winerror.h
-			continue;
+			return;
 		}
-		inputData.isWDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP;
-		inputData.isSDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
-		inputData.isADown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
-		inputData.isDDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
-		inputData.isSpaceDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_START;
-		inputData.isEscDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_BACK;
-		inputData.isLeftDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_A;
-		inputData.isRightDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_B;
-		inputData.isDownDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_X;
-		inputData.isUpDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_Y;
-	}
+		controller.isWDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP;
+		controller.isSDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
+		controller.isADown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
+		controller.isDDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
+		controller.isSpaceDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_START;
+		controller.isEscDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_BACK;
+		controller.isLeftDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_A;
+		controller.isRightDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_B;
+		controller.isDownDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_X;
+		controller.isUpDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_Y;
 }
 
 inline internal
@@ -797,6 +794,7 @@ int CALLBACK WinMain(
 	}
 	Win32GameCode gameCode = {};
 	SoundData soundData = {};
+	Controller controllers[5];
 
 
 	DWORD length = GetModuleFileNameA(0, win32State.exeFilePath, MY_MAX_PATH);
@@ -829,15 +827,18 @@ int CALLBACK WinMain(
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 	while (globalRunning) {
 		Win32ReloadGameCode(gameCode);
-		Win32ProcessOSMessages(win32State, programMemory, globalInputData);
-		Win32GatherGamepadInput(globalInputData);
+		Win32ProcessOSMessages(win32State, programMemory, controllers[KB_CONTROLLER_IDX]);
+		for (DWORD cIndex = 0; cIndex < XUSER_MAX_COUNT; cIndex++) {
+			Win32GatherGamepadInput(controllers[cIndex], cIndex);
+			controllers[cIndex].dtFrame = targetFrameRefreshSeconds;
+		}
 		if (win32State.dLoopRecord.recording) {
-			Win32DebugRecordInput(win32State, globalInputData);
+			Win32DebugRecordInput(win32State, controllers[KB_CONTROLLER_IDX]);
 		}
 		else if (win32State.dLoopRecord.replaying) {
-			Win32DebugReplayInput(win32State, programMemory, globalInputData);
+			Win32DebugReplayInput(win32State, programMemory, controllers[KB_CONTROLLER_IDX]);
 		}
-		globalInputData.dtFrame = targetFrameRefreshSeconds;
+		controllers[KB_CONTROLLER_IDX].dtFrame = targetFrameRefreshSeconds;
 		
 
 		// PART: Preparing SoundData structure for game main loop
@@ -860,7 +861,7 @@ int CALLBACK WinMain(
 		soundData.nChannels = globalSoundData.dataFormat.Format.nChannels;
 
 		// PART: Game main loop
-		gameCode.GameMainLoopFrame(programMemory, globalBitmap, soundData, globalInputData);
+		gameCode.GameMainLoopFrame(programMemory, globalBitmap, soundData, controllers);
 
 	
 		// PART: Timing stuff
