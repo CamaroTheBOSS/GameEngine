@@ -342,24 +342,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TileMap& tilemap = state->world.tilemap;
 	if (!state->isInitialized) {
 		AddEntity(state, {}); // Added null entity
-		state->playerEntityIndexes[KB_CONTROLLER_IDX] = InitializePlayer(state);
-
-		state->playerMoveAnim[0] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-right.bmp");
-		state->playerMoveAnim[0].alignX = 0;
-		state->playerMoveAnim[0].alignY = 55;
-
-		state->playerMoveAnim[1] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-left.bmp");
-		state->playerMoveAnim[1].alignX = 0;
-		state->playerMoveAnim[1].alignY = 55;
-
-		state->playerMoveAnim[2] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-up.bmp");
-		state->playerMoveAnim[2].alignX = 0;
-		state->playerMoveAnim[2].alignY = 55;
-
-		state->playerMoveAnim[3] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-down.bmp");
-		state->playerMoveAnim[3].alignX = 0;
-		state->playerMoveAnim[3].alignY = 55;
-
+		
 		state->worldArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
 		state->worldArena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
 		state->worldArena.used = 0;
@@ -383,6 +366,22 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->cameraPos.absY = tilemap.tileCountY / 2;
 		state->cameraPos.absZ = 0;
 		state->cameraPos.offset = V2{0, 0};
+
+		state->playerMoveAnim[0] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-right.bmp");
+		state->playerMoveAnim[0].alignX = 0;
+		state->playerMoveAnim[0].alignY = 55;
+
+		state->playerMoveAnim[1] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-left.bmp");
+		state->playerMoveAnim[1].alignX = 0;
+		state->playerMoveAnim[1].alignY = 55;
+
+		state->playerMoveAnim[2] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-up.bmp");
+		state->playerMoveAnim[2].alignX = 0;
+		state->playerMoveAnim[2].alignY = 55;
+
+		state->playerMoveAnim[3] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-down.bmp");
+		state->playerMoveAnim[3].alignX = 0;
+		state->playerMoveAnim[3].alignY = 55;
 
 		//TODO pixelsPerMeters as world property?
 
@@ -483,8 +482,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
+		if (controllers[playerIdx].isSpaceDown && state->playerEntityIndexes[playerIdx] == 0) {
+			state->playerEntityIndexes[playerIdx] = InitializePlayer(state);
+		}
 		Entity* player = GetEntity(state, state->playerEntityIndexes[playerIdx]);
-		MovePlayer(tilemap, controllers[KB_CONTROLLER_IDX], player);
+		MovePlayer(tilemap, controllers[playerIdx], player);
 	}
 	
 	Entity* cameraEntity = GetEntity(state, state->cameraEntityIndex);
@@ -504,21 +506,24 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 						  tilemap.tileSizeInMeters.Y * pixelsPerMeter };
 	V2 lowerStart = { -tilemap.tileSizeInMeters.X * pixelsPerMeter / 2.0f,
 					  scast(f32, bitmap.height) };
-	u32 playerAbsX = cameraEntity->pos.absX; // TODO NO PLAYERABSX IN RENDERING TILEMAP!!!! ONLY CAMERA
-	u32 playerAbsY = cameraEntity->pos.absY;
-	u32 playerRelX = playerAbsX % tilemap.tileCountX;
-	u32 playerRelY = playerAbsY % tilemap.tileCountY;
+	
+	
+	u32 cameraEntityRelX = UINT32_MAX;
+	u32 cameraEntityRelY = UINT32_MAX;
+	if (cameraEntity) {
+		u32 cameraEntityAbsX = cameraEntity->pos.absX; // TODO NO PLAYERABSX IN RENDERING TILEMAP!!!! ONLY CAMERA
+		u32 cameraEntityAbsY = cameraEntity->pos.absY;
+		cameraEntityRelX = cameraEntityAbsX % tilemap.tileCountX;
+		cameraEntityRelY = cameraEntityAbsY % tilemap.tileCountY;
+	}
 	u32 cameraRelX = state->cameraPos.absX % tilemap.tileCountX;
 	u32 cameraRelY = state->cameraPos.absY % tilemap.tileCountY;
-	
 	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 1.0f, 0.f, 0.f);
 	for (i32 relRow = -20; relRow < 20; relRow++) {
 		for (i32 relCol = -20; relCol < 20; relCol++) {
 			f32 R = 1.f;
 			f32 G = 1.f;
 			f32 B = 1.f;
-			u32 playerMapX = (playerAbsX / tilemap.tileCountX) * tilemap.tileCountX;
-			u32 playerMapY = (playerAbsY / tilemap.tileCountY) * tilemap.tileCountY;
 			u32 tile = GetTileValue(
 				tilemap,
 				state->cameraPos.absX + relCol,
@@ -548,7 +553,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			else if (tile == 0) {
 				continue;
 			}
-			if (scast(u32, relRow) == (playerRelY - cameraRelY) && scast(u32, relCol) == (playerRelX - cameraRelX)) {
+			if (scast(u32, relRow) == (cameraEntityRelY - cameraRelY) && scast(u32, relCol) == (cameraEntityRelX - cameraRelX)) {
 				R = 0.2f;
 				G = 0.2f;
 				B = 0.2f;
@@ -563,31 +568,40 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 
-	f32 playerPixMinX = lowerStart.X + (playerRelX * tilemap.tileSizeInMeters.X + cameraEntity->pos.offset.X - cameraEntity->size.X / 2.0f) * pixelsPerMeter + tileSizePixels.X / 2.0f;
-	f32 playerPixMaxX = playerPixMinX + pixelsPerMeter * cameraEntity->size.X;
-	f32 playerPixMaxY = lowerStart.Y - (playerRelY * tilemap.tileSizeInMeters.Y + cameraEntity->pos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
-	f32 playerPixMinY = playerPixMaxY - pixelsPerMeter * cameraEntity->size.Y;
-	RenderRectangle(
-		bitmap,
-		V2{ playerPixMinX , playerPixMinY },
-		V2{ playerPixMaxX , playerPixMaxY },
-		0.f, 1.f, 1.f
-	);
+	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
+		Entity* player = GetEntity(state, state->playerEntityIndexes[playerIdx]);
+		if (!player) {
+			continue;
+		}
+		u32 playerRelX = player->pos.absX % tilemap.tileCountX;
+		u32 playerRelY = player->pos.absY % tilemap.tileCountY;
 
-	f32 debugPointX1 = lowerStart.X + (playerAbsX * tilemap.tileSizeInMeters.X + cameraEntity->pos.offset.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
-	f32 debugPointX2 = debugPointX1 + 3;
-	f32 debugPointY2 = lowerStart.Y - (playerAbsY * tilemap.tileSizeInMeters.Y + cameraEntity->pos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
-	f32 debugPointY1 = debugPointY2 - 3;
-	RenderRectangle(
-		bitmap,
-		V2{ debugPointX1 , debugPointY1 },
-		V2{ debugPointX2 , debugPointY2 },
-		1.f, 0.f, 0.f
-	);
+		f32 playerPixMinX = lowerStart.X + (playerRelX * tilemap.tileSizeInMeters.X + player->pos.offset.X - player->size.X / 2.0f) * pixelsPerMeter + tileSizePixels.X / 2.0f;
+		f32 playerPixMaxX = playerPixMinX + pixelsPerMeter * player->size.X;
+		f32 playerPixMaxY = lowerStart.Y - (playerRelY * tilemap.tileSizeInMeters.Y + player->pos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
+		f32 playerPixMinY = playerPixMaxY - pixelsPerMeter * player->size.Y;
+		RenderRectangle(
+			bitmap,
+			V2{ playerPixMinX , playerPixMinY },
+			V2{ playerPixMaxX , playerPixMaxY },
+			0.f, 1.f, 1.f
+		);
 
-	/*RenderBitmap(
-		bitmap, 
-		state->playerMoveAnim[cameraEntity->faceDir],
-		V2{ playerPixMinX , playerPixMinY + cameraEntity->size.Y * pixelsPerMeter }
-	);*/
+		f32 debugPointX1 = lowerStart.X + (player->pos.absX * tilemap.tileSizeInMeters.X + player->pos.offset.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
+		f32 debugPointX2 = debugPointX1 + 3;
+		f32 debugPointY2 = lowerStart.Y - (player->pos.absY * tilemap.tileSizeInMeters.Y + player->pos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
+		f32 debugPointY1 = debugPointY2 - 3;
+		RenderRectangle(
+			bitmap,
+			V2{ debugPointX1 , debugPointY1 },
+			V2{ debugPointX2 , debugPointY2 },
+			1.f, 0.f, 0.f
+		);
+
+		RenderBitmap(
+			bitmap,
+			state->playerMoveAnim[player->faceDir],
+			V2{ playerPixMinX , playerPixMinY + player->size.Y * pixelsPerMeter }
+		);
+	}
 }
