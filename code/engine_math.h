@@ -1,5 +1,6 @@
 #pragma once
 #include "engine_common.h"
+#include "engine_intrinsics.h"
 #pragma warning(push)
 #pragma warning(disable : 4201)
 
@@ -76,5 +77,13 @@ f32 Squared(f32 A) {
 inline // Inner / Scalar / Dot
 f32 Inner(V2 A, V2 B) {
 	return A.X * B.X + A.Y * B.Y;
+}
+
+inline f32 LengthSq(V2 A) {
+	return Inner(A, A);
+}
+
+inline f32 Length(V2 A) {
+	return SquareRoot(LengthSq(A));
 }
 #pragma warning(pop)

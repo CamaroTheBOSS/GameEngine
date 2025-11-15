@@ -68,11 +68,25 @@ void SetTileValue(MemoryArena& arena, TileMap& tilemap, u32 absX, u32 absY, u32 
 }
 
 inline
+TilePosition CenteredTilePosition(u32 absX, u32 absY, u32 absZ) {
+	TilePosition pos = {};
+	pos.absX = absX;
+	pos.absY = absY;
+	pos.absZ = absZ;
+	return pos;
+}
+
+inline
+bool IsTileValueEmpty(u32 tileValue) {
+	return tileValue == 1 || tileValue == 3 || tileValue == 4;
+}
+
+inline
 bool IsWorldPointEmpty(TileMap& tilemap, u32 absX, u32 absY, u32 absZ) {
 	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, absZ);
 	TileChunk* chunk = GetTileChunk(tilemap, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
 	u32 tileValue = GetTileValue(tilemap, chunk, chunkPos.relTileX, chunkPos.relTileY);
-	bool isEmpty = tileValue == 1 || tileValue == 3 || tileValue == 4;
+	bool isEmpty = IsTileValueEmpty(tileValue);
 	return isEmpty;
 }
 
@@ -103,21 +117,35 @@ void FixTilePosition(TileMap& tilemap, TilePosition& position) {
 	Assert(position.offset.Y <= tilemap.tileSizeInMeters.Y / 2.0f);
 }
 
+inline
+TilePosition OffsetPosition(TileMap& tilemap, TilePosition& position, f32 offsetX, f32 offsetY) {
+	TilePosition newPosition = position;
+	newPosition.offset += V2{ offsetX, offsetY };
+	FixTilePosition(tilemap, newPosition);
+	return newPosition;
+}
+
+inline
+TilePosition OffsetPosition(TileMap& tilemap, TilePosition& position, V2 offset) {
+	TilePosition newPosition = position;
+	newPosition.offset += offset;
+	FixTilePosition(tilemap, newPosition);
+	return newPosition;
+}
+
 struct DiffTilePosition {
-	f32 dX;
-	f32 dY;
+	V2 dXY;
 	f32 dZ;
 };
 
 inline
 DiffTilePosition Subtract(TileMap& tilemap, TilePosition& first, TilePosition& second) {
 	DiffTilePosition diff = {};
-	f32 firstMetersX = scast(f32, first.absX * tilemap.tileSizeInMeters.X) + first.offset.X;
-	f32 firstMetersY = scast(f32, first.absY * tilemap.tileSizeInMeters.Y) + first.offset.Y;
-	f32 secondMetersX = scast(f32, second.absX * tilemap.tileSizeInMeters.X) + second.offset.X;
-	f32 secondMetersY = scast(f32, second.absY * tilemap.tileSizeInMeters.Y) + second.offset.Y;
-	diff.dX = firstMetersX - secondMetersX;
-	diff.dY = firstMetersY - secondMetersY;
+	V2 firstMeters = { scast(f32, first.absX * tilemap.tileSizeInMeters.X) + first.offset.X,
+					   scast(f32, first.absY * tilemap.tileSizeInMeters.Y) + first.offset.Y };
+	V2 secondMeters = { scast(f32, second.absX * tilemap.tileSizeInMeters.X) + second.offset.X,
+						scast(f32, second.absY * tilemap.tileSizeInMeters.Y) + second.offset.Y };
+	diff.dXY = firstMeters - secondMeters;
 	diff.dZ = scast(f32, first.absZ) - scast(f32, second.absZ);
 	return diff;
 }

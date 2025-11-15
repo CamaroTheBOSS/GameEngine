@@ -7,6 +7,11 @@ i32 RoundF32ToI32(f32 value) {
 }
 
 inline
+u32 RoundF32ToU32(f32 value) {
+	return scast(u32, roundf(value));
+}
+
+inline
 i32 FloorF32ToI32(f32 value) {
 	return scast(i32, floorf(value));
 }
@@ -17,11 +22,21 @@ u32 FloorF32ToU32(f32 value) {
 }
 
 inline
+u32 CeilF32ToU32(f32 value) {
+	return scast(u32, ceilf(value));
+}
+
+inline
 i32 Abs(i32 value) {
 	if (value < 0) {
 		return -value;
 	}
 	return value;
+}
+
+inline
+f32 SquareRoot(f32 value) {
+	return sqrtf(value);
 }
 
 struct BitwiseSearchResult {

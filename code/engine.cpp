@@ -239,44 +239,62 @@ u32 InitializePlayer(ProgramState* state) {
 	return index;
 }
 
+bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDeltaX,
+					  f32 moveDeltaY, f32* tMin) {
+	if (moveDeltaX != 0) {
+		f32 tCollision = maxCornerX / moveDeltaX;
+		if (tCollision >= 0.f && tCollision < *tMin) {
+			f32 Y = moveDeltaY * tCollision;
+			if (Y >= minCornerY && Y < maxCornerY) {
+				*tMin = Maximum(0.f, tCollision - 0.0001f);
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 internal
 void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
 	if (!player) {
 		return;
 	}
 	V2 playerAcceleration = {};
-	f32 speed = 15.0f;
+	f32 speed = 75.0f;
 	if (controller.isADown) {
 		player->faceDir = 1;
-		playerAcceleration.X -= 5.f;
+		playerAcceleration.X -= 1.f;
 	}
 	if (controller.isWDown) {
 		player->faceDir = 2;
-		playerAcceleration.Y += 5.f;
+		playerAcceleration.Y += 1.f;
 	}
 	if (controller.isSDown) {
 		player->faceDir = 3;
-		playerAcceleration.Y -= 5.f;
+		playerAcceleration.Y -= 1.f;
 	}
 	if (controller.isDDown) {
 		player->faceDir = 0;
-		playerAcceleration.X += 5.f;
+		playerAcceleration.X += 1.f;
 	}
 	if (controller.isSpaceDown) {
-		speed = 50.0f;
+		speed = 250.0f;
 	}
 	if (controller.isEscDown) {
 		player->pos.offset = V2{ 0, 0 };
 	}
-	playerAcceleration *= speed;
+	f32 playerAccLength = Length(playerAcceleration);
+	if (playerAccLength != 0) {
+		playerAcceleration *= speed / Length(playerAcceleration);
+	}
 	playerAcceleration -= 10.0f * player->vel;
 
-	TilePosition nextPlayerPosition = player->pos;
-	nextPlayerPosition.offset += 0.5f * playerAcceleration * Squared(controller.dtFrame) +
-		player->vel * controller.dtFrame;
+	V2 playerMoveDelta = 0.5f * playerAcceleration * Squared(controller.dtFrame) +
+						 player->vel * controller.dtFrame;
+	TilePosition nextPlayerPosition = OffsetPosition(tilemap, player->pos, playerMoveDelta);
 	player->vel += playerAcceleration * controller.dtFrame;
-	FixTilePosition(tilemap, nextPlayerPosition);
 
+#if 0
 	TilePosition playerNextTilePosLeft = nextPlayerPosition;
 	playerNextTilePosLeft.offset.X -= player->size.X / 2.0f;
 	FixTilePosition(tilemap, playerNextTilePosLeft);
@@ -335,6 +353,70 @@ void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
 			}
 		}
 	}
+#else
+	V2 collisionRadius = { player->size.X / 2.f,
+						   player->size.Y / 5.f };
+	TilePosition playerPosForCollision = OffsetPosition(tilemap, player->pos, 0.f, collisionRadius.Y);
+	i32 minX = scast(i32, Minimum(player->pos.absX, nextPlayerPosition.absX)) - CeilF32ToU32(collisionRadius.X);
+	i32 minY = scast(i32, Minimum(player->pos.absY, nextPlayerPosition.absY)) - CeilF32ToU32(collisionRadius.X);
+	i32 maxX = scast(i32, Maximum(player->pos.absX, nextPlayerPosition.absX)) + CeilF32ToU32(collisionRadius.Y) + 1;
+	i32 maxY = scast(i32, Maximum(player->pos.absY, nextPlayerPosition.absY)) + CeilF32ToU32(collisionRadius.Y) + 1;
+	f32 tMin = 1.0f;
+	V2 wallNormal = {};
+	for (i32 tileY = minY; tileY < maxY; tileY++) {
+		for (i32 tileX = minX; tileX < maxX; tileX++) {
+			TilePosition tilePos = CenteredTilePosition(scast(u32, tileX), scast(u32, tileY), player->pos.absZ);
+			u32 tileValue = GetTileValue(tilemap, tilePos);
+			if (IsTileValueEmpty(tileValue)) {
+				continue;
+			}
+			DiffTilePosition diff = Subtract(tilemap, tilePos, playerPosForCollision);
+
+			V2 minCorner = diff.dXY - 0.5f * tilemap.tileSizeInMeters - collisionRadius;
+			V2 maxCorner = diff.dXY + 0.5f * tilemap.tileSizeInMeters + collisionRadius;
+			if (tileX == 6 && tileY == 8) {
+				int x = 0;
+			}
+			
+			if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, playerMoveDelta.X,
+				playerMoveDelta.Y, &tMin)) {
+				// Left wall
+				wallNormal = { 1.f, 0.f };
+			}
+			if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, playerMoveDelta.X,
+				playerMoveDelta.Y, &tMin)) {
+				// Right wall
+				wallNormal = { 1.f, 0.f };
+			}
+			if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, playerMoveDelta.Y,
+				playerMoveDelta.X, &tMin)) {
+				// Bottom wall
+				wallNormal = { 1.f, 0.f };
+			}
+			if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, playerMoveDelta.Y,
+				playerMoveDelta.X, &tMin)) {
+				// Top wall
+				wallNormal = { 1.f, 0.f };
+			}
+		}
+	}
+	if (tMin < 1.0f) {
+		player->vel = V2{ 0, 0 };
+	}
+	player->pos = OffsetPosition(tilemap, player->pos, playerMoveDelta * tMin);
+
+	bool theSameTile = AreOnTheSameTile(player->pos, nextPlayerPosition);
+	//player->pos = nextPlayerPosition;
+	if (!theSameTile) {
+		u32 tileValue = GetTileValue(tilemap, nextPlayerPosition);
+		if (tileValue == 3) {
+			player->pos.absZ = 1;
+		}
+		else if (tileValue == 4) {
+			player->pos.absZ = 0;
+		}
+	}
+#endif
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
@@ -492,8 +574,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	Entity* cameraEntity = GetEntity(state, state->cameraEntityIndex);
 	if (cameraEntity) {
 		DiffTilePosition cameraPlayerDiff = Subtract(tilemap, cameraEntity->pos, state->cameraPos);
-		i32 cameraMoveX = scast(i32, (cameraPlayerDiff.dX / (tilemap.tileSizeInMeters.X * scast(f32, tilemap.tileCountX) / 2.f)));
-		i32 cameraMoveY = scast(i32, (cameraPlayerDiff.dY / (tilemap.tileSizeInMeters.Y * scast(f32, tilemap.tileCountY) / 2.f)));
+		i32 cameraMoveX = scast(i32, (cameraPlayerDiff.dXY.X / (tilemap.tileSizeInMeters.X * scast(f32, tilemap.tileCountX) / 2.f)));
+		i32 cameraMoveY = scast(i32, (cameraPlayerDiff.dXY.Y / (tilemap.tileSizeInMeters.Y * scast(f32, tilemap.tileCountY) / 2.f)));
 		state->cameraPos.absX += cameraMoveX * tilemap.tileCountX;
 		state->cameraPos.absY += cameraMoveY * tilemap.tileCountY;
 		state->cameraPos.absZ = cameraEntity->pos.absZ;
@@ -563,7 +645,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			V2 center = { lowerStart.X + (cameraRelX + relCol) * tileSizePixels.X,
 						  lowerStart.Y - (cameraRelY + relRow) * tileSizePixels.Y};
 			V2 min = { center.X,
-					   center.Y - tileSizePixels.Y};
+					   center.Y - tileSizePixels.Y };
 			V2 max = { min.X + tileSizePixels.X,
 					   center.Y };
 			RenderRectangle(bitmap, min, max, R, G, B);
@@ -588,32 +670,36 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				   center.Y };
 		RenderRectangle(bitmap, min, max, 0.f, 1.f, 1.f);
 
-		/*f32 playerPixMinX = lowerStart.X + (playerRelX * tilemap.tileSizeInMeters.X + player->pos.offset.X - player->size.X / 2.0f) * pixelsPerMeter + tileSizePixels.X / 2.0f;
-		f32 playerPixMaxX = playerPixMinX + pixelsPerMeter * player->size.X;
-		f32 playerPixMaxY = lowerStart.Y - (playerRelY * tilemap.tileSizeInMeters.Y + player->pos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
-		f32 playerPixMinY = playerPixMaxY - pixelsPerMeter * player->size.Y;
-		RenderRectangle(
-			bitmap,
-			V2{ playerPixMinX , playerPixMinY },
-			V2{ playerPixMaxX , playerPixMaxY },
-			0.f, 1.f, 1.f
-		);*/
-
-		f32 debugPointX1 = lowerStart.X + (player->pos.absX * tilemap.tileSizeInMeters.X + player->pos.offset.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
-		f32 debugPointX2 = debugPointX1 + 3;
-		f32 debugPointY2 = lowerStart.Y - (player->pos.absY * tilemap.tileSizeInMeters.Y + player->pos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
-		f32 debugPointY1 = debugPointY2 - 3;
-		RenderRectangle(
-			bitmap,
-			V2{ debugPointX1 , debugPointY1 },
-			V2{ debugPointX2 , debugPointY2 },
-			1.f, 0.f, 0.f
-		);
-
+		V2 collisionRadius = { player->size.X / 2.f,
+							   player->size.Y / 4.f };
+		{
+			f32 debugPointX1 = lowerStart.X + (player->pos.absX * tilemap.tileSizeInMeters.X + player->pos.offset.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
+			f32 debugPointX2 = debugPointX1 + 3;
+			f32 debugPointY2 = lowerStart.Y - (player->pos.absY * tilemap.tileSizeInMeters.Y + player->pos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
+			f32 debugPointY1 = debugPointY2 - 3;
+			RenderRectangle(
+				bitmap,
+				V2{ debugPointX1 , debugPointY1 },
+				V2{ debugPointX2 , debugPointY2 },
+				1.f, 0.f, 0.f
+			);
+		}
+		{
+			/*f32 debugPointX1 = lowerStart.X + (player->pos.absX * tilemap.tileSizeInMeters.X + player->pos.offset.X - collisionRadius.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
+			f32 debugPointX2 = debugPointX1 + 2 * collisionRadius.X * pixelsPerMeter;
+			f32 debugPointY2 = lowerStart.Y - (player->pos.absY * tilemap.tileSizeInMeters.Y + player->pos.offset.Y - collisionRadius.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
+			f32 debugPointY1 = debugPointY2 - 2 * collisionRadius.Y * pixelsPerMeter;
+			RenderRectangle(
+				bitmap,
+				V2{ debugPointX1 , debugPointY1 },
+				V2{ debugPointX2 , debugPointY2 },
+				1.f, 0.f, 0.f
+			);*/
+		}
 		/*RenderBitmap(
 			bitmap,
 			state->playerMoveAnim[player->faceDir],
-			V2{ playerPixMinX , playerPixMinY + player->size.Y * pixelsPerMeter }
+			V2{ min.X , min.Y + player->size.Y * pixelsPerMeter }
 		);*/
 	}
 }
