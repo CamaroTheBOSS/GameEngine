@@ -141,11 +141,21 @@ struct DiffTilePosition {
 inline
 DiffTilePosition Subtract(TileMap& tilemap, TilePosition& first, TilePosition& second) {
 	DiffTilePosition diff = {};
+#if 0
+	// NOTE: This losse precision on absX > 32 and causes tunelling through the walls in collision detection system
 	V2 firstMeters = { scast(f32, first.absX * tilemap.tileSizeInMeters.X) + first.offset.X,
 					   scast(f32, first.absY * tilemap.tileSizeInMeters.Y) + first.offset.Y };
 	V2 secondMeters = { scast(f32, second.absX * tilemap.tileSizeInMeters.X) + second.offset.X,
 						scast(f32, second.absY * tilemap.tileSizeInMeters.Y) + second.offset.Y };
 	diff.dXY = firstMeters - secondMeters;
 	diff.dZ = scast(f32, first.absZ) - scast(f32, second.absZ);
+#else
+	// TODO: Think what if absX, absY is 2^32-1 and 2^32 (do we have a bug with overflowing again?)
+	diff.dXY = {
+		scast(f32, scast(i32, first.absX) - scast(i32, second.absX)) * tilemap.tileSizeInMeters.X + (first.offset.X - second.offset.X),
+		scast(f32, scast(i32, first.absY) - scast(i32, second.absY)) * tilemap.tileSizeInMeters.Y + (first.offset.Y - second.offset.Y)
+	};
+	diff.dZ = scast(f32, first.absZ) - scast(f32, second.absZ);
+#endif
 	return diff;
 }

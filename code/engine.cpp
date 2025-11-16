@@ -242,11 +242,12 @@ u32 InitializePlayer(ProgramState* state) {
 bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDeltaX,
 					  f32 moveDeltaY, f32* tMin) {
 	if (moveDeltaX != 0) {
+		f32 tEpsilon = 0.0001f;
 		f32 tCollision = maxCornerX / moveDeltaX;
 		if (tCollision >= 0.f && tCollision < *tMin) {
 			f32 Y = moveDeltaY * tCollision;
 			if (Y >= minCornerY && Y < maxCornerY) {
-				*tMin = Maximum(0.f, tCollision - 0.0001f);
+				*tMin = Maximum(0.f, tCollision - tEpsilon);
 				return true;
 			}
 		}
@@ -294,66 +295,6 @@ void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
 	TilePosition nextPlayerPosition = OffsetPosition(tilemap, player->pos, playerMoveDelta);
 	player->vel += playerAcceleration * controller.dtFrame;
 
-#if 0
-	TilePosition playerNextTilePosLeft = nextPlayerPosition;
-	playerNextTilePosLeft.offset.X -= player->size.X / 2.0f;
-	FixTilePosition(tilemap, playerNextTilePosLeft);
-
-	TilePosition playerNextTilePosRight = nextPlayerPosition;
-	playerNextTilePosRight.offset.X += player->size.X / 2.0f;
-	FixTilePosition(tilemap, playerNextTilePosRight);
-
-	bool collided = false;
-	TilePosition collisionPos = {};
-	TilePosition playerCurrPosForCollision = player->pos;
-	if (!IsWorldPointEmpty(tilemap, nextPlayerPosition)) {
-		collided = true;
-		collisionPos = nextPlayerPosition;
-	}
-	else if (!IsWorldPointEmpty(tilemap, playerNextTilePosLeft)) {
-		collided = true;
-		collisionPos = playerNextTilePosLeft;
-		playerCurrPosForCollision.offset.X -= player->size.X / 2.0f;
-		FixTilePosition(tilemap, playerCurrPosForCollision);
-	}
-	else if (!IsWorldPointEmpty(tilemap, playerNextTilePosRight)) {
-		collided = true;
-		collisionPos = playerNextTilePosRight;
-		playerCurrPosForCollision.offset.X += player->size.X / 2.0f;
-		FixTilePosition(tilemap, playerCurrPosForCollision);
-	}
-
-	if (collided)
-	{
-		V2 normalToWall = V2{ 0, 0 };
-		if (collisionPos.absX < playerCurrPosForCollision.absX) {
-			normalToWall = V2{ 1, 0 };
-		}
-		else if (collisionPos.absX > playerCurrPosForCollision.absX) {
-			normalToWall = V2{ -1, 0 };
-		}
-		else if (collisionPos.absY < playerCurrPosForCollision.absY) {
-			normalToWall = V2{ 0, 1 };
-		}
-		else if (collisionPos.absY > playerCurrPosForCollision.absY) {
-			normalToWall = V2{ 0, -1 };
-		}
-		player->vel -= 2.f * Inner(player->vel, normalToWall) * normalToWall;
-	}
-	else {
-		bool theSameTile = AreOnTheSameTile(player->pos, nextPlayerPosition);
-		player->pos = nextPlayerPosition;
-		if (!theSameTile) {
-			u32 tileValue = GetTileValue(tilemap, nextPlayerPosition);
-			if (tileValue == 3) {
-				player->pos.absZ = 1;
-			}
-			else if (tileValue == 4) {
-				player->pos.absZ = 0;
-			}
-		}
-	}
-#else
 	V2 collisionRadius = { player->size.X / 2.f,
 						   player->size.Y / 5.f };
 	TilePosition playerPosForCollision = OffsetPosition(tilemap, player->pos, 0.f, collisionRadius.Y);
@@ -361,52 +302,55 @@ void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
 	i32 minY = scast(i32, Minimum(player->pos.absY, nextPlayerPosition.absY)) - CeilF32ToU32(collisionRadius.X);
 	i32 maxX = scast(i32, Maximum(player->pos.absX, nextPlayerPosition.absX)) + CeilF32ToU32(collisionRadius.Y) + 1;
 	i32 maxY = scast(i32, Maximum(player->pos.absY, nextPlayerPosition.absY)) + CeilF32ToU32(collisionRadius.Y) + 1;
-	f32 tMin = 1.0f;
-	V2 wallNormal = {};
-	for (i32 tileY = minY; tileY < maxY; tileY++) {
-		for (i32 tileX = minX; tileX < maxX; tileX++) {
-			TilePosition tilePos = CenteredTilePosition(scast(u32, tileX), scast(u32, tileY), player->pos.absZ);
-			u32 tileValue = GetTileValue(tilemap, tilePos);
-			if (IsTileValueEmpty(tileValue)) {
-				continue;
-			}
-			DiffTilePosition diff = Subtract(tilemap, tilePos, playerPosForCollision);
+	Assert(maxX - minX < 32);
+	Assert(maxY - minY < 32);
+	f32 tRemaining = 1.0f;
+	V2 totalPlayerMoveDelta = {};
+	for (u32 iteration = 0; iteration < 4 && tRemaining > 0.0f; iteration++) {
+		f32 tMin = 1.0f;
+		V2 wallNormal = {};
+		for (i32 tileY = minY; tileY < maxY; tileY++) {
+			for (i32 tileX = minX; tileX < maxX; tileX++) {
+				TilePosition tilePos = CenteredTilePosition(scast(u32, tileX), scast(u32, tileY), player->pos.absZ);
+				u32 tileValue = GetTileValue(tilemap, tilePos);
+				if (IsTileValueEmpty(tileValue)) {
+					continue;
+				}
+				DiffTilePosition diff = Subtract(tilemap, tilePos, playerPosForCollision);
 
-			V2 minCorner = diff.dXY - 0.5f * tilemap.tileSizeInMeters - collisionRadius;
-			V2 maxCorner = diff.dXY + 0.5f * tilemap.tileSizeInMeters + collisionRadius;
-			if (tileX == 6 && tileY == 8) {
-				int x = 0;
-			}
-			
-			if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, playerMoveDelta.X,
-				playerMoveDelta.Y, &tMin)) {
-				// Left wall
-				wallNormal = { 1.f, 0.f };
-			}
-			if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, playerMoveDelta.X,
-				playerMoveDelta.Y, &tMin)) {
-				// Right wall
-				wallNormal = { 1.f, 0.f };
-			}
-			if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, playerMoveDelta.Y,
-				playerMoveDelta.X, &tMin)) {
-				// Bottom wall
-				wallNormal = { 1.f, 0.f };
-			}
-			if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, playerMoveDelta.Y,
-				playerMoveDelta.X, &tMin)) {
-				// Top wall
-				wallNormal = { 1.f, 0.f };
+				V2 minCorner = diff.dXY - 0.5f * tilemap.tileSizeInMeters - collisionRadius;
+				V2 maxCorner = diff.dXY + 0.5f * tilemap.tileSizeInMeters + collisionRadius;
+
+				if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, playerMoveDelta.X,
+					playerMoveDelta.Y, &tMin)) {
+					// Left wall
+					wallNormal = { 1.f, 0.f };
+				}
+				if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, playerMoveDelta.X,
+					playerMoveDelta.Y, &tMin)) {
+					// Right wall
+					wallNormal = { -1.f, 0.f };
+				}
+				if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, playerMoveDelta.Y,
+					playerMoveDelta.X, &tMin)) {
+					// Bottom wall
+					wallNormal = { 0.f, 1.f };
+				}
+				if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, playerMoveDelta.Y,
+					playerMoveDelta.X, &tMin)) {
+					// Top wall
+					wallNormal = { 0.f, -1.f };
+				}
 			}
 		}
+		totalPlayerMoveDelta += playerMoveDelta * tMin;
+		playerPosForCollision = OffsetPosition(tilemap, playerPosForCollision, playerMoveDelta * tMin);
+		player->vel -= Inner(player->vel, wallNormal) * wallNormal;
+		playerMoveDelta -= Inner(playerMoveDelta, wallNormal) * wallNormal;
+		tRemaining -= tMin;
 	}
-	if (tMin < 1.0f) {
-		player->vel = V2{ 0, 0 };
-	}
-	player->pos = OffsetPosition(tilemap, player->pos, playerMoveDelta * tMin);
 
 	bool theSameTile = AreOnTheSameTile(player->pos, nextPlayerPosition);
-	//player->pos = nextPlayerPosition;
 	if (!theSameTile) {
 		u32 tileValue = GetTileValue(tilemap, nextPlayerPosition);
 		if (tileValue == 3) {
@@ -416,6 +360,17 @@ void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
 			player->pos.absZ = 0;
 		}
 	}
+
+	player->pos = OffsetPosition(tilemap, player->pos, totalPlayerMoveDelta);
+#if HANDMADE_SLOW
+	TilePosition rightTopCorner = OffsetPosition(tilemap, playerPosForCollision, collisionRadius.X, collisionRadius.Y);
+	TilePosition leftTopCorner = OffsetPosition(tilemap, playerPosForCollision, -collisionRadius.X, collisionRadius.Y);
+	TilePosition rightBotCorner = OffsetPosition(tilemap, playerPosForCollision, collisionRadius.X, -collisionRadius.Y);
+	TilePosition leftBotCorner = OffsetPosition(tilemap, playerPosForCollision, -collisionRadius.X, -collisionRadius.Y);
+	Assert(IsTileValueEmpty(GetTileValue(tilemap, rightTopCorner)));
+	Assert(IsTileValueEmpty(GetTileValue(tilemap, leftTopCorner)));
+	Assert(IsTileValueEmpty(GetTileValue(tilemap, rightBotCorner)));
+	Assert(IsTileValueEmpty(GetTileValue(tilemap, leftBotCorner)));
 #endif
 }
 
