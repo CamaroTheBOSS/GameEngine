@@ -297,6 +297,8 @@ void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
 
 	V2 collisionRadius = { player->size.X / 2.f,
 						   player->size.Y / 5.f };
+
+	// TODO: G.J.K algorithm for other collision shapes like circles, elipses etc.
 	TilePosition playerPosForCollision = OffsetPosition(tilemap, player->pos, 0.f, collisionRadius.Y);
 	i32 minX = scast(i32, Minimum(player->pos.absX, nextPlayerPosition.absX)) - CeilF32ToU32(collisionRadius.X);
 	i32 minY = scast(i32, Minimum(player->pos.absY, nextPlayerPosition.absY)) - CeilF32ToU32(collisionRadius.X);
@@ -307,6 +309,9 @@ void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
 	f32 tRemaining = 1.0f;
 	V2 totalPlayerMoveDelta = {};
 	for (u32 iteration = 0; iteration < 4 && tRemaining > 0.0f; iteration++) {
+		// TODO: now clipping coord value in playerMoveDelta vector happens for the whole playerMoveDelta instead
+		// of the rest of the playerMoveDelta after moving to the wall. This causes additional move which should
+		// not exists. TODO correct that
 		f32 tMin = 1.0f;
 		V2 wallNormal = {};
 		for (i32 tileY = minY; tileY < maxY; tileY++) {
