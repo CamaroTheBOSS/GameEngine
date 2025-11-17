@@ -203,9 +203,16 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 }
 
 inline internal
-u32 AddEntity(ProgramState* state, const Entity& entity) {
+u32 AddEntity(ProgramState* state, LowEntity& low, HighEntity& high) {
 	if (state->entityCount < ArrayCount(state->entities)) {
-		state->entities[state->entityCount] = entity;
+		low.highEntityIndex = state->entityCount;
+		high.lowEntityIndex = state->entityCount;
+		state->lowEntities[state->entityCount] = low;
+		state->highEntities[state->entityCount] = high;
+		state->entities[state->entityCount] = Entity{
+			&state->lowEntities[state->entityCount],
+			&state->highEntities[state->entityCount]
+		};
 		state->entityCount++;
 		return state->entityCount - 1;
 	}
@@ -222,17 +229,36 @@ Entity* GetEntity(ProgramState* state, u32 index) {
 }
 
 inline internal
+LowEntity* GetLowEntity(ProgramState* state, u32 lowEntityIndex) {
+	LowEntity* entity = 0;
+	if (lowEntityIndex > 0 && lowEntityIndex < state->entityCount) {
+		entity = &state->lowEntities[lowEntityIndex];
+	}
+	return entity;
+}
+
+inline internal
+HighEntity* GetHighEntity(ProgramState* state, u32 highEntityIndex) {
+	HighEntity* entity = 0;
+	if (highEntityIndex > 0 && highEntityIndex < state->entityCount) {
+		entity = &state->highEntities[highEntityIndex];
+	}
+	return entity;
+}
+
+inline internal
 u32 InitializePlayer(ProgramState* state) {
-	Entity player = {};
-	player.pos.absX = 3;
-	player.pos.absY = 3;
-	player.pos.absZ = 0;
-	player.pos.offset = V2{ 0, 0 };
-	player.vel = V2{ 0, 0 };
-	player.faceDir = 0;
-	player.size = { state->world.tilemap.tileSizeInMeters.X * 0.7f,
+	LowEntity low = {};
+	HighEntity high = {};
+	low.pos.absX = 3;
+	low.pos.absY = 3;
+	low.pos.absZ = 0;
+	low.pos.offset = V2{ 0, 0 };
+	low.faceDir = 0;
+	low.size = { state->world.tilemap.tileSizeInMeters.X * 0.7f,
 					state->world.tilemap.tileSizeInMeters.Y * 0.9f };
-	u32 index = AddEntity(state, player);
+	high.vel = V2{ 0, 0 };
+	u32 index = AddEntity(state, low, high);
 	if (!state->cameraEntityIndex) {
 		state->cameraEntityIndex = index;
 	}
@@ -256,54 +282,60 @@ bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDe
 }
 
 internal
-void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
-	if (!player) {
+void MovePlayer(ProgramState* state, TileMap& tilemap, Controller& controller, HighEntity* playerHigh) {
+	if (!playerHigh) {
+		return;
+	}
+	LowEntity* playerLow = GetLowEntity(state, playerHigh->lowEntityIndex);
+	Assert(playerLow && GetHighEntity(state, playerLow->highEntityIndex) == playerHigh);
+	if (!playerLow) {
 		return;
 	}
 	V2 playerAcceleration = {};
 	f32 speed = 75.0f;
 	if (controller.isADown) {
-		player->faceDir = 1;
+		playerLow->faceDir = 1;
 		playerAcceleration.X -= 1.f;
 	}
 	if (controller.isWDown) {
-		player->faceDir = 2;
+		playerLow->faceDir = 2;
 		playerAcceleration.Y += 1.f;
 	}
 	if (controller.isSDown) {
-		player->faceDir = 3;
+		playerLow->faceDir = 3;
 		playerAcceleration.Y -= 1.f;
 	}
 	if (controller.isDDown) {
-		player->faceDir = 0;
+		playerLow->faceDir = 0;
 		playerAcceleration.X += 1.f;
 	}
 	if (controller.isSpaceDown) {
 		speed = 250.0f;
 	}
-	if (controller.isEscDown) {
-		player->pos.offset = V2{ 0, 0 };
-	}
 	f32 playerAccLength = Length(playerAcceleration);
 	if (playerAccLength != 0) {
 		playerAcceleration *= speed / Length(playerAcceleration);
 	}
-	playerAcceleration -= 10.0f * player->vel;
+	playerAcceleration -= 10.0f * playerHigh->vel;
 
 	V2 playerMoveDelta = 0.5f * playerAcceleration * Squared(controller.dtFrame) +
-						 player->vel * controller.dtFrame;
-	TilePosition nextPlayerPosition = OffsetPosition(tilemap, player->pos, playerMoveDelta);
-	player->vel += playerAcceleration * controller.dtFrame;
-
-	V2 collisionRadius = { player->size.X / 2.f,
-						   player->size.Y / 5.f };
+						 playerHigh->vel * controller.dtFrame;
+	
+#if 1
+	playerHigh->pos += playerMoveDelta;
+	playerHigh->vel += playerAcceleration * controller.dtFrame;
+#else
+	playerHigh->vel += playerAcceleration * controller.dtFrame;
+	TilePosition nextPlayerPosition = OffsetPosition(tilemap, player->low->pos, playerMoveDelta);
+	V2 collisionRadius = { playerLow->size.X / 2.f,
+						   playerLow->size.Y / 5.f };
 
 	// TODO: G.J.K algorithm for other collision shapes like circles, elipses etc.
-	TilePosition playerPosForCollision = OffsetPosition(tilemap, player->pos, 0.f, collisionRadius.Y);
-	i32 minX = scast(i32, Minimum(player->pos.absX, nextPlayerPosition.absX)) - CeilF32ToU32(collisionRadius.X);
-	i32 minY = scast(i32, Minimum(player->pos.absY, nextPlayerPosition.absY)) - CeilF32ToU32(collisionRadius.X);
-	i32 maxX = scast(i32, Maximum(player->pos.absX, nextPlayerPosition.absX)) + CeilF32ToU32(collisionRadius.Y) + 1;
-	i32 maxY = scast(i32, Maximum(player->pos.absY, nextPlayerPosition.absY)) + CeilF32ToU32(collisionRadius.Y) + 1;
+
+	i32 minX = scast(i32, Minimum(player->low->pos.absX, nextPlayerPosition.absX)) - CeilF32ToU32(collisionRadius.X);
+	i32 minY = scast(i32, Minimum(player->low->pos.absY, nextPlayerPosition.absY)) - CeilF32ToU32(collisionRadius.X);
+	i32 maxX = scast(i32, Maximum(player->low->pos.absX, nextPlayerPosition.absX)) + CeilF32ToU32(collisionRadius.Y) + 1;
+	i32 maxY = scast(i32, Maximum(player->low->pos.absY, nextPlayerPosition.absY)) + CeilF32ToU32(collisionRadius.Y) + 1;
 	Assert(maxX - minX < 32);
 	Assert(maxY - minY < 32);
 	f32 tRemaining = 1.0f;
@@ -316,7 +348,7 @@ void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
 		V2 wallNormal = {};
 		for (i32 tileY = minY; tileY < maxY; tileY++) {
 			for (i32 tileX = minX; tileX < maxX; tileX++) {
-				TilePosition tilePos = CenteredTilePosition(scast(u32, tileX), scast(u32, tileY), player->pos.absZ);
+				TilePosition tilePos = CenteredTilePosition(scast(u32, tileX), scast(u32, tileY), player->low->pos.absZ);
 				u32 tileValue = GetTileValue(tilemap, tilePos);
 				if (IsTileValueEmpty(tileValue)) {
 					continue;
@@ -350,23 +382,24 @@ void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
 		}
 		totalPlayerMoveDelta += playerMoveDelta * tMin;
 		playerPosForCollision = OffsetPosition(tilemap, playerPosForCollision, playerMoveDelta * tMin);
-		player->vel -= Inner(player->vel, wallNormal) * wallNormal;
+		player->high->vel -= Inner(player->high->vel, wallNormal) * wallNormal;
 		playerMoveDelta -= Inner(playerMoveDelta, wallNormal) * wallNormal;
 		tRemaining -= tMin;
 	}
 
-	bool theSameTile = AreOnTheSameTile(player->pos, nextPlayerPosition);
+
+	bool theSameTile = AreOnTheSameTile(player->low->pos, nextPlayerPosition);
 	if (!theSameTile) {
 		u32 tileValue = GetTileValue(tilemap, nextPlayerPosition);
 		if (tileValue == 3) {
-			player->pos.absZ = 1;
+			player->low->pos.absZ = 1;
 		}
 		else if (tileValue == 4) {
-			player->pos.absZ = 0;
+			player->low->pos.absZ = 0;
 		}
 	}
 
-	player->pos = OffsetPosition(tilemap, player->pos, totalPlayerMoveDelta);
+	player->low->pos = OffsetPosition(tilemap, player->low->pos, totalPlayerMoveDelta);
 #if HANDMADE_SLOW
 	TilePosition rightTopCorner = OffsetPosition(tilemap, playerPosForCollision, collisionRadius.X, collisionRadius.Y);
 	TilePosition leftTopCorner = OffsetPosition(tilemap, playerPosForCollision, -collisionRadius.X, collisionRadius.Y);
@@ -377,13 +410,16 @@ void MovePlayer(TileMap& tilemap, Controller& controller, Entity* player) {
 	Assert(IsTileValueEmpty(GetTileValue(tilemap, rightBotCorner)));
 	Assert(IsTileValueEmpty(GetTileValue(tilemap, leftBotCorner)));
 #endif
+#endif
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	TileMap& tilemap = state->world.tilemap;
 	if (!state->isInitialized) {
-		AddEntity(state, {}); // Added null entity
+		LowEntity nullLow = {};
+		HighEntity nullHigh = {};
+		AddEntity(state, nullLow, nullHigh); // Added null entity
 		
 		state->worldArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
 		state->worldArena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
@@ -527,18 +563,18 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (controllers[playerIdx].isSpaceDown && state->playerEntityIndexes[playerIdx] == 0) {
 			state->playerEntityIndexes[playerIdx] = InitializePlayer(state);
 		}
-		Entity* player = GetEntity(state, state->playerEntityIndexes[playerIdx]);
-		MovePlayer(tilemap, controllers[playerIdx], player);
+		HighEntity* player = GetHighEntity(state, state->playerEntityIndexes[playerIdx]);
+		MovePlayer(state, tilemap, controllers[playerIdx], player);
 	}
 	
 	Entity* cameraEntity = GetEntity(state, state->cameraEntityIndex);
 	if (cameraEntity) {
-		DiffTilePosition cameraPlayerDiff = Subtract(tilemap, cameraEntity->pos, state->cameraPos);
+		DiffTilePosition cameraPlayerDiff = Subtract(tilemap, cameraEntity->low->pos, state->cameraPos);
 		i32 cameraMoveX = scast(i32, (cameraPlayerDiff.dXY.X / (tilemap.tileSizeInMeters.X * scast(f32, tilemap.tileCountX) / 2.f)));
 		i32 cameraMoveY = scast(i32, (cameraPlayerDiff.dXY.Y / (tilemap.tileSizeInMeters.Y * scast(f32, tilemap.tileCountY) / 2.f)));
 		state->cameraPos.absX += cameraMoveX * tilemap.tileCountX;
 		state->cameraPos.absY += cameraMoveY * tilemap.tileCountY;
-		state->cameraPos.absZ = cameraEntity->pos.absZ;
+		state->cameraPos.absZ = cameraEntity->low->pos.absZ;
 	}
 	
 
@@ -553,8 +589,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	u32 cameraEntityRelX = UINT32_MAX;
 	u32 cameraEntityRelY = UINT32_MAX;
 	if (cameraEntity) {
-		u32 cameraEntityAbsX = cameraEntity->pos.absX; // TODO NO PLAYERABSX IN RENDERING TILEMAP!!!! ONLY CAMERA
-		u32 cameraEntityAbsY = cameraEntity->pos.absY;
+		u32 cameraEntityAbsX = cameraEntity->low->pos.absX; // TODO NO PLAYERABSX IN RENDERING TILEMAP!!!! ONLY CAMERA
+		u32 cameraEntityAbsY = cameraEntity->low->pos.absY;
 		cameraEntityRelX = cameraEntityAbsX % tilemap.tileCountX;
 		cameraEntityRelY = cameraEntityAbsY % tilemap.tileCountY;
 	}
@@ -612,30 +648,43 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 
-	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
-		Entity* player = GetEntity(state, state->playerEntityIndexes[playerIdx]);
-		if (!player || player->pos.absZ != state->cameraPos.absZ) {
+
+
+	for (u32 entityIndex = 0; entityIndex < state->entityCount; entityIndex++) {
+		HighEntity* entity = GetHighEntity(state, entityIndex);
+		if (!entity) {
 			continue;
 		}
-		f32 playerFloatSpaceRelToCamX = ((scast(i32, player->pos.absX) - scast(i32, state->cameraPos.absX)) * tilemap.tileSizeInMeters.X + (player->pos.offset.X - state->cameraPos.offset.X) - player->size.X / 2.0f) * pixelsPerMeter + tileSizePixels.X / 2.0f;
-		f32 playerFloatSpaceRelToCamY = ((scast(i32, player->pos.absY) - scast(i32, state->cameraPos.absY)) * tilemap.tileSizeInMeters.Y + (player->pos.offset.Y - state->cameraPos.offset.Y)) * pixelsPerMeter + tileSizePixels.Y / 2.0f;
+		LowEntity* low = GetLowEntity(state, entity->lowEntityIndex);
+		if (!low) {
+			continue;
+		}
+#if 1
+		f32 playerFloatSpaceRelToCamX = entity->pos.X * pixelsPerMeter;
+		f32 playerFloatSpaceRelToCamY = entity->pos.Y * pixelsPerMeter;
 		f32 playerCameraSpaceX = cameraFloatCameraSpaceX + playerFloatSpaceRelToCamX;
 		f32 playerCameraSpaceY = cameraFloatCameraSpaceY + playerFloatSpaceRelToCamY;
-
+#else
+		f32 playerFloatSpaceRelToCamX = ((scast(i32, player->low->pos.absX) - scast(i32, state->cameraPos.absX)) * tilemap.tileSizeInMeters.X + (player->low->pos.offset.X - state->cameraPos.offset.X) - player->low->size.X / 2.0f) * pixelsPerMeter + tileSizePixels.X / 2.0f;
+		f32 playerFloatSpaceRelToCamY = ((scast(i32, player->low->pos.absY) - scast(i32, state->cameraPos.absY)) * tilemap.tileSizeInMeters.Y + (player->low->pos.offset.Y - state->cameraPos.offset.Y)) * pixelsPerMeter + tileSizePixels.Y / 2.0f;
+		f32 playerCameraSpaceX = cameraFloatCameraSpaceX + playerFloatSpaceRelToCamX;
+		f32 playerCameraSpaceY = cameraFloatCameraSpaceY + playerFloatSpaceRelToCamY;
+#endif
 		V2 center = { lowerStart.X + playerCameraSpaceX,
 					  lowerStart.Y - playerCameraSpaceY };
 		V2 min = { center.X,
-				   center.Y - player->size.Y * pixelsPerMeter };
-		V2 max = { min.X + player->size.X * pixelsPerMeter,
+				   center.Y - low->size.Y * pixelsPerMeter };
+		V2 max = { min.X + low->size.X * pixelsPerMeter,
 				   center.Y };
 		RenderRectangle(bitmap, min, max, 0.f, 1.f, 1.f);
 
-		V2 collisionRadius = { player->size.X / 2.f,
-							   player->size.Y / 4.f };
+#if 0
+		V2 collisionRadius = { player->low->size.X / 2.f,
+							   player->low->size.Y / 4.f };
 		{
-			f32 debugPointX1 = lowerStart.X + (player->pos.absX * tilemap.tileSizeInMeters.X + player->pos.offset.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
+			f32 debugPointX1 = lowerStart.X + (player->low->pos.absX * tilemap.tileSizeInMeters.X + player->low->pos.offset.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
 			f32 debugPointX2 = debugPointX1 + 3;
-			f32 debugPointY2 = lowerStart.Y - (player->pos.absY * tilemap.tileSizeInMeters.Y + player->pos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
+			f32 debugPointY2 = lowerStart.Y - (player->low->pos.absY * tilemap.tileSizeInMeters.Y + player->low->pos.offset.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
 			f32 debugPointY1 = debugPointY2 - 3;
 			RenderRectangle(
 				bitmap,
@@ -645,7 +694,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			);
 		}
 		{
-			/*f32 debugPointX1 = lowerStart.X + (player->pos.absX * tilemap.tileSizeInMeters.X + player->pos.offset.X - collisionRadius.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
+			f32 debugPointX1 = lowerStart.X + (player->pos.absX * tilemap.tileSizeInMeters.X + player->pos.offset.X - collisionRadius.X) * pixelsPerMeter + tileSizePixels.X / 2.0f;
 			f32 debugPointX2 = debugPointX1 + 2 * collisionRadius.X * pixelsPerMeter;
 			f32 debugPointY2 = lowerStart.Y - (player->pos.absY * tilemap.tileSizeInMeters.Y + player->pos.offset.Y - collisionRadius.Y) * pixelsPerMeter - tileSizePixels.Y / 2.0f;
 			f32 debugPointY1 = debugPointY2 - 2 * collisionRadius.Y * pixelsPerMeter;
@@ -654,12 +703,13 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				V2{ debugPointX1 , debugPointY1 },
 				V2{ debugPointX2 , debugPointY2 },
 				1.f, 0.f, 0.f
-			);*/
+			);
 		}
-		/*RenderBitmap(
+		RenderBitmap(
 			bitmap,
 			state->playerMoveAnim[player->faceDir],
 			V2{ min.X , min.Y + player->size.Y * pixelsPerMeter }
-		);*/
+		);
+#endif
 	}
 }

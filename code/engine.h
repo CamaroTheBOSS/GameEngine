@@ -102,10 +102,8 @@ struct LowEntity {
 };
 
 struct Entity {
-	TilePosition pos;
-	V2 size;
-	V2 vel;
-	u32 faceDir;
+	LowEntity* low;
+	HighEntity* high;
 };
 
 struct World {
@@ -120,10 +118,8 @@ struct ProgramState {
 
 	u32 entityCount;
 	Entity entities[256];
-	u32 highEntityCount;
 	HighEntity highEntities[256];
-	u32 lowEntityCount;
-	LowEntity lowEntities[4096];
+	LowEntity lowEntities[256];
 
 	u32 playerEntityIndexes[MAX_CONTROLLERS];
 	u32 cameraEntityIndex;
