@@ -203,62 +203,69 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 }
 
 inline internal
-u32 AddEntity(ProgramState* state, LowEntity& low, HighEntity& high) {
-	if (state->entityCount < ArrayCount(state->entities)) {
-		low.highEntityIndex = state->entityCount;
-		high.lowEntityIndex = state->entityCount;
-		state->lowEntities[state->entityCount] = low;
-		state->highEntities[state->entityCount] = high;
-		state->entities[state->entityCount] = Entity{
-			&state->lowEntities[state->entityCount],
-			&state->highEntities[state->entityCount]
-		};
-		state->entityCount++;
-		return state->entityCount - 1;
+u32 AddEntity(ProgramState* state, LowEntity& low) {
+	if (state->lowEntityCount < ArrayCount(state->lowEntities)) {
+		state->lowEntities[state->lowEntityCount++] = low;
+		return state->lowEntityCount - 1;
 	}
 	return 0;
 }
 
-inline internal
-Entity* GetEntity(ProgramState* state, u32 index) {
-	Entity* entity = 0;
-	if (index > 0 && index < state->entityCount) {
-		entity = &state->entities[index];
-	}
-	return entity;
+inline
+u32 AddWall(ProgramState* state, u32 absX, u32 absY, u32 absZ) {
+	LowEntity low = {};
+	low.pos.absX = absX;
+	low.pos.absY = absY;
+	low.pos.absZ = absZ;
+	low.size = state->world.tilemap.tileSizeInMeters;
+	low.type = EntityType_Wall;
+	return AddEntity(state, low);
 }
 
-inline internal
-LowEntity* GetLowEntity(ProgramState* state, u32 lowEntityIndex) {
+internal
+LowEntity* GetEntity(ProgramState* state, u32 lowEntityIndex) {
 	LowEntity* entity = 0;
-	if (lowEntityIndex > 0 && lowEntityIndex < state->entityCount) {
+	if (lowEntityIndex > 0 && lowEntityIndex < state->lowEntityCount) {
 		entity = &state->lowEntities[lowEntityIndex];
 	}
 	return entity;
 }
 
-inline internal
-HighEntity* GetHighEntity(ProgramState* state, u32 highEntityIndex) {
-	HighEntity* entity = 0;
-	if (highEntityIndex > 0 && highEntityIndex < state->entityCount) {
-		entity = &state->highEntities[highEntityIndex];
+internal
+HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
+	HighEntity* result = 0;
+	if (state->highEntityCount >= ArrayCount(state->highEntities)) {
+		return result;
 	}
-	return entity;
+	LowEntity* low = GetEntity(state, lowEntityIndex);
+	if (low->highEntityIndex > 0) {
+		return &state->highEntities[state->highEntityCount];
+	}
+	DiffTilePosition diff = Subtract(state->world.tilemap, low->pos, state->cameraPos);
+	HighEntity high = {};
+	high.pos = diff.dXY;
+	high.vel = V2{ 0, 0 };
+	high.lowEntityIndex = lowEntityIndex;
+	
+	state->highEntities[state->highEntityCount] = high;
+	low->highEntityIndex = state->highEntityCount;
+	state->highEntityCount++;
+	return &state->highEntities[state->highEntityCount];
 }
 
-inline internal
+internal
 u32 InitializePlayer(ProgramState* state) {
 	LowEntity low = {};
-	HighEntity high = {};
 	low.pos.absX = 3;
 	low.pos.absY = 3;
 	low.pos.absZ = 0;
 	low.pos.offset = V2{ 0, 0 };
 	low.faceDir = 0;
+	low.type = EntityType_Player;
 	low.size = { state->world.tilemap.tileSizeInMeters.X * 0.7f,
 					state->world.tilemap.tileSizeInMeters.Y * 0.9f };
-	high.vel = V2{ 0, 0 };
-	u32 index = AddEntity(state, low, high);
+	u32 index = AddEntity(state, low);
+	MakeEntityHighFrequency(state, index);
 	if (!state->cameraEntityIndex) {
 		state->cameraEntityIndex = index;
 	}
@@ -283,11 +290,12 @@ bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDe
 
 internal
 void MovePlayer(ProgramState* state, TileMap& tilemap, Controller& controller, HighEntity* playerHigh) {
+	// TODO can playerHigh be just reference?
 	if (!playerHigh) {
 		return;
 	}
-	LowEntity* playerLow = GetLowEntity(state, playerHigh->lowEntityIndex);
-	Assert(playerLow && GetHighEntity(state, playerLow->highEntityIndex) == playerHigh);
+	LowEntity* playerLow = GetEntity(state, playerHigh->lowEntityIndex);
+	Assert(playerLow && &state->highEntities[playerLow->highEntityIndex] == playerHigh);
 	if (!playerLow) {
 		return;
 	}
@@ -413,13 +421,13 @@ void MovePlayer(ProgramState* state, TileMap& tilemap, Controller& controller, H
 #endif
 }
 
+
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	TileMap& tilemap = state->world.tilemap;
 	if (!state->isInitialized) {
-		LowEntity nullLow = {};
-		HighEntity nullHigh = {};
-		AddEntity(state, nullLow, nullHigh); // Added null entity
+		state->highEntityCount = 1;
+		state->lowEntityCount = 1;
 		
 		state->worldArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
 		state->worldArena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
@@ -473,7 +481,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		u32 screenY = 0;
 		u32 randomNIdx = 0;
 		u32 absTileZ = 0;
-		for (u32 screenIndex = 0; screenIndex < 20; screenIndex++) {
+		for (u32 screenIndex = 0; screenIndex < 2; screenIndex++) {
 			randomNIdx = (randomNIdx + 1) % ArrayCount(randomNumbers);
 			u32 randomNumber = randomNumbers[randomNIdx];
 			u32 mod = randomNumber % 3;
@@ -534,6 +542,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 						tileValue = 4; // Ladder up
 					}
 					SetTileValue(state->worldArena, tilemap, absTileX, absTileY, absTileZ, tileValue);
+					if (tileValue == 2) {
+						AddWall(state, absTileX, absTileY, absTileZ);
+					}
+					
 				}
 			}
 			doorLeft = doorRight;
@@ -559,23 +571,37 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->isInitialized = true;
 	}
 
-	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
-		if (controllers[playerIdx].isSpaceDown && state->playerEntityIndexes[playerIdx] == 0) {
-			state->playerEntityIndexes[playerIdx] = InitializePlayer(state);
-		}
-		HighEntity* player = GetHighEntity(state, state->playerEntityIndexes[playerIdx]);
-		MovePlayer(state, tilemap, controllers[playerIdx], player);
-	}
-	
-	Entity* cameraEntity = GetEntity(state, state->cameraEntityIndex);
-	if (cameraEntity) {
-		DiffTilePosition cameraPlayerDiff = Subtract(tilemap, cameraEntity->low->pos, state->cameraPos);
+	/*LowEntity* cameraEntity = GetEntity(state, state->cameraEntityIndex);
+	if (cameraEntity) {*/
+		/*DiffTilePosition cameraPlayerDiff = Subtract(tilemap, cameraEntity->pos, state->cameraPos);
 		i32 cameraMoveX = scast(i32, (cameraPlayerDiff.dXY.X / (tilemap.tileSizeInMeters.X * scast(f32, tilemap.tileCountX) / 2.f)));
 		i32 cameraMoveY = scast(i32, (cameraPlayerDiff.dXY.Y / (tilemap.tileSizeInMeters.Y * scast(f32, tilemap.tileCountY) / 2.f)));
 		state->cameraPos.absX += cameraMoveX * tilemap.tileCountX;
 		state->cameraPos.absY += cameraMoveY * tilemap.tileCountY;
-		state->cameraPos.absZ = cameraEntity->low->pos.absZ;
+		state->cameraPos.absZ = cameraEntity->pos.absZ;*/
+
+		// TODO change entities to camera space
+		
+	//}
+	for (u32 entityIndex = 1; entityIndex < state->lowEntityCount; entityIndex++) {
+		MakeEntityHighFrequency(state, entityIndex);
 	}
+
+	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
+		if (controllers[playerIdx].isSpaceDown && state->playerEntityIndexes[playerIdx] == 0) {
+			state->playerEntityIndexes[playerIdx] = InitializePlayer(state);
+		}
+		LowEntity* playerLow = GetEntity(state, state->playerEntityIndexes[playerIdx]);
+		if (!playerLow) {
+			continue;
+		}
+		Assert(playerLow && playerLow->highEntityIndex > 0);
+		// Shouldn't this loop be done for all the entities?
+		HighEntity* playerHigh = &state->highEntities[playerLow->highEntityIndex];
+		MovePlayer(state, tilemap, controllers[playerIdx], playerHigh);
+	}
+	
+	
 	
 
 	f32 pixelsPerMeter = 42.85714f;
@@ -586,14 +612,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					  scast(f32, bitmap.height) };
 	
 	
-	u32 cameraEntityRelX = UINT32_MAX;
-	u32 cameraEntityRelY = UINT32_MAX;
-	if (cameraEntity) {
-		u32 cameraEntityAbsX = cameraEntity->low->pos.absX; // TODO NO PLAYERABSX IN RENDERING TILEMAP!!!! ONLY CAMERA
-		u32 cameraEntityAbsY = cameraEntity->low->pos.absY;
-		cameraEntityRelX = cameraEntityAbsX % tilemap.tileCountX;
-		cameraEntityRelY = cameraEntityAbsY % tilemap.tileCountY;
-	}
+	u32 cameraEntityRelX = 8;
+	u32 cameraEntityRelY = 4;
+	//if (cameraEntity) {
+	//	u32 cameraEntityAbsX = cameraEntity->pos.absX; // TODO NO PLAYERABSX IN RENDERING TILEMAP!!!! ONLY CAMERA
+	//	u32 cameraEntityAbsY = cameraEntity->pos.absY;
+	//	cameraEntityRelX = cameraEntityAbsX % tilemap.tileCountX;
+	//	cameraEntityRelY = cameraEntityAbsY % tilemap.tileCountY;
+	//}
 	u32 cameraRelX = state->cameraPos.absX % tilemap.tileCountX;
 	u32 cameraRelY = state->cameraPos.absY % tilemap.tileCountY;
 	f32 cameraFloatCameraSpaceX = (cameraRelX * tilemap.tileSizeInMeters.X + state->cameraPos.offset.X) * pixelsPerMeter;
@@ -650,12 +676,12 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 
 
-	for (u32 entityIndex = 0; entityIndex < state->entityCount; entityIndex++) {
-		HighEntity* entity = GetHighEntity(state, entityIndex);
+	for (u32 entityIndex = 1; entityIndex < state->highEntityCount; entityIndex++) {
+		HighEntity* entity = &state->highEntities[entityIndex];
 		if (!entity) {
 			continue;
 		}
-		LowEntity* low = GetLowEntity(state, entity->lowEntityIndex);
+		LowEntity* low = GetEntity(state, entity->lowEntityIndex);
 		if (!low) {
 			continue;
 		}
@@ -676,7 +702,16 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				   center.Y - low->size.Y * pixelsPerMeter };
 		V2 max = { min.X + low->size.X * pixelsPerMeter,
 				   center.Y };
-		RenderRectangle(bitmap, min, max, 0.f, 1.f, 1.f);
+		if (low->type == EntityType_Wall) {
+			RenderRectangle(bitmap, min, max, 1.f, 1.f, 1.f);
+		}
+		else if (low->type == EntityType_Player) {
+			RenderRectangle(bitmap, min, max, 0.f, 1.f, 1.f);
+		}
+		else {
+			RenderRectangle(bitmap, min, max, 0.f, 1.f, 0.f);
+		}
+		
 
 #if 0
 		V2 collisionRadius = { player->low->size.X / 2.f,
