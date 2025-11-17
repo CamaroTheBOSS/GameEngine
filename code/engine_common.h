@@ -39,7 +39,7 @@
 #define Assert(expression) if (!(expression)) { *(char*)0 = 0; }
 #define scast(type, expression) static_cast<type>(expression)
 #define ptrcast(type, expression) reinterpret_cast<type*>(expression)
-#define ArrayCount(arr, type) (sizeof(arr) / sizeof(type))
+#define ArrayCount(arr) (sizeof(arr) / sizeof(arr[0]))
 #define Minimum(a, b) ((a) > (b) ? (b) : (a))
 #define Maximum(a, b) ((a) > (b) ? (a) : (b))
 #define MY_MAX_PATH 255

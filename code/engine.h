@@ -88,6 +88,19 @@ struct LoadedBitmap {
 	u32 alignY;
 };
 
+struct HighEntity {
+	V2 pos;
+	V2 vel;
+	u32 lowEntityIndex;
+};
+
+struct LowEntity {
+	TilePosition pos;
+	V2 size;
+	u32 faceDir;
+	u32 highEntityIndex;
+};
+
 struct Entity {
 	TilePosition pos;
 	V2 size;
@@ -104,11 +117,18 @@ struct ProgramState {
 	TilePosition cameraPos;
 	MemoryArena worldArena;
 	World world;
+
+	u32 entityCount;
 	Entity entities[256];
+	u32 highEntityCount;
+	HighEntity highEntities[256];
+	u32 lowEntityCount;
+	LowEntity lowEntities[4096];
+
 	u32 playerEntityIndexes[MAX_CONTROLLERS];
 	u32 cameraEntityIndex;
 	LoadedBitmap playerMoveAnim[4];
-	u32 entityCount;
+	
 	bool isInitialized;
 };
 

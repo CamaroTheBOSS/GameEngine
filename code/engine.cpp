@@ -204,7 +204,7 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 
 inline internal
 u32 AddEntity(ProgramState* state, const Entity& entity) {
-	if (state->entityCount < ArrayCount(state->entities, Entity)) {
+	if (state->entityCount < ArrayCount(state->entities)) {
 		state->entities[state->entityCount] = entity;
 		state->entityCount++;
 		return state->entityCount - 1;
@@ -438,7 +438,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		u32 randomNIdx = 0;
 		u32 absTileZ = 0;
 		for (u32 screenIndex = 0; screenIndex < 20; screenIndex++) {
-			randomNIdx = (randomNIdx + 1) % ArrayCount(randomNumbers, u32);
+			randomNIdx = (randomNIdx + 1) % ArrayCount(randomNumbers);
 			u32 randomNumber = randomNumbers[randomNIdx];
 			u32 mod = randomNumber % 3;
 			if (ladder) {
