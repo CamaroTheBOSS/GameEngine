@@ -239,7 +239,7 @@ HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
 	}
 	LowEntity* low = GetEntity(state, lowEntityIndex);
 	if (low->highEntityIndex > 0) {
-		return &state->highEntities[state->highEntityCount];
+		return &state->highEntities[low->highEntityIndex];
 	}
 	DiffTilePosition diff = Subtract(state->world.tilemap, low->pos, state->cameraPos);
 	HighEntity high = {};
@@ -421,6 +421,26 @@ void MovePlayer(ProgramState* state, TileMap& tilemap, Controller& controller, H
 #endif
 }
 
+internal
+void SetCamera(ProgramState* state) {
+	LowEntity* low = GetEntity(state, state->cameraEntityIndex);
+	V2 cameraDeltaMove = {};
+	if (low) {
+		HighEntity* high = MakeEntityHighFrequency(state, low->highEntityIndex);
+		if (high) {
+			cameraDeltaMove = high->pos;
+		}
+		state->cameraPos = OffsetPosition(state->world.tilemap, state->cameraPos, cameraDeltaMove);
+	}
+	for (u32 highIndex = 1; highIndex < state->highEntityCount; highIndex++) {
+		HighEntity* high = state->highEntities + highIndex;
+		high->pos -= cameraDeltaMove;
+	}
+	for (u32 entityIndex = 1; entityIndex < state->lowEntityCount; entityIndex++) {
+		MakeEntityHighFrequency(state, entityIndex);
+	}
+}
+
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
@@ -583,9 +603,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		// TODO change entities to camera space
 		
 	//}
-	for (u32 entityIndex = 1; entityIndex < state->lowEntityCount; entityIndex++) {
-		MakeEntityHighFrequency(state, entityIndex);
-	}
+	SetCamera(state);
 
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
 		if (controllers[playerIdx].isSpaceDown && state->playerEntityIndexes[playerIdx] == 0) {
@@ -620,6 +638,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	//	cameraEntityRelX = cameraEntityAbsX % tilemap.tileCountX;
 	//	cameraEntityRelY = cameraEntityAbsY % tilemap.tileCountY;
 	//}
+#if 1
+	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 1.0f, 0.f, 0.f);
+#else
 	u32 cameraRelX = state->cameraPos.absX % tilemap.tileCountX;
 	u32 cameraRelY = state->cameraPos.absY % tilemap.tileCountY;
 	f32 cameraFloatCameraSpaceX = (cameraRelX * tilemap.tileSizeInMeters.X + state->cameraPos.offset.X) * pixelsPerMeter;
@@ -673,7 +694,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			RenderRectangle(bitmap, min, max, R, G, B);
 		}
 	}
-
+#endif
 
 
 	for (u32 entityIndex = 1; entityIndex < state->highEntityCount; entityIndex++) {
@@ -686,22 +707,25 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			continue;
 		}
 #if 1
-		f32 playerFloatSpaceRelToCamX = entity->pos.X * pixelsPerMeter;
-		f32 playerFloatSpaceRelToCamY = entity->pos.Y * pixelsPerMeter;
-		f32 playerCameraSpaceX = cameraFloatCameraSpaceX + playerFloatSpaceRelToCamX;
-		f32 playerCameraSpaceY = cameraFloatCameraSpaceY + playerFloatSpaceRelToCamY;
+		V2 center = { lowerStart.X + entity->pos.X * pixelsPerMeter + bitmap.width / 2.0f,
+					  lowerStart.Y - entity->pos.Y * pixelsPerMeter - bitmap.height / 2.0f };
+		V2 min = { center.X,
+				   center.Y - low->size.Y * pixelsPerMeter };
+		V2 max = { min.X + low->size.X * pixelsPerMeter,
+				   center.Y };
 #else
 		f32 playerFloatSpaceRelToCamX = ((scast(i32, player->low->pos.absX) - scast(i32, state->cameraPos.absX)) * tilemap.tileSizeInMeters.X + (player->low->pos.offset.X - state->cameraPos.offset.X) - player->low->size.X / 2.0f) * pixelsPerMeter + tileSizePixels.X / 2.0f;
 		f32 playerFloatSpaceRelToCamY = ((scast(i32, player->low->pos.absY) - scast(i32, state->cameraPos.absY)) * tilemap.tileSizeInMeters.Y + (player->low->pos.offset.Y - state->cameraPos.offset.Y)) * pixelsPerMeter + tileSizePixels.Y / 2.0f;
 		f32 playerCameraSpaceX = cameraFloatCameraSpaceX + playerFloatSpaceRelToCamX;
 		f32 playerCameraSpaceY = cameraFloatCameraSpaceY + playerFloatSpaceRelToCamY;
-#endif
+
 		V2 center = { lowerStart.X + playerCameraSpaceX,
 					  lowerStart.Y - playerCameraSpaceY };
 		V2 min = { center.X,
 				   center.Y - low->size.Y * pixelsPerMeter };
 		V2 max = { min.X + low->size.X * pixelsPerMeter,
 				   center.Y };
+#endif
 		if (low->type == EntityType_Wall) {
 			RenderRectangle(bitmap, min, max, 1.f, 1.f, 1.f);
 		}
