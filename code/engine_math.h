@@ -86,4 +86,37 @@ inline f32 LengthSq(V2 A) {
 inline f32 Length(V2 A) {
 	return SquareRoot(LengthSq(A));
 }
+
+struct Rect2 {
+	V2 min;
+	V2 max;
+};
+
+Rect2 GetRectFromMinMax(V2 min, V2 max) {
+	return Rect2{ min, max };
+}
+
+Rect2 GetRectFromCenterHalfDim(V2 center, f32 halfDim) {
+	Rect2 rect = {};
+	rect.min = V2{
+		center.X - halfDim,
+		center.Y - halfDim
+	};
+	rect.max = V2{
+		center.X + halfDim,
+		center.Y + halfDim
+	};
+	return rect;
+}
+
+Rect2 GetRectFromCenterDim(V2 center, f32 dim) {
+	return GetRectFromCenterHalfDim(center, dim / 2.f);
+}
+
+bool IsInRectangle(Rect2 rect, V2 point) {
+	return point.X < rect.max.X &&
+		   point.X >= rect.min.X &&
+		   point.Y < rect.max.Y &&
+		   point.Y >= rect.min.Y;
+}
 #pragma warning(pop)

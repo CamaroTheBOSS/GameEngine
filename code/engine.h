@@ -119,6 +119,7 @@ struct World {
 
 struct ProgramState {
 	// Global state of the program
+	u32 highFreqBoundHalfDim;
 	TilePosition cameraPos;
 	MemoryArena worldArena;
 	World world;

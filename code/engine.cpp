@@ -235,9 +235,11 @@ internal
 HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
 	HighEntity* result = 0;
 	if (state->highEntityCount >= ArrayCount(state->highEntities)) {
+		Assert(false);
 		return result;
 	}
 	LowEntity* low = GetEntity(state, lowEntityIndex);
+	Assert(low);
 	if (low->highEntityIndex > 0) {
 		return &state->highEntities[low->highEntityIndex];
 	}
@@ -256,7 +258,7 @@ HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
 internal
 u32 InitializePlayer(ProgramState* state) {
 	LowEntity low = {};
-	low.pos.absX = 3;
+	low.pos.absX = 8;
 	low.pos.absY = 3;
 	low.pos.absZ = 0;
 	low.pos.offset = V2{ 0, 0 };
@@ -295,6 +297,7 @@ void MovePlayer(ProgramState* state, TileMap& tilemap, Controller& controller, H
 		return;
 	}
 	LowEntity* playerLow = GetEntity(state, playerHigh->lowEntityIndex);
+	Assert(playerHigh->lowEntityIndex > 0);
 	Assert(playerLow && &state->highEntities[playerLow->highEntityIndex] == playerHigh);
 	if (!playerLow) {
 		return;
@@ -423,21 +426,46 @@ void MovePlayer(ProgramState* state, TileMap& tilemap, Controller& controller, H
 
 internal
 void SetCamera(ProgramState* state) {
-	LowEntity* low = GetEntity(state, state->cameraEntityIndex);
+	LowEntity* cameraEntityLow = GetEntity(state, state->cameraEntityIndex);
+	Rect2 cameraBounds = GetRectFromCenterHalfDim(V2{ 0, 0 }, state->highFreqBoundHalfDim * state->world.tilemap.tileSizeInMeters.X);
 	V2 cameraDeltaMove = {};
-	if (low) {
-		HighEntity* high = MakeEntityHighFrequency(state, low->highEntityIndex);
-		if (high) {
-			cameraDeltaMove = high->pos;
+	if (cameraEntityLow) {
+		HighEntity* cameraEntityHigh = MakeEntityHighFrequency(state, state->cameraEntityIndex);
+		if (cameraEntityHigh) {
+			cameraDeltaMove = cameraEntityHigh->pos;
 		}
 		state->cameraPos = OffsetPosition(state->world.tilemap, state->cameraPos, cameraDeltaMove);
 	}
 	for (u32 highIndex = 1; highIndex < state->highEntityCount; highIndex++) {
 		HighEntity* high = state->highEntities + highIndex;
+		LowEntity* low = GetEntity(state, high->lowEntityIndex);
+		Assert(highIndex == low->highEntityIndex);
 		high->pos -= cameraDeltaMove;
+		if (!IsInRectangle(cameraBounds, high->pos)) {
+			// Remove entity from high set
+			if (highIndex == state->highEntityCount - 1) {
+				*high = {};
+				low->highEntityIndex = 0;
+				state->highEntityCount--;
+			}
+			else {
+				HighEntity* lastOneHigh = &state->highEntities[--state->highEntityCount];
+				Assert(lastOneHigh->lowEntityIndex > 0);
+				LowEntity* lastOneLow = GetEntity(state, lastOneHigh->lowEntityIndex);
+				*high = *lastOneHigh;
+				low->highEntityIndex = 0;
+				*lastOneHigh = {};
+				lastOneLow->highEntityIndex = highIndex;
+			}
+		}
 	}
 	for (u32 entityIndex = 1; entityIndex < state->lowEntityCount; entityIndex++) {
-		MakeEntityHighFrequency(state, entityIndex);
+		LowEntity* low = GetEntity(state, entityIndex);
+		DiffTilePosition diff = Subtract(state->world.tilemap, low->pos, state->cameraPos);
+		if (IsInRectangle(cameraBounds, diff.dXY)) {
+			MakeEntityHighFrequency(state, entityIndex);
+		}
+		//MakeEntityHighFrequency(state, entityIndex);
 	}
 }
 
@@ -452,6 +480,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->worldArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
 		state->worldArena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
 		state->worldArena.used = 0;
+		state->highFreqBoundHalfDim = 5;
 
 		tilemap.tileCountX = 17;
 		tilemap.tileCountY = 9;
@@ -695,8 +724,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 #endif
-
-
 	for (u32 entityIndex = 1; entityIndex < state->highEntityCount; entityIndex++) {
 		HighEntity* entity = &state->highEntities[entityIndex];
 		if (!entity) {
@@ -706,26 +733,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (!low) {
 			continue;
 		}
-#if 1
+
 		V2 center = { lowerStart.X + entity->pos.X * pixelsPerMeter + bitmap.width / 2.0f,
 					  lowerStart.Y - entity->pos.Y * pixelsPerMeter - bitmap.height / 2.0f };
 		V2 min = { center.X,
 				   center.Y - low->size.Y * pixelsPerMeter };
 		V2 max = { min.X + low->size.X * pixelsPerMeter,
 				   center.Y };
-#else
-		f32 playerFloatSpaceRelToCamX = ((scast(i32, player->low->pos.absX) - scast(i32, state->cameraPos.absX)) * tilemap.tileSizeInMeters.X + (player->low->pos.offset.X - state->cameraPos.offset.X) - player->low->size.X / 2.0f) * pixelsPerMeter + tileSizePixels.X / 2.0f;
-		f32 playerFloatSpaceRelToCamY = ((scast(i32, player->low->pos.absY) - scast(i32, state->cameraPos.absY)) * tilemap.tileSizeInMeters.Y + (player->low->pos.offset.Y - state->cameraPos.offset.Y)) * pixelsPerMeter + tileSizePixels.Y / 2.0f;
-		f32 playerCameraSpaceX = cameraFloatCameraSpaceX + playerFloatSpaceRelToCamX;
-		f32 playerCameraSpaceY = cameraFloatCameraSpaceY + playerFloatSpaceRelToCamY;
 
-		V2 center = { lowerStart.X + playerCameraSpaceX,
-					  lowerStart.Y - playerCameraSpaceY };
-		V2 min = { center.X,
-				   center.Y - low->size.Y * pixelsPerMeter };
-		V2 max = { min.X + low->size.X * pixelsPerMeter,
-				   center.Y };
-#endif
 		if (low->type == EntityType_Wall) {
 			RenderRectangle(bitmap, min, max, 1.f, 1.f, 1.f);
 		}
