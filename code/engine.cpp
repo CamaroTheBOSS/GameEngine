@@ -436,7 +436,7 @@ void SetCamera(ProgramState* state) {
 		}
 		state->cameraPos = OffsetPosition(state->world.tilemap, state->cameraPos, cameraDeltaMove);
 	}
-	for (u32 highIndex = 1; highIndex < state->highEntityCount; highIndex++) {
+	for (u32 highIndex = 1; highIndex < state->highEntityCount;) {
 		HighEntity* high = state->highEntities + highIndex;
 		LowEntity* low = GetEntity(state, high->lowEntityIndex);
 		Assert(highIndex == low->highEntityIndex);
@@ -457,6 +457,9 @@ void SetCamera(ProgramState* state) {
 				*lastOneHigh = {};
 				lastOneLow->highEntityIndex = highIndex;
 			}
+		}
+		else {
+			highIndex++;
 		}
 	}
 	for (u32 entityIndex = 1; entityIndex < state->lowEntityCount; entityIndex++) {
