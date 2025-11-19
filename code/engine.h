@@ -106,6 +106,7 @@ struct LowEntity {
 	V2 size;
 	u32 faceDir;
 	u32 highEntityIndex;
+	bool collide;
 };
 
 struct Entity {
@@ -132,6 +133,7 @@ struct ProgramState {
 	u32 playerEntityIndexes[MAX_CONTROLLERS];
 	u32 cameraEntityIndex;
 	LoadedBitmap playerMoveAnim[4];
+	V2 playerSize;
 	
 	bool isInitialized;
 };
