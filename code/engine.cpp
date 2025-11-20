@@ -226,9 +226,24 @@ u32 AddWall(ProgramState* state, u32 absX, u32 absY, u32 absZ) {
 internal
 LowEntity* GetEntity(ProgramState* state, u32 lowEntityIndex) {
 	LowEntity* entity = 0;
+	// TODO: should I keep this assertion?
+	//Assert(lowEntityIndex > 0 && lowEntityIndex < state->lowEntityCount);
 	if (lowEntityIndex > 0 && lowEntityIndex < state->lowEntityCount) {
 		entity = &state->lowEntities[lowEntityIndex];
 	}
+	return entity;
+}
+
+Entity GetHighEntity(ProgramState* state, u32 highEntityIndex) {
+	Entity entity = {};
+	Assert(highEntityIndex > 0 && highEntityIndex < state->highEntityCount);
+	if (highEntityIndex > 0 && highEntityIndex < state->highEntityCount) {
+		entity.high = &state->highEntities[highEntityIndex];
+		entity.low = GetEntity(state, entity.high->lowEntityIndex);
+		Assert(entity.low->highEntityIndex == highEntityIndex);
+	}
+	Assert(entity.high);
+	Assert(entity.low);
 	return entity;
 }
 
@@ -293,49 +308,17 @@ bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDe
 }
 
 internal
-void MovePlayer(ProgramState* state, TileMap& tilemap, Controller& controller, HighEntity* playerHigh) {
-	// TODO can playerHigh be just reference?
-	if (!playerHigh) {
+void MoveEntity(ProgramState* state, TileMap& tilemap, Entity entity, V2 acceleration, f32 dt) {
+	Assert(entity.high);
+	Assert(entity.low);
+	Assert(&state->highEntities[entity.low->highEntityIndex] == entity.high);
+	if (!entity.low || !entity.high) {
 		return;
 	}
-	LowEntity* playerLow = GetEntity(state, playerHigh->lowEntityIndex);
-	Assert(playerHigh->lowEntityIndex > 0);
-	Assert(playerLow && &state->highEntities[playerLow->highEntityIndex] == playerHigh);
-	if (!playerLow) {
-		return;
-	}
-	V2 playerAcceleration = {};
-	f32 speed = 75.0f;
-	if (controller.isADown) {
-		playerLow->faceDir = 1;
-		playerAcceleration.X -= 1.f;
-	}
-	if (controller.isWDown) {
-		playerLow->faceDir = 2;
-		playerAcceleration.Y += 1.f;
-	}
-	if (controller.isSDown) {
-		playerLow->faceDir = 3;
-		playerAcceleration.Y -= 1.f;
-	}
-	if (controller.isDDown) {
-		playerLow->faceDir = 0;
-		playerAcceleration.X += 1.f;
-	}
-	if (controller.isSpaceDown) {
-		speed = 250.0f;
-	}
-	f32 playerAccLength = Length(playerAcceleration);
-	if (playerAccLength != 0) {
-		playerAcceleration *= speed / Length(playerAcceleration);
-	}
-	playerAcceleration -= 10.0f * playerHigh->vel;
-
-	V2 playerMoveDelta = 0.5f * playerAcceleration * Squared(controller.dtFrame) +
-						 playerHigh->vel * controller.dtFrame;
-
-	playerHigh->vel += playerAcceleration * controller.dtFrame;
-	V2 nextPlayerPosition = playerHigh->pos + playerMoveDelta;
+	
+	V2 moveDelta = 0.5f * acceleration * Squared(dt) + entity.high->vel * dt;
+	entity.high->vel += acceleration * dt;
+	V2 nextPlayerPosition = entity.high->pos + moveDelta;
 
 	// TODO: G.J.K algorithm for other collision shapes like circles, elipses etc.
 	for (u32 iteration = 0; iteration < 4; iteration++) {
@@ -345,54 +328,53 @@ void MovePlayer(ProgramState* state, TileMap& tilemap, Controller& controller, H
 		f32 tMin = 1.0f;
 		V2 wallNormal = {};
 		bool hitCollision = false;
-		V2 desiredPosition = playerHigh->pos + playerMoveDelta;
+		V2 desiredPosition = entity.high->pos + moveDelta;
 		for (u32 entityIndex = 1; entityIndex < state->highEntityCount; entityIndex++) {
-			HighEntity* high = state->highEntities + entityIndex;
-			LowEntity* low = GetEntity(state, high->lowEntityIndex);
-			Assert(high->lowEntityIndex > 0);
-			if (!low->collide || high == playerHigh) {
+			Entity other = GetHighEntity(state, entityIndex);
+			if (!other.low->collide || other.high == entity.high) {
 				continue;
 			}
 
-			V2 diff = high->pos - playerHigh->pos;
-			V2 minCorner = diff - 0.5f * low->size - 0.5f * playerLow->size;
-			V2 maxCorner = diff + 0.5f * low->size + 0.5f * playerLow->size;
+			V2 diff = other.high->pos - entity.high->pos;
+			V2 minCorner = diff - 0.5f * other.low->size - 0.5f * entity.low->size;
+			V2 maxCorner = diff + 0.5f * other.low->size + 0.5f * entity.low->size;
 
-			if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, playerMoveDelta.X,
-				playerMoveDelta.Y, &tMin)) {
+			if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
+				moveDelta.Y, &tMin)) {
 				// Left wall
 				wallNormal = { 1.f, 0.f };
 				hitCollision = true;
 			}
-			if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, playerMoveDelta.X,
-				playerMoveDelta.Y, &tMin)) {
+			if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
+				moveDelta.Y, &tMin)) {
 				// Right wall
 				wallNormal = { -1.f, 0.f };
 				hitCollision = true;
 			}
-			if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, playerMoveDelta.Y,
-				playerMoveDelta.X, &tMin)) {
+			if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
+				moveDelta.X, &tMin)) {
 				// Bottom wall
 				wallNormal = { 0.f, 1.f };
 				hitCollision = true;
 			}
-			if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, playerMoveDelta.Y,
-				playerMoveDelta.X, &tMin)) {
+			if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
+				moveDelta.X, &tMin)) {
 				// Top wall
 				wallNormal = { 0.f, -1.f };
 				hitCollision = true;
 			}
 		}
-		playerHigh->pos += playerMoveDelta * tMin;
+		entity.high->pos += moveDelta * tMin;
 		if (hitCollision) {
-			playerHigh->vel -= Inner(playerHigh->vel, wallNormal) * wallNormal;
-			playerMoveDelta = desiredPosition - playerHigh->pos;
-			playerMoveDelta -= Inner(playerMoveDelta, wallNormal) * wallNormal;
+			entity.high->vel -= Inner(entity.high->vel, wallNormal) * wallNormal;
+			moveDelta = desiredPosition - entity.high->pos;
+			moveDelta -= Inner(moveDelta, wallNormal) * wallNormal;
 		}
 		if (tMin == 1.0f) {
 			break;
 		}
 	}
+	entity.low->pos = OffsetPosition(state->world.tilemap, state->cameraPos, entity.high->pos);
 
 
 	/*bool theSameTile = AreOnTheSameTile(player->low->pos, nextPlayerPosition);
@@ -407,16 +389,6 @@ void MovePlayer(ProgramState* state, TileMap& tilemap, Controller& controller, H
 	}*/
 
 	//player->low->pos = OffsetPosition(tilemap, player->low->pos, totalPlayerMoveDelta);
-//#if HANDMADE_SLOW
-//	TilePosition rightTopCorner = OffsetPosition(tilemap, playerPosForCollision, collisionRadius.X, collisionRadius.Y);
-//	TilePosition leftTopCorner = OffsetPosition(tilemap, playerPosForCollision, -collisionRadius.X, collisionRadius.Y);
-//	TilePosition rightBotCorner = OffsetPosition(tilemap, playerPosForCollision, collisionRadius.X, -collisionRadius.Y);
-//	TilePosition leftBotCorner = OffsetPosition(tilemap, playerPosForCollision, -collisionRadius.X, -collisionRadius.Y);
-//	Assert(IsTileValueEmpty(GetTileValue(tilemap, rightTopCorner)));
-//	Assert(IsTileValueEmpty(GetTileValue(tilemap, leftTopCorner)));
-//	Assert(IsTileValueEmpty(GetTileValue(tilemap, rightBotCorner)));
-//	Assert(IsTileValueEmpty(GetTileValue(tilemap, leftBotCorner)));
-//#endif
 }
 
 internal
@@ -621,17 +593,49 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	SetCamera(state);
 
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
-		if (controllers[playerIdx].isSpaceDown && state->playerEntityIndexes[playerIdx] == 0) {
-			state->playerEntityIndexes[playerIdx] = InitializePlayer(state);
+		Controller& controller = controllers[playerIdx];
+		u32 playerLowEntityIndex = state->playerEntityIndexes[playerIdx];
+		if (controller.isSpaceDown && playerLowEntityIndex == 0) {
+			playerLowEntityIndex = InitializePlayer(state);
+			state->playerEntityIndexes[playerIdx] = playerLowEntityIndex;
 		}
-		LowEntity* playerLow = GetEntity(state, state->playerEntityIndexes[playerIdx]);
-		if (!playerLow) {
+		Entity entity = {};
+		entity.low = GetEntity(state, playerLowEntityIndex);
+		if (!entity.low) {
 			continue;
 		}
-		Assert(playerLow && playerLow->highEntityIndex > 0);
-		// Shouldn't this loop be done for all the entities?
-		HighEntity* playerHigh = &state->highEntities[playerLow->highEntityIndex];
-		MovePlayer(state, tilemap, controllers[playerIdx], playerHigh);
+		Assert(entity.low&& entity.low->highEntityIndex > 0);
+		entity.high = &state->highEntities[entity.low->highEntityIndex];
+
+
+		V2 acceleration = {};
+		f32 speed = 75.0f;
+		if (controller.isADown) {
+			entity.low->faceDir = 1;
+			acceleration.X -= 1.f;
+		}
+		if (controller.isWDown) {
+			entity.low->faceDir = 2;
+			acceleration.Y += 1.f;
+		}
+		if (controller.isSDown) {
+			entity.low->faceDir = 3;
+			acceleration.Y -= 1.f;
+		}
+		if (controller.isDDown) {
+			entity.low->faceDir = 0;
+			acceleration.X += 1.f;
+		}
+		if (controller.isSpaceDown) {
+			speed = 250.0f;
+		}
+		f32 playerAccLength = Length(acceleration);
+		if (playerAccLength != 0) {
+			acceleration *= speed / Length(acceleration);
+		}
+		acceleration -= 10.0f * entity.high->vel;
+
+		MoveEntity(state, tilemap, entity, acceleration, controller.dtFrame);
 	}
 
 	f32 pixelsPerMeter = 42.85714f;
@@ -640,28 +644,24 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					  scast(f32, bitmap.height) };
 	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 0.5f, 0.5f, 0.5f);
 	for (u32 entityIndex = 1; entityIndex < state->highEntityCount; entityIndex++) {
-		HighEntity* entity = &state->highEntities[entityIndex];
-		if (!entity) {
-			continue;
-		}
-		LowEntity* low = GetEntity(state, entity->lowEntityIndex);
-		if (!low) {
+		Entity entity = GetHighEntity(state, entityIndex);
+		if (!entity.high || !entity.low) {
 			continue;
 		}
 
-		V2 center = { lowerStart.X + entity->pos.X * pixelsPerMeter + bitmap.width / 2.0f,
-					  lowerStart.Y - entity->pos.Y * pixelsPerMeter - bitmap.height / 2.0f };
-		V2 min = { center.X - low->size.X / 2.f * pixelsPerMeter,
-				   center.Y - low->size.Y / 2.f * pixelsPerMeter };
-		V2 max = { min.X + low->size.X * pixelsPerMeter,
-				   min.Y + low->size.Y * pixelsPerMeter };
+		V2 center = { lowerStart.X + entity.high->pos.X * pixelsPerMeter + bitmap.width / 2.0f,
+					  lowerStart.Y - entity.high->pos.Y * pixelsPerMeter - bitmap.height / 2.0f };
+		V2 min = { center.X - entity.low->size.X / 2.f * pixelsPerMeter,
+				   center.Y - entity.low->size.Y / 2.f * pixelsPerMeter };
+		V2 max = { min.X + entity.low->size.X * pixelsPerMeter,
+				   min.Y + entity.low->size.Y * pixelsPerMeter };
 
-		if (low->type == EntityType_Wall) {
+		if (entity.low->type == EntityType_Wall) {
 			RenderRectangle(bitmap, min, max, 1.f, 1.f, 1.f);
 		}
-		else if (low->type == EntityType_Player) {
+		else if (entity.low->type == EntityType_Player) {
 			RenderRectangle(bitmap, min, max, 0.f, 1.f, 1.f);
-			RenderBitmap(bitmap, state->playerMoveAnim[low->faceDir], V2{min.X, max.Y});
+			RenderBitmap(bitmap, state->playerMoveAnim[entity.low->faceDir], V2{min.X, max.Y});
 		}
 		else {
 			RenderRectangle(bitmap, min, max, 0.f, 1.f, 0.f);
