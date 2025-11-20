@@ -128,7 +128,7 @@ struct ProgramState {
 	u32 highEntityCount;
 	HighEntity highEntities[256];
 	u32 lowEntityCount;
-	LowEntity lowEntities[1024];
+	LowEntity lowEntities[10000];
 
 	u32 playerEntityIndexes[MAX_CONTROLLERS];
 	u32 cameraEntityIndex;

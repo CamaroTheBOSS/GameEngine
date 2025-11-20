@@ -251,11 +251,14 @@ internal
 HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
 	HighEntity* result = 0;
 	if (state->highEntityCount >= ArrayCount(state->highEntities)) {
-		Assert(false);
+		Assert(!"Too little high entities!");
 		return result;
 	}
 	LowEntity* low = GetEntity(state, lowEntityIndex);
 	Assert(low);
+	if (!low) {
+		return result;
+	}
 	if (low->highEntityIndex > 0) {
 		return &state->highEntities[low->highEntityIndex];
 	}
@@ -387,8 +390,6 @@ void MoveEntity(ProgramState* state, TileMap& tilemap, Entity entity, V2 acceler
 			player->low->pos.absZ = 0;
 		}
 	}*/
-
-	//player->low->pos = OffsetPosition(tilemap, player->low->pos, totalPlayerMoveDelta);
 }
 
 internal
@@ -450,7 +451,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->worldArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
 		state->worldArena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
 		state->worldArena.used = 0;
-		state->highFreqBoundHalfDim = 5;
+		state->highFreqBoundHalfDim = 15;
 
 		tilemap.tileCountX = 17;
 		tilemap.tileCountY = 9;
@@ -500,10 +501,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		u32 screenY = 0;
 		u32 randomNIdx = 0;
 		u32 absTileZ = 0;
-		for (u32 screenIndex = 0; screenIndex < 2; screenIndex++) {
+		for (u32 screenIndex = 0; screenIndex < 60; screenIndex++) {
 			randomNIdx = (randomNIdx + 1) % ArrayCount(randomNumbers);
 			u32 randomNumber = randomNumbers[randomNIdx];
+#if 0
 			u32 mod = randomNumber % 3;
+#else
+			u32 mod = randomNumber % 2;
+#endif
 			if (ladder) {
 				mod = randomNumber % 2;
 				ladder = false;
@@ -560,6 +565,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					else if (lvlJustChanged && absTileZ == 1 && tileX == 2 && tileY == 2) {
 						tileValue = 4; // Ladder up
 					}
+					// TODO: Chunk allocation on demand
 					SetTileValue(state->worldArena, tilemap, absTileX, absTileY, absTileZ, tileValue);
 					if (tileValue == 2) {
 						AddWall(state, absTileX, absTileY, absTileZ);
@@ -639,7 +645,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 
 	f32 pixelsPerMeter = 42.85714f;
-	//pixelsPerMeter = 3.85714f;
+	pixelsPerMeter = 3.85714f;
 	V2 lowerStart = { -tilemap.tileSizeInMeters.X * pixelsPerMeter / 2.0f,
 					  scast(f32, bitmap.height) };
 	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 0.5f, 0.5f, 0.5f);

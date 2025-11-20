@@ -19,6 +19,8 @@ TileChunk* GetTileChunk(TileMap& tilemap, u32 chunkX, u32 chunkY, u32 chunkZ) {
 		chunkY >= 0 && chunkY < tilemap.chunkCountY &&
 		chunkZ >= 0 && chunkZ < tilemap.chunkCountZ)
 	{
+		TileChunk debug = tilemap.tileChunks[chunkZ * tilemap.chunkCountY * tilemap.chunkCountX +
+			chunkY * tilemap.chunkCountX + chunkX];
 		tileChunk = &tilemap.tileChunks[chunkZ * tilemap.chunkCountY * tilemap.chunkCountX +
 			chunkY * tilemap.chunkCountX + chunkX];
 	}
@@ -57,6 +59,10 @@ inline
 void SetTileValue(MemoryArena& arena, TileMap& tilemap, u32 absX, u32 absY, u32 absZ, u32 tileValue) {
 	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, absZ);
 	TileChunk* chunk = GetTileChunk(tilemap, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
+	Assert(chunk);
+	if (!chunk) {
+		return;
+	}
 	if (!chunk->tiles) {
 		u32 tileChunkSize = tilemap.chunkDim * tilemap.chunkDim;
 		chunk->tiles = ptrcast(u32, PushArray(arena, tileChunkSize, u32));
