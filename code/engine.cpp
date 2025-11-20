@@ -204,6 +204,7 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 
 inline internal
 u32 AddEntity(ProgramState* state, LowEntity& low) {
+	Assert(state->lowEntityCount < ArrayCount(state->lowEntities));
 	if (state->lowEntityCount < ArrayCount(state->lowEntities)) {
 		state->lowEntities[state->lowEntityCount++] = low;
 		return state->lowEntityCount - 1;
@@ -462,11 +463,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		tilemap.chunkShift = 4;
 		tilemap.chunkMask = (1 << tilemap.chunkShift) - 1;
 		tilemap.chunkDim = (1 << tilemap.chunkShift);
-		tilemap.tileChunks = ptrcast(TileChunk, PushArray(
-			state->worldArena,
-			tilemap.chunkCountX * tilemap.chunkCountY * tilemap.chunkCountZ,
-			TileChunk
-		));
 
 		state->cameraPos.absX = tilemap.tileCountX / 2;
 		state->cameraPos.absY = tilemap.tileCountY / 2;
@@ -645,7 +641,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 
 	f32 pixelsPerMeter = 42.85714f;
-	pixelsPerMeter = 3.85714f;
+	//pixelsPerMeter = 3.85714f;
 	V2 lowerStart = { -tilemap.tileSizeInMeters.X * pixelsPerMeter / 2.0f,
 					  scast(f32, bitmap.height) };
 	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 0.5f, 0.5f, 0.5f);

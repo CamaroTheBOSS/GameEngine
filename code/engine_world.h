@@ -23,7 +23,12 @@ struct TileChunkPosition {
 };
 
 struct TileChunk {
+	u32 chunkX;
+	u32 chunkY;
+	u32 chunkZ;
+
 	u32* tiles;
+	TileChunk* next;
 };
 
 struct TileMap {
@@ -38,5 +43,5 @@ struct TileMap {
 	u32 tileCountY;
 	V2 tileSizeInMeters;
 
-	TileChunk* tileChunks;
+	TileChunk* hashTileChunks[4096];
 };

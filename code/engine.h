@@ -124,6 +124,7 @@ struct ProgramState {
 	TilePosition cameraPos;
 	MemoryArena worldArena;
 	World world;
+	
 
 	u32 highEntityCount;
 	HighEntity highEntities[256];

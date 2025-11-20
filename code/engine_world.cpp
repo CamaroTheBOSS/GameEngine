@@ -13,18 +13,41 @@ TileChunkPosition GetTileChunkPosition(TileMap& tilemap, u32 absX, u32 absY, u32
 }
 
 inline
-TileChunk* GetTileChunk(TileMap& tilemap, u32 chunkX, u32 chunkY, u32 chunkZ) {
-	TileChunk* tileChunk = 0;
-	if (chunkX >= 0 && chunkX < tilemap.chunkCountX &&
-		chunkY >= 0 && chunkY < tilemap.chunkCountY &&
-		chunkZ >= 0 && chunkZ < tilemap.chunkCountZ)
-	{
-		TileChunk debug = tilemap.tileChunks[chunkZ * tilemap.chunkCountY * tilemap.chunkCountX +
-			chunkY * tilemap.chunkCountX + chunkX];
-		tileChunk = &tilemap.tileChunks[chunkZ * tilemap.chunkCountY * tilemap.chunkCountX +
-			chunkY * tilemap.chunkCountX + chunkX];
+TileChunk* GetTileChunk(TileMap& tilemap, u32 chunkX, u32 chunkY, u32 chunkZ, MemoryArena* arena = 0) {
+	static_assert((ArrayCount(tilemap.hashTileChunks) & (ArrayCount(tilemap.hashTileChunks) - 1)) == 0 &&
+					"hashValue is ANDed with a mask based with assert that the size of hashTileChunks is power of two");
+	// TODO: Better hash function
+	u32 hashValue = 2767 * chunkX + 4517 * chunkY + 5099 * chunkZ;
+	hashValue &= ArrayCount(tilemap.hashTileChunks) - 1;
+
+	TileChunk* chunk = tilemap.hashTileChunks[hashValue];
+	if (!chunk && arena) {
+		// Add chunk at the beginning of the linked list
+		chunk = ptrcast(TileChunk, PushStructSize(*arena, TileChunk));
+		chunk->chunkX = chunkX;
+		chunk->chunkY = chunkY;
+		chunk->chunkZ = chunkZ;
+		tilemap.hashTileChunks[hashValue] = chunk;
+		return chunk;
 	}
-	return tileChunk;
+	while (chunk) {
+		if (chunkX == chunk->chunkX &&
+			chunkY == chunk->chunkY &&
+			chunkZ == chunk->chunkZ)
+		{
+			return chunk;
+		}
+		if (!chunk->next && arena) {
+			// Add chunk at the end of the linked list
+			chunk->next = ptrcast(TileChunk, PushStructSize(*arena, TileChunk));
+			chunk->next->chunkX = chunkX;
+			chunk->next->chunkY = chunkY;
+			chunk->next->chunkZ = chunkZ;
+			return chunk->next;
+		}
+		chunk = chunk->next;
+	}
+	return 0;
 }
 
 inline
@@ -58,7 +81,7 @@ void SetTileValue(TileMap& tilemap, TileChunk* chunk, u32 relX, u32 relY, u32 ti
 inline
 void SetTileValue(MemoryArena& arena, TileMap& tilemap, u32 absX, u32 absY, u32 absZ, u32 tileValue) {
 	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, absZ);
-	TileChunk* chunk = GetTileChunk(tilemap, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
+	TileChunk* chunk = GetTileChunk(tilemap, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ, &arena);
 	Assert(chunk);
 	if (!chunk) {
 		return;
