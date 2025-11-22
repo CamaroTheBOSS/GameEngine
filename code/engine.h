@@ -114,10 +114,6 @@ struct Entity {
 	HighEntity* high;
 };
 
-struct World {
-	TileMap tilemap;
-};
-
 struct ProgramState {
 	// Global state of the program
 	u32 highFreqBoundHalfDim;
