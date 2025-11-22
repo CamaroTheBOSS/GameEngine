@@ -169,6 +169,7 @@ struct BmpHeader {
 };
 #pragma pack(pop)
 
+internal
 LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char* filename) {
 	FileData bmpData = debugReadEntireFile(filename);
 	if (!bmpData.content) {
@@ -202,17 +203,76 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 	return result;
 }
 
-inline internal
+internal
+void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex,
+	WorldPosition* oldPos, WorldPosition& newPos)
+{
+	if (oldPos && AreOnTheSameChunk(*oldPos, newPos)) {
+		return;
+	}
+	if (oldPos) {
+		WorldChunk* chunk = GetWorldChunk(world, oldPos->chunkX, oldPos->chunkY, oldPos->chunkZ);
+		Assert(chunk);
+		if (chunk) {
+			LowEntityBlock* firstBlock = chunk->entities;
+			for (LowEntityBlock* block = firstBlock; block; block = block->next) {
+				for (u32 index = 0; index < block->entityCount; index++) {
+					if (block->entityIndexes[index] != lowEntityIndex) {
+						continue;
+					}
+					block->entityIndexes[index] = firstBlock->entityIndexes[--firstBlock->entityCount];
+					if (firstBlock->entityCount == 0) {
+						chunk->entities = firstBlock->next;
+						LowEntityBlock* lastFreeBlock = world.freeEntityBlockList;
+						world.freeEntityBlockList = firstBlock;
+						firstBlock->next = lastFreeBlock;
+					}
+					block = 0;
+					break;
+				}
+				if (!block) {
+					break;
+				}
+			}
+		}
+	}
+	WorldChunk* chunk = GetWorldChunk(world, newPos.chunkX, newPos.chunkY, newPos.chunkZ, &arena);
+	LowEntityBlock* firstBlock = chunk->entities;
+	if (!firstBlock) {
+		chunk->entities = ptrcast(LowEntityBlock, PushStructSize(arena, LowEntityBlock));
+		firstBlock = chunk->entities;
+	}
+	if (firstBlock->entityCount == ArrayCount(firstBlock->entityIndexes)) {
+		if (world.freeEntityBlockList) {
+			Assert(world.freeEntityBlockList->entityCount == 0);
+			LowEntityBlock* block = chunk->entities;
+			chunk->entities = world.freeEntityBlockList;
+			world.freeEntityBlockList = world.freeEntityBlockList->next;
+			chunk->entities->next = block;
+			firstBlock = chunk->entities;
+		}
+		else {
+			LowEntityBlock* block = chunk->entities;
+			chunk->entities = ptrcast(LowEntityBlock, PushStructSize(arena, LowEntityBlock));
+			chunk->entities->next = block;
+			firstBlock = chunk->entities;
+		}
+	}
+	firstBlock->entityIndexes[firstBlock->entityCount++] = lowEntityIndex;
+}
+
+internal
 u32 AddEntity(ProgramState* state, LowEntity& low) {
 	Assert(state->lowEntityCount < ArrayCount(state->lowEntities));
 	if (state->lowEntityCount >= ArrayCount(state->lowEntities)) {
 		return 0;
 	}
+	ChangeEntityChunkLocation(state->world, state->worldArena, state->lowEntityCount, 0, low.pos);
 	state->lowEntities[state->lowEntityCount++] = low;
 	return state->lowEntityCount - 1;
 }
 
-inline
+internal
 u32 AddWall(ProgramState* state, u32 absX, u32 absY, u32 absZ) {
 	LowEntity low = {};
 	low.pos = GetChunkPositionFromWorldPosition(state->world, absX, absY, absZ);
@@ -233,6 +293,7 @@ LowEntity* GetEntity(ProgramState* state, u32 lowEntityIndex) {
 	return entity;
 }
 
+internal
 Entity GetHighEntity(ProgramState* state, u32 highEntityIndex) {
 	Entity entity = {};
 	Assert(highEntityIndex > 0 && highEntityIndex < state->highEntityCount);
@@ -288,51 +349,6 @@ u32 InitializePlayer(ProgramState* state) {
 		state->cameraEntityIndex = index;
 	}
 	return index;
-}
-
-internal
-void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex, WorldPosition& oldPos, WorldPosition& newPos) {
-	if (AreOnTheSameChunk(oldPos, newPos)) {
-		return;
-	}
-	WorldChunk* oldChunk = GetWorldChunk(world, oldPos.chunkX, oldPos.chunkY, oldPos.chunkZ);
-	WorldChunk* newChunk = GetWorldChunk(world, newPos.chunkX, newPos.chunkY, newPos.chunkZ, &arena);
-	Assert(oldChunk && newChunk);
-	if (!oldChunk || !newChunk) {
-		return;
-	}
-	LowEntityBlock* firstBlock = oldChunk->entities;
-	for (LowEntityBlock* block = firstBlock; block; block = block->next) {
-		for (u32 index = 0; index < block->entityCount; index++) {
-			if (block->entityIndexes[index] != lowEntityIndex) {
-				continue;
-			}
-			block->entityIndexes[index] = firstBlock->entityIndexes[--firstBlock->entityCount];
-			if (firstBlock->entityCount == 0) {
-				oldChunk->entities = firstBlock->next;
-				LowEntityBlock* lastFreeBlock = world.freeEntityBlockList;
-				world.freeEntityBlockList = firstBlock;
-				firstBlock->next = lastFreeBlock;
-			}
-			block = 0;
-			break;
-		}
-	}
-	LowEntityBlock* firstBlockInNewChunk = newChunk->entities;
-	if (firstBlockInNewChunk->entityCount == ArrayCount(firstBlockInNewChunk)) {
-		if (world.freeEntityBlockList) {
-			Assert(world.freeEntityBlockList->entityCount == 0);
-			LowEntityBlock* block = newChunk->entities;
-			newChunk->entities = world.freeEntityBlockList;
-			world.freeEntityBlockList = world.freeEntityBlockList->next;
-			newChunk->entities->next = block;
-			firstBlockInNewChunk = newChunk->entities;
-		}
-		else {
-			firstBlockInNewChunk = ptrcast(LowEntityBlock, PushStructSize(arena, LowEntityBlock));
-		}
-	}
-	firstBlockInNewChunk->entityIndexes[firstBlockInNewChunk->entityCount++] = lowEntityIndex;
 }
 
 bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDeltaX,
@@ -418,19 +434,9 @@ void MoveEntity(ProgramState* state, World& world, Entity entity, V2 acceleratio
 			break;
 		}
 	}
-	entity.low->pos = OffsetPosition(state->world, state->cameraPos, entity.high->pos);
-
-
-	/*bool theSameTile = AreOnTheSameTile(player->low->pos, nextPlayerPosition);
-	if (!theSameTile) {
-		u32 tileValue = GetTileValue(tilemap, nextPlayerPosition);
-		if (tileValue == 3) {
-			player->low->pos.absZ = 1;
-		}
-		else if (tileValue == 4) {
-			player->low->pos.absZ = 0;
-		}
-	}*/
+	WorldPosition newEntityPos = OffsetWorldPosition(state->world, state->cameraPos, entity.high->pos);
+	ChangeEntityChunkLocation(world, state->worldArena, entity.high->lowEntityIndex, &entity.low->pos, newEntityPos);
+	entity.low->pos = newEntityPos;
 }
 
 internal
@@ -443,7 +449,7 @@ void SetCamera(ProgramState* state) {
 		if (cameraEntityHigh) {
 			cameraDeltaMove = cameraEntityHigh->pos;
 		}
-		state->cameraPos = OffsetPosition(state->world, state->cameraPos, cameraDeltaMove);
+		state->cameraPos = OffsetWorldPosition(state->world, state->cameraPos, cameraDeltaMove);
 	}
 	for (u32 highIndex = 1; highIndex < state->highEntityCount;) {
 		HighEntity* high = state->highEntities + highIndex;
@@ -477,7 +483,6 @@ void SetCamera(ProgramState* state) {
 		if (IsInRectangle(cameraBounds, diff.dXY)) {
 			MakeEntityHighFrequency(state, entityIndex);
 		}
-		//MakeEntityHighFrequency(state, entityIndex);
 	}
 }
 

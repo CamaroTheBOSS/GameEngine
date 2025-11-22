@@ -165,7 +165,7 @@ void FixWorldPosition(World& world, WorldPosition& position) {
 }
 
 internal
-WorldPosition OffsetPosition(World& world, WorldPosition& position, V2 offset) {
+WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, V2 offset) {
 	WorldPosition newPosition = position;
 	newPosition.offset += offset;
 	FixWorldPosition(world, newPosition);
@@ -173,8 +173,8 @@ WorldPosition OffsetPosition(World& world, WorldPosition& position, V2 offset) {
 }
 
 internal
-WorldPosition OffsetPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY) {
-	return OffsetPosition(world, position, V2{ offsetX, offsetY });
+WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY) {
+	return OffsetWorldPosition(world, position, V2{ offsetX, offsetY });
 }
 
 struct DiffWorldPosition {
