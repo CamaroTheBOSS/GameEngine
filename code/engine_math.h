@@ -92,10 +92,27 @@ struct Rect2 {
 	V2 max;
 };
 
+inline
+V2 GetMinCorner(Rect2 rect) {
+	return rect.min;
+}
+
+inline
+V2 GetMaxCorner(Rect2 rect) {
+	return rect.max;
+}
+
+inline
+V2 GetCenter(Rect2 rect) {
+	return 0.5f * (rect.max - rect.min);
+}
+
+inline
 Rect2 GetRectFromMinMax(V2 min, V2 max) {
 	return Rect2{ min, max };
 }
 
+inline
 Rect2 GetRectFromCenterHalfDim(V2 center, f32 halfDim) {
 	Rect2 rect = {};
 	rect.min = V2{
@@ -109,10 +126,12 @@ Rect2 GetRectFromCenterHalfDim(V2 center, f32 halfDim) {
 	return rect;
 }
 
+inline
 Rect2 GetRectFromCenterDim(V2 center, f32 dim) {
 	return GetRectFromCenterHalfDim(center, dim / 2.f);
 }
 
+inline
 bool IsInRectangle(Rect2 rect, V2 point) {
 	return point.X < rect.max.X &&
 		   point.X >= rect.min.X &&

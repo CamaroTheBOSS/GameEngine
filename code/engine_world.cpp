@@ -165,6 +165,14 @@ void FixWorldPosition(World& world, WorldPosition& position) {
 }
 
 internal
+WorldPosition MapCameraSpacePositionToWorldPosition(World& world, V2 cameraSpacePosition) {
+	WorldPosition position = {};
+	position.offset = cameraSpacePosition;
+	FixWorldPosition(world, position);
+	return position;
+}
+
+internal
 WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, V2 offset) {
 	WorldPosition newPosition = position;
 	newPosition.offset += offset;

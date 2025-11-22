@@ -308,7 +308,26 @@ Entity GetHighEntity(ProgramState* state, u32 highEntityIndex) {
 }
 
 internal
+HighEntity* MakeEntityHighFrequency(ProgramState* state, LowEntity& low, u32 lowEntityIndex, V2 cameraRelativePos) {
+	if (state->highEntityCount >= ArrayCount(state->highEntities)) {
+		Assert(!"Too little high entities!");
+		return 0;
+	}
+	Assert(low.highEntityIndex == 0);
+	HighEntity high = {};
+	high.pos = cameraRelativePos;
+	high.vel = V2{ 0, 0 };
+	high.lowEntityIndex = lowEntityIndex;
+	
+	state->highEntities[state->highEntityCount] = high;
+	low.highEntityIndex = state->highEntityCount;
+	state->highEntityCount++;
+	return &state->highEntities[state->highEntityCount];
+}
+
+internal
 HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
+#if 0
 	HighEntity* result = 0;
 	if (state->highEntityCount >= ArrayCount(state->highEntities)) {
 		Assert(!"Too little high entities!");
@@ -327,11 +346,25 @@ HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
 	high.pos = diff.dXY;
 	high.vel = V2{ 0, 0 };
 	high.lowEntityIndex = lowEntityIndex;
-	
+
 	state->highEntities[state->highEntityCount] = high;
 	low->highEntityIndex = state->highEntityCount;
 	state->highEntityCount++;
 	return &state->highEntities[state->highEntityCount];
+#else
+	HighEntity* result = 0;
+	LowEntity* low = GetEntity(state, lowEntityIndex);
+	Assert(low);
+	if (!low) {
+		return result;
+	}
+	if (low->highEntityIndex > 0) {
+		return &state->highEntities[low->highEntityIndex];
+	}
+	DiffWorldPosition diff = Subtract(state->world, low->pos, state->cameraPos);
+	result = MakeEntityHighFrequency(state, *low, lowEntityIndex, diff.dXY);
+	return result;
+#endif
 }
 
 internal
@@ -477,6 +510,32 @@ void SetCamera(ProgramState* state) {
 			highIndex++;
 		}
 	}
+#if 1
+	WorldPosition minChunk = OffsetWorldPosition(state->world, state->cameraPos, GetMinCorner(cameraBounds));
+	WorldPosition maxChunk = OffsetWorldPosition(state->world, state->cameraPos, GetMaxCorner(cameraBounds));
+	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
+		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
+			WorldChunk* chunk = GetWorldChunk(state->world, chunkX, chunkY, state->cameraPos.chunkZ);
+			if (!chunk) {
+				continue;
+			}
+			for (LowEntityBlock* entities = chunk->entities; entities; entities = entities->next) {
+				for (u32 index = 0; index < entities->entityCount; index++) {
+					u32 lowEntityIndex = entities->entityIndexes[index];
+					LowEntity* low = GetEntity(state, lowEntityIndex);
+					Assert(low);
+					if (!low || low->highEntityIndex != 0) {
+						continue;
+					}
+					DiffWorldPosition diff = Subtract(state->world, low->pos, state->cameraPos);
+					if (IsInRectangle(cameraBounds, diff.dXY)) {
+						MakeEntityHighFrequency(state, *low, lowEntityIndex, diff.dXY);
+					}
+				}
+			}
+		}
+	}
+#else
 	for (u32 entityIndex = 1; entityIndex < state->lowEntityCount; entityIndex++) {
 		LowEntity* low = GetEntity(state, entityIndex);
 		DiffWorldPosition diff = Subtract(state->world, low->pos, state->cameraPos);
@@ -484,6 +543,7 @@ void SetCamera(ProgramState* state) {
 			MakeEntityHighFrequency(state, entityIndex);
 		}
 	}
+#endif
 }
 
 
@@ -533,7 +593,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		u32 screenY = 0;
 		u32 randomNIdx = 0;
 		u32 absTileZ = 0;
-		for (u32 screenIndex = 0; screenIndex < 2; screenIndex++) {
+		for (u32 screenIndex = 0; screenIndex < 100; screenIndex++) {
 			randomNIdx = (randomNIdx + 1) % ArrayCount(randomNumbers);
 			u32 randomNumber = randomNumbers[randomNIdx];
 #if 0
