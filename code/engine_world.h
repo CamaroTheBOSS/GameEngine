@@ -3,9 +3,9 @@
 
 struct TilePosition {
 	// 28 bytes = chunk pos, 4 bytes = tile pos inside chunk
-	u32 absX;
-	u32 absY;
-	u32 absZ;
+	i32 absX;
+	i32 absY;
+	i32 absZ;
 
 	// Pos inside tile in meters
 	V2 offset;
@@ -13,28 +13,29 @@ struct TilePosition {
 
 struct TileChunkPosition {
 	// chunk index
-	u32 chunkX;
-	u32 chunkY;
-	u32 chunkZ;
+	i32 chunkX;
+	i32 chunkY;
+	i32 chunkZ;
 
-	// tile index relative to chunk
-	u32 relTileX;
-	u32 relTileY;
+	// offset from center of a chunk
+	V2 offset;
+};
+
+struct LowEntityBlock {
+	u32 entityIndexes[16];
+	LowEntityBlock* next;
 };
 
 struct TileChunk {
-	u32 chunkX;
-	u32 chunkY;
-	u32 chunkZ;
+	i32 chunkX;
+	i32 chunkY;
+	i32 chunkZ;
 
-	u32* tiles;
+	LowEntityBlock* entities;
 	TileChunk* next;
 };
 
 struct TileMap {
-	u32 chunkCountX;
-	u32 chunkCountY;
-	u32 chunkCountZ;
 	u32 chunkDim;
 	u32 chunkShift;
 	u32 chunkMask;

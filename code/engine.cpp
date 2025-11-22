@@ -205,11 +205,14 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 inline internal
 u32 AddEntity(ProgramState* state, LowEntity& low) {
 	Assert(state->lowEntityCount < ArrayCount(state->lowEntities));
-	if (state->lowEntityCount < ArrayCount(state->lowEntities)) {
-		state->lowEntities[state->lowEntityCount++] = low;
-		return state->lowEntityCount - 1;
+	if (state->lowEntityCount >= ArrayCount(state->lowEntities)) {
+		return 0;
 	}
-	return 0;
+	/*u32 chunkX = low.pos.absX / state->world.tilemap.chunkDim;
+	u32 chunkY = low.pos.absX / state->world.tilemap.chunkDim;
+	u32 chunkZ = low.pos.absX / state->world.tilemap.chunkDim;*/
+	state->lowEntities[state->lowEntityCount++] = low;
+	return state->lowEntityCount - 1;
 }
 
 inline
@@ -457,9 +460,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		tilemap.tileCountX = 17;
 		tilemap.tileCountY = 9;
 		tilemap.tileSizeInMeters = V2{ 1.4f , 1.4f };
-		tilemap.chunkCountX = 32;
-		tilemap.chunkCountY = 32;
-		tilemap.chunkCountZ = 2;
 		tilemap.chunkShift = 4;
 		tilemap.chunkMask = (1 << tilemap.chunkShift) - 1;
 		tilemap.chunkDim = (1 << tilemap.chunkShift);
@@ -497,7 +497,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		u32 screenY = 0;
 		u32 randomNIdx = 0;
 		u32 absTileZ = 0;
-		for (u32 screenIndex = 0; screenIndex < 60; screenIndex++) {
+		for (u32 screenIndex = 0; screenIndex < 2; screenIndex++) {
 			randomNIdx = (randomNIdx + 1) % ArrayCount(randomNumbers);
 			u32 randomNumber = randomNumbers[randomNIdx];
 #if 0
@@ -562,7 +562,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 						tileValue = 4; // Ladder up
 					}
 					// TODO: Chunk allocation on demand
-					SetTileValue(state->worldArena, tilemap, absTileX, absTileY, absTileZ, tileValue);
 					if (tileValue == 2) {
 						AddWall(state, absTileX, absTileY, absTileZ);
 					}

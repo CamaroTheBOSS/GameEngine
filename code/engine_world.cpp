@@ -1,19 +1,20 @@
 #include "engine_world.h"
 
 inline
-TileChunkPosition GetTileChunkPosition(TileMap& tilemap, u32 absX, u32 absY, u32 absZ) {
+TileChunkPosition GetTileChunkPosition(TileMap& tilemap, i32 absX, i32 absY, i32 absZ) {
 	TileChunkPosition chunkPos;
 	chunkPos.chunkX = absX >> tilemap.chunkShift;
 	chunkPos.chunkY = absY >> tilemap.chunkShift;
 	chunkPos.chunkZ = absZ;
-	chunkPos.relTileX = absX & tilemap.chunkMask;
-	chunkPos.relTileY = absY & tilemap.chunkMask;
-	// Make sure we have enough bits to store it in absX;
+	i32 relTileX = absX & tilemap.chunkMask;
+	i32 relTileY = absY & tilemap.chunkMask;
+	chunkPos.offset = V2{ scast(f32, relTileX) - scast(f32, tilemap.chunkDim) / 2.f,
+						  scast(f32, relTileY) - scast(f32, tilemap.chunkDim) / 2.f };
 	return chunkPos;
 }
 
 inline
-TileChunk* GetTileChunk(TileMap& tilemap, u32 chunkX, u32 chunkY, u32 chunkZ, MemoryArena* arena = 0) {
+TileChunk* GetTileChunk(TileMap& tilemap, i32 chunkX, i32 chunkY, i32 chunkZ, MemoryArena* arena = 0) {
 	static_assert((ArrayCount(tilemap.hashTileChunks) & (ArrayCount(tilemap.hashTileChunks) - 1)) == 0 &&
 					"hashValue is ANDed with a mask based with assert that the size of hashTileChunks is power of two");
 	// TODO: Better hash function
@@ -50,6 +51,7 @@ TileChunk* GetTileChunk(TileMap& tilemap, u32 chunkX, u32 chunkY, u32 chunkZ, Me
 	return 0;
 }
 
+#if 0
 inline
 u32 GetTileValue(TileMap& tilemap, TileChunk* chunk, u32 relX, u32 relY) {
 	if (chunk && chunk->tiles && relY < tilemap.chunkDim && relX < tilemap.chunkDim) {
@@ -78,6 +80,7 @@ void SetTileValue(TileMap& tilemap, TileChunk* chunk, u32 relX, u32 relY, u32 ti
 	}
 }
 
+
 inline
 void SetTileValue(MemoryArena& arena, TileMap& tilemap, u32 absX, u32 absY, u32 absZ, u32 tileValue) {
 	TileChunkPosition chunkPos = GetTileChunkPosition(tilemap, absX, absY, absZ);
@@ -95,9 +98,10 @@ void SetTileValue(MemoryArena& arena, TileMap& tilemap, u32 absX, u32 absY, u32 
 	}
 	SetTileValue(tilemap, chunk, chunkPos.relTileX, chunkPos.relTileY, tileValue);
 }
+#endif
 
 inline
-TilePosition CenteredTilePosition(u32 absX, u32 absY, u32 absZ) {
+TilePosition CenteredTilePosition(i32 absX, i32 absY, i32 absZ) {
 	TilePosition pos = {};
 	pos.absX = absX;
 	pos.absY = absY;
@@ -105,6 +109,7 @@ TilePosition CenteredTilePosition(u32 absX, u32 absY, u32 absZ) {
 	return pos;
 }
 
+#if 0
 inline
 bool IsTileValueEmpty(u32 tileValue) {
 	return tileValue == 1 || tileValue == 3 || tileValue == 4;
@@ -131,6 +136,7 @@ bool AreOnTheSameTile(TilePosition& first, TilePosition& second) {
 		first.absZ == second.absZ;
 	return result;
 }
+#endif
 
 inline
 void FixTilePosition(TileMap& tilemap, TilePosition& position) {
@@ -170,21 +176,11 @@ struct DiffTilePosition {
 inline
 DiffTilePosition Subtract(TileMap& tilemap, TilePosition& first, TilePosition& second) {
 	DiffTilePosition diff = {};
-#if 0
-	// NOTE: This losse precision on absX > 32 and causes tunelling through the walls in collision detection system
-	V2 firstMeters = { scast(f32, first.absX * tilemap.tileSizeInMeters.X) + first.offset.X,
-					   scast(f32, first.absY * tilemap.tileSizeInMeters.Y) + first.offset.Y };
-	V2 secondMeters = { scast(f32, second.absX * tilemap.tileSizeInMeters.X) + second.offset.X,
-						scast(f32, second.absY * tilemap.tileSizeInMeters.Y) + second.offset.Y };
-	diff.dXY = firstMeters - secondMeters;
-	diff.dZ = scast(f32, first.absZ) - scast(f32, second.absZ);
-#else
 	// TODO: Think what if absX, absY is 2^32-1 and 2^32 (do we have a bug with overflowing again?)
 	diff.dXY = {
-		scast(f32, scast(i32, first.absX) - scast(i32, second.absX)) * tilemap.tileSizeInMeters.X + (first.offset.X - second.offset.X),
-		scast(f32, scast(i32, first.absY) - scast(i32, second.absY)) * tilemap.tileSizeInMeters.Y + (first.offset.Y - second.offset.Y)
+		scast(f32, first.absX - second.absX) * tilemap.tileSizeInMeters.X + (first.offset.X - second.offset.X),
+		scast(f32, first.absY - second.absY) * tilemap.tileSizeInMeters.Y + (first.offset.Y - second.offset.Y)
 	};
-	diff.dZ = scast(f32, first.absZ) - scast(f32, second.absZ);
-#endif
+	diff.dZ = scast(f32, first.absZ - second.absZ);
 	return diff;
 }
