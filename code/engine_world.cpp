@@ -4,23 +4,23 @@
 #define CHUNK_SAFE_MARGIN 256
 
 internal
-TilePosition GetChunkPositionFromTilePosition(World& world, i32 absX, i32 absY, i32 absZ) {
-	TilePosition chunkPos = {};
+WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY, i32 absZ) {
+	WorldPosition chunkPos = {};
 	// TODO do something with f32 precision, when absX,absY will be high, precision might be lost
 	chunkPos.chunkX = FloorF32ToI32(absX / scast(f32, CHUNK_DIM_IN_TILES));
 	chunkPos.chunkY = FloorF32ToI32(absY / scast(f32, CHUNK_DIM_IN_TILES));
 	chunkPos.chunkZ = absZ;
-	i32 relTileX = absX - chunkPos.chunkX * CHUNK_DIM_IN_TILES;
-	i32 relTileY = absY - chunkPos.chunkY * CHUNK_DIM_IN_TILES;
-	chunkPos.offset = V2{ (scast(f32, relTileX) - CHUNK_DIM_IN_TILES / 2.f) * world.tileSizeInMeters.X,
-						  (scast(f32, relTileY) - CHUNK_DIM_IN_TILES / 2.f) * world.tileSizeInMeters.Y };
+	i32 relWorldX = absX - chunkPos.chunkX * CHUNK_DIM_IN_TILES;
+	i32 relWorldY = absY - chunkPos.chunkY * CHUNK_DIM_IN_TILES;
+	chunkPos.offset = V2{ (scast(f32, relWorldX) - CHUNK_DIM_IN_TILES / 2.f) * world.tileSizeInMeters.X,
+						  (scast(f32, relWorldY) - CHUNK_DIM_IN_TILES / 2.f) * world.tileSizeInMeters.Y };
 	return chunkPos;
 }
 
 internal
-TileChunk* GetTileChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, MemoryArena* arena = 0) {
-	static_assert((ArrayCount(world.hashTileChunks) & (ArrayCount(world.hashTileChunks) - 1)) == 0 &&
-					"hashValue is ANDed with a mask based with assert that the size of hashTileChunks is power of two");
+WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, MemoryArena* arena = 0) {
+	static_assert((ArrayCount(world.hashWorldChunks) & (ArrayCount(world.hashWorldChunks) - 1)) == 0 &&
+					"hashValue is ANDed with a mask based with assert that the size of hashWorldChunks is power of two");
 	Assert(chunkX > INT32_MIN + CHUNK_SAFE_MARGIN);
 	Assert(chunkX < INT32_MAX - CHUNK_SAFE_MARGIN);
 	Assert(chunkY > INT32_MIN + CHUNK_SAFE_MARGIN);
@@ -30,16 +30,16 @@ TileChunk* GetTileChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, Memory
 
 	// TODO: Better hash function
 	u32 hashValue = 2767 * chunkX + 4517 * chunkY + 5099 * chunkZ;
-	hashValue &= ArrayCount(world.hashTileChunks) - 1;
+	hashValue &= ArrayCount(world.hashWorldChunks) - 1;
 
-	TileChunk* chunk = world.hashTileChunks[hashValue];
+	WorldChunk* chunk = world.hashWorldChunks[hashValue];
 	if (!chunk && arena) {
 		// Add chunk at the beginning of the linked list
-		chunk = ptrcast(TileChunk, PushStructSize(*arena, TileChunk));
+		chunk = ptrcast(WorldChunk, PushStructSize(*arena, WorldChunk));
 		chunk->chunkX = chunkX;
 		chunk->chunkY = chunkY;
 		chunk->chunkZ = chunkZ;
-		world.hashTileChunks[hashValue] = chunk;
+		world.hashWorldChunks[hashValue] = chunk;
 		return chunk;
 	}
 	while (chunk) {
@@ -51,7 +51,7 @@ TileChunk* GetTileChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, Memory
 		}
 		if (!chunk->next && arena) {
 			// Add chunk at the end of the linked list
-			chunk->next = ptrcast(TileChunk, PushStructSize(*arena, TileChunk));
+			chunk->next = ptrcast(WorldChunk, PushStructSize(*arena, WorldChunk));
 			chunk->next->chunkX = chunkX;
 			chunk->next->chunkY = chunkY;
 			chunk->next->chunkZ = chunkZ;
@@ -64,7 +64,7 @@ TileChunk* GetTileChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, Memory
 
 #if 0
 inline
-u32 GetTileValue(World& world, TileChunk* chunk, u32 relX, u32 relY) {
+u32 GetWorldValue(World& world, WorldChunk* chunk, u32 relX, u32 relY) {
 	if (chunk && chunk->tiles && relY < world.chunkDim && relX < world.chunkDim) {
 		return chunk->tiles[relY * world.chunkDim + relX];
 	}
@@ -72,20 +72,20 @@ u32 GetTileValue(World& world, TileChunk* chunk, u32 relX, u32 relY) {
 }
 
 inline
-u32 GetTileValue(World& world, u32 absX, u32 absY, u32 absZ) {
-	TileChunkPosition chunkPos = GetTileChunkPosition(world, absX, absY, absZ);
-	TileChunk* chunk = GetTileChunk(world, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
-	u32 value = GetTileValue(world, chunk, chunkPos.relTileX, chunkPos.relTileY);
+u32 GetWorldValue(World& world, u32 absX, u32 absY, u32 absZ) {
+	WorldChunkPosition chunkPos = GetWorldChunkPosition(world, absX, absY, absZ);
+	WorldChunk* chunk = GetWorldChunk(world, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
+	u32 value = GetWorldValue(world, chunk, chunkPos.relWorldX, chunkPos.relWorldY);
 	return value;
 }
 
 inline
-u32 GetTileValue(World& world, TilePosition& position) {
-	return GetTileValue(world, position.absX, position.absY, position.absZ);
+u32 GetWorldValue(World& world, WorldPosition& position) {
+	return GetWorldValue(world, position.absX, position.absY, position.absZ);
 }
 
 inline
-void SetTileValue(World& world, TileChunk* chunk, u32 relX, u32 relY, u32 tileValue) {
+void SetWorldValue(World& world, WorldChunk* chunk, u32 relX, u32 relY, u32 tileValue) {
 	if (chunk && chunk->tiles && relY < world.chunkDim && relX < world.chunkDim) {
 		chunk->tiles[relY * world.chunkDim + relX] = tileValue;
 	}
@@ -93,9 +93,9 @@ void SetTileValue(World& world, TileChunk* chunk, u32 relX, u32 relY, u32 tileVa
 
 
 inline
-void SetTileValue(MemoryArena& arena, World& world, u32 absX, u32 absY, u32 absZ, u32 tileValue) {
-	TileChunkPosition chunkPos = GetTileChunkPosition(world, absX, absY, absZ);
-	TileChunk* chunk = GetTileChunk(world, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ, &arena);
+void SetWorldValue(MemoryArena& arena, World& world, u32 absX, u32 absY, u32 absZ, u32 tileValue) {
+	WorldChunkPosition chunkPos = GetWorldChunkPosition(world, absX, absY, absZ);
+	WorldChunk* chunk = GetWorldChunk(world, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ, &arena);
 	Assert(chunk);
 	if (!chunk) {
 		return;
@@ -107,13 +107,13 @@ void SetTileValue(MemoryArena& arena, World& world, u32 absX, u32 absY, u32 absZ
 			chunk->tiles[tileIndex] = 1;
 		}
 	}
-	SetTileValue(world, chunk, chunkPos.relTileX, chunkPos.relTileY, tileValue);
+	SetWorldValue(world, chunk, chunkPos.relWorldX, chunkPos.relWorldY, tileValue);
 }
 #endif
 
 internal
-TilePosition CenteredTilePosition(i32 absX, i32 absY, i32 absZ) {
-	TilePosition pos = {};
+WorldPosition CenteredWorldPosition(i32 absX, i32 absY, i32 absZ) {
+	WorldPosition pos = {};
 	pos.chunkX = absX;
 	pos.chunkY = absY;
 	pos.chunkZ = absZ;
@@ -122,26 +122,26 @@ TilePosition CenteredTilePosition(i32 absX, i32 absY, i32 absZ) {
 
 #if 0
 inline
-bool IsTileValueEmpty(u32 tileValue) {
+bool IsWorldValueEmpty(u32 tileValue) {
 	return tileValue == 1 || tileValue == 3 || tileValue == 4;
 }
 
 inline
 bool IsWorldPointEmpty(World& world, u32 absX, u32 absY, u32 absZ) {
-	TileChunkPosition chunkPos = GetTileChunkPosition(world, absX, absY, absZ);
-	TileChunk* chunk = GetTileChunk(world, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
-	u32 tileValue = GetTileValue(world, chunk, chunkPos.relTileX, chunkPos.relTileY);
-	bool isEmpty = IsTileValueEmpty(tileValue);
+	WorldChunkPosition chunkPos = GetWorldChunkPosition(world, absX, absY, absZ);
+	WorldChunk* chunk = GetWorldChunk(world, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
+	u32 tileValue = GetWorldValue(world, chunk, chunkPos.relWorldX, chunkPos.relWorldY);
+	bool isEmpty = IsWorldValueEmpty(tileValue);
 	return isEmpty;
 }
 
 inline
-bool IsWorldPointEmpty(World& world, TilePosition& position) {
+bool IsWorldPointEmpty(World& world, WorldPosition& position) {
 	return IsWorldPointEmpty(world, position.absX, position.absY, position.absZ);
 }
 
 inline
-bool AreOnTheSameTile(TilePosition& first, TilePosition& second) {
+bool AreOnTheSameWorld(WorldPosition& first, WorldPosition& second) {
 	bool result = first.absX == second.absX &&
 		first.absY == second.absY &&
 		first.absZ == second.absZ;
@@ -150,7 +150,7 @@ bool AreOnTheSameTile(TilePosition& first, TilePosition& second) {
 #endif
 
 internal
-void FixTilePosition(World& world, TilePosition& position) {
+void FixWorldPosition(World& world, WorldPosition& position) {
 	i32 offsetX = RoundF32ToI32(position.offset.X / world.chunkSizeInMeters.X);
 	i32 offsetY = RoundF32ToI32(position.offset.Y / world.chunkSizeInMeters.Y);
 	position.chunkX += offsetX;
@@ -164,29 +164,29 @@ void FixTilePosition(World& world, TilePosition& position) {
 }
 
 internal
-TilePosition OffsetPosition(World& world, TilePosition& position, f32 offsetX, f32 offsetY) {
-	TilePosition newPosition = position;
+WorldPosition OffsetPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY) {
+	WorldPosition newPosition = position;
 	newPosition.offset += V2{ offsetX, offsetY };
-	FixTilePosition(world, newPosition);
+	FixWorldPosition(world, newPosition);
 	return newPosition;
 }
 
 internal
-TilePosition OffsetPosition(World& world, TilePosition& position, V2 offset) {
-	TilePosition newPosition = position;
+WorldPosition OffsetPosition(World& world, WorldPosition& position, V2 offset) {
+	WorldPosition newPosition = position;
 	newPosition.offset += offset;
-	FixTilePosition(world, newPosition);
+	FixWorldPosition(world, newPosition);
 	return newPosition;
 }
 
-struct DiffTilePosition {
+struct DiffWorldPosition {
 	V2 dXY;
 	f32 dZ;
 };
 
 internal
-DiffTilePosition Subtract(World& world, TilePosition& first, TilePosition& second) {
-	DiffTilePosition diff = {};
+DiffWorldPosition Subtract(World& world, WorldPosition& first, WorldPosition& second) {
+	DiffWorldPosition diff = {};
 	// TODO: Think what if absX, absY is 2^32-1 and 2^32 (do we have a bug with overflowing again?)
 	diff.dXY = {
 		scast(f32, first.chunkX - second.chunkX) * world.chunkSizeInMeters.X + (first.offset.X - second.offset.X),

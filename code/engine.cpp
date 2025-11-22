@@ -215,7 +215,7 @@ u32 AddEntity(ProgramState* state, LowEntity& low) {
 inline
 u32 AddWall(ProgramState* state, u32 absX, u32 absY, u32 absZ) {
 	LowEntity low = {};
-	low.pos = GetChunkPositionFromTilePosition(state->world, absX, absY, absZ);
+	low.pos = GetChunkPositionFromWorldPosition(state->world, absX, absY, absZ);
 	low.size = state->world.tileSizeInMeters;
 	low.collide = true;
 	low.type = EntityType_Wall;
@@ -261,7 +261,7 @@ HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
 	if (low->highEntityIndex > 0) {
 		return &state->highEntities[low->highEntityIndex];
 	}
-	DiffTilePosition diff = Subtract(state->world, low->pos, state->cameraPos);
+	DiffWorldPosition diff = Subtract(state->world, low->pos, state->cameraPos);
 	HighEntity high = {};
 	high.pos = diff.dXY;
 	high.vel = V2{ 0, 0 };
@@ -276,7 +276,7 @@ HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
 internal
 u32 InitializePlayer(ProgramState* state) {
 	LowEntity low = {};
-	low.pos = GetChunkPositionFromTilePosition(state->world, 8, 5, 0);
+	low.pos = GetChunkPositionFromWorldPosition(state->world, 8, 5, 0);
 	low.faceDir = 0;
 	low.type = EntityType_Player;
 	low.size = { state->world.tileSizeInMeters.X * 0.7f,
@@ -428,7 +428,7 @@ void SetCamera(ProgramState* state) {
 	}
 	for (u32 entityIndex = 1; entityIndex < state->lowEntityCount; entityIndex++) {
 		LowEntity* low = GetEntity(state, entityIndex);
-		DiffTilePosition diff = Subtract(state->world, low->pos, state->cameraPos);
+		DiffWorldPosition diff = Subtract(state->world, low->pos, state->cameraPos);
 		if (IsInRectangle(cameraBounds, diff.dXY)) {
 			MakeEntityHighFrequency(state, entityIndex);
 		}
@@ -451,7 +451,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 		InitializeWorld(world);
 
-		state->cameraPos = GetChunkPositionFromTilePosition(
+		state->cameraPos = GetChunkPositionFromWorldPosition(
 			world, world.tileCountX / 2, world.tileCountY / 2, 0
 		);
 

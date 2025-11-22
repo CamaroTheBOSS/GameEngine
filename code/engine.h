@@ -102,7 +102,7 @@ struct HighEntity {
 
 struct LowEntity {
 	EntityType type;
-	TilePosition pos;
+	WorldPosition pos;
 	V2 size;
 	u32 faceDir;
 	u32 highEntityIndex;
@@ -117,7 +117,7 @@ struct Entity {
 struct ProgramState {
 	// Global state of the program
 	u32 highFreqBoundHalfDim;
-	TilePosition cameraPos;
+	WorldPosition cameraPos;
 	MemoryArena worldArena;
 	World world;
 	

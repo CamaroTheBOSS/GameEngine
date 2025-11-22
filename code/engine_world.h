@@ -1,13 +1,13 @@
 #pragma once
 #include "engine_common.h"
 
-struct TilePosition {
+struct WorldPosition {
 	// 28 bytes = chunk pos, 4 bytes = tile pos inside chunk
 	i32 chunkX;
 	i32 chunkY;
 	i32 chunkZ;
 
-	// Pos inside tile chunk in meters
+	// Pos inside world chunk in meters
 	V2 offset;
 };
 
@@ -16,13 +16,13 @@ struct LowEntityBlock {
 	LowEntityBlock* next;
 };
 
-struct TileChunk {
+struct WorldChunk {
 	i32 chunkX;
 	i32 chunkY;
 	i32 chunkZ;
 
 	LowEntityBlock* entities;
-	TileChunk* next;
+	WorldChunk* next;
 };
 
 struct World {
@@ -31,5 +31,5 @@ struct World {
 	V2 tileSizeInMeters;
 	V2 chunkSizeInMeters;
 
-	TileChunk* hashTileChunks[4096];
+	WorldChunk* hashWorldChunks[4096];
 };
