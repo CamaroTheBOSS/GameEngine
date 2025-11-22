@@ -449,10 +449,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->worldArena.used = 0;
 		state->highFreqBoundHalfDim = 15;
 
-		world.tileCountX = 17;
-		world.tileCountY = 9;
-		world.tileSizeInMeters = V2{ 1.4f , 1.4f };
-		world.chunkSizeInMeters = 16 * world.tileSizeInMeters;
+		InitializeWorld(world);
 
 		state->cameraPos = GetChunkPositionFromTilePosition(
 			world, world.tileCountX / 2, world.tileCountY / 2, 0

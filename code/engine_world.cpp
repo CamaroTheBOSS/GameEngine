@@ -3,7 +3,7 @@
 #define CHUNK_DIM_IN_TILES 16
 #define CHUNK_SAFE_MARGIN 256
 
-inline
+internal
 TilePosition GetChunkPositionFromTilePosition(World& world, i32 absX, i32 absY, i32 absZ) {
 	TilePosition chunkPos = {};
 	// TODO do something with f32 precision, when absX,absY will be high, precision might be lost
@@ -17,7 +17,7 @@ TilePosition GetChunkPositionFromTilePosition(World& world, i32 absX, i32 absY, 
 	return chunkPos;
 }
 
-inline
+internal
 TileChunk* GetTileChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, MemoryArena* arena = 0) {
 	static_assert((ArrayCount(world.hashTileChunks) & (ArrayCount(world.hashTileChunks) - 1)) == 0 &&
 					"hashValue is ANDed with a mask based with assert that the size of hashTileChunks is power of two");
@@ -111,7 +111,7 @@ void SetTileValue(MemoryArena& arena, World& world, u32 absX, u32 absY, u32 absZ
 }
 #endif
 
-inline
+internal
 TilePosition CenteredTilePosition(i32 absX, i32 absY, i32 absZ) {
 	TilePosition pos = {};
 	pos.chunkX = absX;
@@ -149,7 +149,7 @@ bool AreOnTheSameTile(TilePosition& first, TilePosition& second) {
 }
 #endif
 
-inline
+internal
 void FixTilePosition(World& world, TilePosition& position) {
 	i32 offsetX = RoundF32ToI32(position.offset.X / world.chunkSizeInMeters.X);
 	i32 offsetY = RoundF32ToI32(position.offset.Y / world.chunkSizeInMeters.Y);
@@ -163,7 +163,7 @@ void FixTilePosition(World& world, TilePosition& position) {
 	Assert(position.offset.Y <= world.chunkSizeInMeters.Y / 2.0f);
 }
 
-inline
+internal
 TilePosition OffsetPosition(World& world, TilePosition& position, f32 offsetX, f32 offsetY) {
 	TilePosition newPosition = position;
 	newPosition.offset += V2{ offsetX, offsetY };
@@ -171,7 +171,7 @@ TilePosition OffsetPosition(World& world, TilePosition& position, f32 offsetX, f
 	return newPosition;
 }
 
-inline
+internal
 TilePosition OffsetPosition(World& world, TilePosition& position, V2 offset) {
 	TilePosition newPosition = position;
 	newPosition.offset += offset;
@@ -184,7 +184,7 @@ struct DiffTilePosition {
 	f32 dZ;
 };
 
-inline
+internal
 DiffTilePosition Subtract(World& world, TilePosition& first, TilePosition& second) {
 	DiffTilePosition diff = {};
 	// TODO: Think what if absX, absY is 2^32-1 and 2^32 (do we have a bug with overflowing again?)
@@ -194,4 +194,12 @@ DiffTilePosition Subtract(World& world, TilePosition& first, TilePosition& secon
 	};
 	diff.dZ = scast(f32, first.chunkZ - second.chunkZ);
 	return diff;
+}
+
+internal
+void InitializeWorld(World& world) {
+	world.tileCountX = 17;
+	world.tileCountY = 9;
+	world.tileSizeInMeters = V2{ 1.4f , 1.4f };
+	world.chunkSizeInMeters = CHUNK_DIM_IN_TILES * world.tileSizeInMeters;
 }
