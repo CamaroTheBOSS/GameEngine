@@ -139,15 +139,16 @@ inline
 bool IsWorldPointEmpty(World& world, WorldPosition& position) {
 	return IsWorldPointEmpty(world, position.absX, position.absY, position.absZ);
 }
+#endif
 
-inline
-bool AreOnTheSameWorld(WorldPosition& first, WorldPosition& second) {
-	bool result = first.absX == second.absX &&
-		first.absY == second.absY &&
-		first.absZ == second.absZ;
+internal
+bool AreOnTheSameChunk(WorldPosition& first, WorldPosition& second) {
+	bool result = first.chunkX == second.chunkX &&
+		first.chunkY == second.chunkY &&
+		first.chunkZ == second.chunkZ;
 	return result;
 }
-#endif
+
 
 internal
 void FixWorldPosition(World& world, WorldPosition& position) {
@@ -164,19 +165,16 @@ void FixWorldPosition(World& world, WorldPosition& position) {
 }
 
 internal
-WorldPosition OffsetPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY) {
-	WorldPosition newPosition = position;
-	newPosition.offset += V2{ offsetX, offsetY };
-	FixWorldPosition(world, newPosition);
-	return newPosition;
-}
-
-internal
 WorldPosition OffsetPosition(World& world, WorldPosition& position, V2 offset) {
 	WorldPosition newPosition = position;
 	newPosition.offset += offset;
 	FixWorldPosition(world, newPosition);
 	return newPosition;
+}
+
+internal
+WorldPosition OffsetPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY) {
+	return OffsetPosition(world, position, V2{ offsetX, offsetY });
 }
 
 struct DiffWorldPosition {

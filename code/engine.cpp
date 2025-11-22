@@ -290,6 +290,51 @@ u32 InitializePlayer(ProgramState* state) {
 	return index;
 }
 
+internal
+void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex, WorldPosition& oldPos, WorldPosition& newPos) {
+	if (AreOnTheSameChunk(oldPos, newPos)) {
+		return;
+	}
+	WorldChunk* oldChunk = GetWorldChunk(world, oldPos.chunkX, oldPos.chunkY, oldPos.chunkZ);
+	WorldChunk* newChunk = GetWorldChunk(world, newPos.chunkX, newPos.chunkY, newPos.chunkZ, &arena);
+	Assert(oldChunk && newChunk);
+	if (!oldChunk || !newChunk) {
+		return;
+	}
+	LowEntityBlock* firstBlock = oldChunk->entities;
+	for (LowEntityBlock* block = firstBlock; block; block = block->next) {
+		for (u32 index = 0; index < block->entityCount; index++) {
+			if (block->entityIndexes[index] != lowEntityIndex) {
+				continue;
+			}
+			block->entityIndexes[index] = firstBlock->entityIndexes[--firstBlock->entityCount];
+			if (firstBlock->entityCount == 0) {
+				oldChunk->entities = firstBlock->next;
+				LowEntityBlock* lastFreeBlock = world.freeEntityBlockList;
+				world.freeEntityBlockList = firstBlock;
+				firstBlock->next = lastFreeBlock;
+			}
+			block = 0;
+			break;
+		}
+	}
+	LowEntityBlock* firstBlockInNewChunk = newChunk->entities;
+	if (firstBlockInNewChunk->entityCount == ArrayCount(firstBlockInNewChunk)) {
+		if (world.freeEntityBlockList) {
+			Assert(world.freeEntityBlockList->entityCount == 0);
+			LowEntityBlock* block = newChunk->entities;
+			newChunk->entities = world.freeEntityBlockList;
+			world.freeEntityBlockList = world.freeEntityBlockList->next;
+			newChunk->entities->next = block;
+			firstBlockInNewChunk = newChunk->entities;
+		}
+		else {
+			firstBlockInNewChunk = ptrcast(LowEntityBlock, PushStructSize(arena, LowEntityBlock));
+		}
+	}
+	firstBlockInNewChunk->entityIndexes[firstBlockInNewChunk->entityCount++] = lowEntityIndex;
+}
+
 bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDeltaX,
 					  f32 moveDeltaY, f32* tMin) {
 	if (moveDeltaX != 0) {

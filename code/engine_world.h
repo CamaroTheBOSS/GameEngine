@@ -12,6 +12,7 @@ struct WorldPosition {
 };
 
 struct LowEntityBlock {
+	u32 entityCount;
 	u32 entityIndexes[16];
 	LowEntityBlock* next;
 };
@@ -32,4 +33,5 @@ struct World {
 	V2 chunkSizeInMeters;
 
 	WorldChunk* hashWorldChunks[4096];
+	LowEntityBlock* freeEntityBlockList;
 };
