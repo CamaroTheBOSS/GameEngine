@@ -11,6 +11,7 @@ struct WorldPosition {
 	V2 offset;
 };
 
+// TODO change name to EntityStorageBlock
 struct LowEntityBlock {
 	u32 entityCount;
 	u32 entityIndexes[16];

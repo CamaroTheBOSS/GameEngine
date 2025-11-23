@@ -295,26 +295,44 @@ EntityStorage* GetEntityStorage(ProgramState* state, u32 storageEntityIndex) {
 
 internal
 void AddEntityToSim(SimRegion& simRegion, Entity& entity) {
+	static_assert((ArrayCount(simRegion.entityHash) & (ArrayCount(simRegion.entityHash) - 1)) == 0 &&
+		"hashValue is ANDed with a mask based with assert that the size of hashWorldChunks is power of two");
 	Assert(simRegion.entityCount < simRegion.maxEntityCount);
 	if (simRegion.entityCount >= simRegion.maxEntityCount) {
 		return;
 	}
-	simRegion.entities[simRegion.entityCount++] = entity;
+	Assert(entity.storageIndex != 0);
+	bool inserted = false;
+	for (u32 offset = 0; offset < ArrayCount(simRegion.entityHash); offset++) {
+		u32 hashMask = (ArrayCount(simRegion.entityHash) - 1);
+		u32 hashIndex = (entity.storageIndex + offset) & hashMask;
+		Entity* entityHash = simRegion.entityHash[hashIndex];
+		if (!entityHash) {
+			simRegion.entities[simRegion.entityCount] = entity;
+			simRegion.entityHash[hashIndex] = &simRegion.entities[simRegion.entityCount];
+			simRegion.entityCount++;
+			inserted = true;
+			break;
+		}
+	}
+	Assert(inserted);
 	return;
 }
 
 internal
-Entity* GetEntity(SimRegion& simRegion, u32 storageEntityIndex) {
-	// TODO: BETTER LOOKUP, CAUSE THIS IS A DISASTER!!!!!!!!
-	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
-		Entity* entity = simRegion.entities + entityIndex;
-		if (entity->storageIndex == storageEntityIndex) {
-			return entity;
+Entity* GetEntityFromSim(SimRegion& simRegion, u32 storageEntityIndex) {
+	for (u32 offset = 0; offset < ArrayCount(simRegion.entityHash); offset++) {
+		u32 hashMask = (ArrayCount(simRegion.entityHash) - 1);
+		u32 hashIndex = (storageEntityIndex + offset) & hashMask;
+		Entity* entityHash = simRegion.entityHash[hashIndex];
+		if (entityHash && entityHash->storageIndex == storageEntityIndex) {
+			return entityHash;
 		}
 	}
 	return 0;
 }
 
+internal
 SimRegion* BeginSimulation(MemoryArena& simArena, ProgramState* state, World& world, 
 	WorldPosition& origin, Rect2 bounds) 
 {
@@ -353,13 +371,17 @@ SimRegion* BeginSimulation(MemoryArena& simArena, ProgramState* state, World& wo
 	return simRegion;
 }
 
-void EndSimulation(SimRegion& simRegion, ProgramState* state) {
+internal
+void EndSimulation(MemoryArena& simArena, SimRegion& simRegion, ProgramState* state) {
 	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 		Entity* entity = simRegion.entities + entityIndex;
 		EntityStorage* storage = GetEntityStorage(state, entity->storageIndex);
 		Assert(storage && entity);
-		storage->entity = *entity;
+		if (storage && entity) {
+			storage->entity = *entity;
+		}
 	}
+	ZeroMemory(simArena);
 }
 
 #if 0
@@ -680,7 +702,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			state->playerEntityIndexes[playerIdx] = playerLowEntityIndex;
 		}
 
-		Entity* entity = GetEntity(*simRegion, playerLowEntityIndex);
+		Entity* entity = GetEntityFromSim(*simRegion, playerLowEntityIndex);
 		if (!entity) {
 			continue;
 		}
@@ -751,5 +773,5 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 
-	EndSimulation(*simRegion, state);
+	EndSimulation(simArena, *simRegion, state);
 }

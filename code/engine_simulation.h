@@ -30,5 +30,7 @@ struct SimRegion {
 
 	u32 maxEntityCount;
 	u32 entityCount;
-	Entity entities[4096];
+	Entity entities[1024];
+
+	Entity* entityHash[4096];
 };

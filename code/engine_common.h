@@ -63,12 +63,22 @@ struct MemoryArena {
 	u64 used;
 };
 
-inline internal
+inline
 void* PushSize_(MemoryArena & arena, u64 size) {
 	Assert(arena.used + size <= arena.capacity);
 	void* ptr = arena.data + arena.used;
 	arena.used += size;
 	return ptr;
 }
+
+inline 
+void ZeroMemory(MemoryArena& arena) {
+	// TODO: check for performance
+	u8* data = arena.data;
+	while (arena.used--) {
+		*data++ = 0;
+	}
+}
+
 #define PushStructSize(arena, type) PushSize_(arena, sizeof(type))
 #define PushArray(arena, length, type) PushSize_(arena, (length) * sizeof(type))
