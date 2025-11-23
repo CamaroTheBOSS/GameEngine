@@ -133,6 +133,64 @@ DiffWorldPosition Subtract(World& world, WorldPosition& first, WorldPosition& se
 }
 
 internal
+void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex,
+	WorldPosition* oldPos, WorldPosition& newPos)
+{
+	if (oldPos && AreOnTheSameChunk(*oldPos, newPos)) {
+		return;
+	}
+	if (oldPos) {
+		WorldChunk* chunk = GetWorldChunk(world, oldPos->chunkX, oldPos->chunkY, oldPos->chunkZ);
+		Assert(chunk);
+		if (chunk) {
+			LowEntityBlock* firstBlock = chunk->entities;
+			for (LowEntityBlock* block = firstBlock; block; block = block->next) {
+				for (u32 index = 0; index < block->entityCount; index++) {
+					if (block->entityIndexes[index] != lowEntityIndex) {
+						continue;
+					}
+					block->entityIndexes[index] = firstBlock->entityIndexes[--firstBlock->entityCount];
+					if (firstBlock->entityCount == 0) {
+						chunk->entities = firstBlock->next;
+						LowEntityBlock* lastFreeBlock = world.freeEntityBlockList;
+						world.freeEntityBlockList = firstBlock;
+						firstBlock->next = lastFreeBlock;
+					}
+					block = 0;
+					break;
+				}
+				if (!block) {
+					break;
+				}
+			}
+		}
+	}
+	WorldChunk* chunk = GetWorldChunk(world, newPos.chunkX, newPos.chunkY, newPos.chunkZ, &arena);
+	LowEntityBlock* firstBlock = chunk->entities;
+	if (!firstBlock) {
+		chunk->entities = ptrcast(LowEntityBlock, PushStructSize(arena, LowEntityBlock));
+		firstBlock = chunk->entities;
+	}
+	if (firstBlock->entityCount == ArrayCount(firstBlock->entityIndexes)) {
+		if (world.freeEntityBlockList) {
+			Assert(world.freeEntityBlockList->entityCount == 0);
+			LowEntityBlock* block = chunk->entities;
+			chunk->entities = world.freeEntityBlockList;
+			world.freeEntityBlockList = world.freeEntityBlockList->next;
+			chunk->entities->next = block;
+			firstBlock = chunk->entities;
+		}
+		else {
+			LowEntityBlock* block = chunk->entities;
+			chunk->entities = ptrcast(LowEntityBlock, PushStructSize(arena, LowEntityBlock));
+			chunk->entities->next = block;
+			firstBlock = chunk->entities;
+		}
+	}
+	firstBlock->entityIndexes[firstBlock->entityCount++] = lowEntityIndex;
+}
+
+internal
 void InitializeWorld(World& world) {
 	world.tileCountX = 17;
 	world.tileCountY = 9;
