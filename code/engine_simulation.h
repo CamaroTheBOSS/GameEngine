@@ -24,6 +24,11 @@ struct EntityStorage {
 	Entity entity;
 };
 
+struct EntityHash {
+	Entity* ptr;
+	u32 index;
+};
+
 struct SimRegion {
 	WorldPosition origin;
 	Rect2 bounds;
@@ -32,5 +37,5 @@ struct SimRegion {
 	u32 entityCount;
 	Entity entities[1024];
 
-	Entity* entityHash[4096];
+	EntityHash entityHash[4096];
 };

@@ -62,55 +62,6 @@ WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, Memo
 	return 0;
 }
 
-#if 0
-inline
-u32 GetWorldValue(World& world, WorldChunk* chunk, u32 relX, u32 relY) {
-	if (chunk && chunk->tiles && relY < world.chunkDim && relX < world.chunkDim) {
-		return chunk->tiles[relY * world.chunkDim + relX];
-	}
-	return 0;
-}
-
-inline
-u32 GetWorldValue(World& world, u32 absX, u32 absY, u32 absZ) {
-	WorldChunkPosition chunkPos = GetWorldChunkPosition(world, absX, absY, absZ);
-	WorldChunk* chunk = GetWorldChunk(world, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
-	u32 value = GetWorldValue(world, chunk, chunkPos.relWorldX, chunkPos.relWorldY);
-	return value;
-}
-
-inline
-u32 GetWorldValue(World& world, WorldPosition& position) {
-	return GetWorldValue(world, position.absX, position.absY, position.absZ);
-}
-
-inline
-void SetWorldValue(World& world, WorldChunk* chunk, u32 relX, u32 relY, u32 tileValue) {
-	if (chunk && chunk->tiles && relY < world.chunkDim && relX < world.chunkDim) {
-		chunk->tiles[relY * world.chunkDim + relX] = tileValue;
-	}
-}
-
-
-inline
-void SetWorldValue(MemoryArena& arena, World& world, u32 absX, u32 absY, u32 absZ, u32 tileValue) {
-	WorldChunkPosition chunkPos = GetWorldChunkPosition(world, absX, absY, absZ);
-	WorldChunk* chunk = GetWorldChunk(world, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ, &arena);
-	Assert(chunk);
-	if (!chunk) {
-		return;
-	}
-	if (!chunk->tiles) {
-		u32 tileChunkSize = world.chunkDim * world.chunkDim;
-		chunk->tiles = ptrcast(u32, PushArray(arena, tileChunkSize, u32));
-		for (u32 tileIndex = 0; tileIndex < tileChunkSize; tileIndex++) {
-			chunk->tiles[tileIndex] = 1;
-		}
-	}
-	SetWorldValue(world, chunk, chunkPos.relWorldX, chunkPos.relWorldY, tileValue);
-}
-#endif
-
 internal
 WorldPosition CenteredWorldPosition(i32 absX, i32 absY, i32 absZ) {
 	WorldPosition pos = {};
@@ -119,27 +70,6 @@ WorldPosition CenteredWorldPosition(i32 absX, i32 absY, i32 absZ) {
 	pos.chunkZ = absZ;
 	return pos;
 }
-
-#if 0
-inline
-bool IsWorldValueEmpty(u32 tileValue) {
-	return tileValue == 1 || tileValue == 3 || tileValue == 4;
-}
-
-inline
-bool IsWorldPointEmpty(World& world, u32 absX, u32 absY, u32 absZ) {
-	WorldChunkPosition chunkPos = GetWorldChunkPosition(world, absX, absY, absZ);
-	WorldChunk* chunk = GetWorldChunk(world, chunkPos.chunkX, chunkPos.chunkY, chunkPos.chunkZ);
-	u32 tileValue = GetWorldValue(world, chunk, chunkPos.relWorldX, chunkPos.relWorldY);
-	bool isEmpty = IsWorldValueEmpty(tileValue);
-	return isEmpty;
-}
-
-inline
-bool IsWorldPointEmpty(World& world, WorldPosition& position) {
-	return IsWorldPointEmpty(world, position.absX, position.absY, position.absZ);
-}
-#endif
 
 internal
 bool AreOnTheSameChunk(WorldPosition& first, WorldPosition& second) {

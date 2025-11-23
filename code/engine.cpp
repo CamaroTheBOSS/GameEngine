@@ -294,42 +294,44 @@ EntityStorage* GetEntityStorage(ProgramState* state, u32 storageEntityIndex) {
 }
 
 internal
-void AddEntityToSim(SimRegion& simRegion, Entity& entity) {
+EntityHash* GetHashFromStorageIndex(SimRegion& simRegion, u32 storageEntityIndex) {
 	static_assert((ArrayCount(simRegion.entityHash) & (ArrayCount(simRegion.entityHash) - 1)) == 0 &&
 		"hashValue is ANDed with a mask based with assert that the size of hashWorldChunks is power of two");
+	for (u32 offset = 0; offset < ArrayCount(simRegion.entityHash); offset++) {
+		u32 hashMask = (ArrayCount(simRegion.entityHash) - 1);
+		u32 hashIndex = (storageEntityIndex + offset) & hashMask;
+		EntityHash* entityHash = simRegion.entityHash + hashIndex;
+		if (entityHash->index == 0 || entityHash->index == storageEntityIndex) {
+			return entityHash;
+		}
+	}
+	Assert(!"We are out of space in hash table!");
+	return 0;
+}
+
+internal
+Entity* GetEntityByStorageIndex(SimRegion& simRegion, u32 storageEntityIndex) {
+	EntityHash* entityHash = GetHashFromStorageIndex(simRegion, storageEntityIndex);
+	if (entityHash) {
+		return entityHash->ptr;
+	}
+	return 0;
+}
+
+internal
+void AddEntityToSim(SimRegion& simRegion, Entity& entity) {
 	Assert(simRegion.entityCount < simRegion.maxEntityCount);
 	if (simRegion.entityCount >= simRegion.maxEntityCount) {
 		return;
 	}
+	EntityHash* entityHash = GetHashFromStorageIndex(simRegion, entity.storageIndex);
 	Assert(entity.storageIndex != 0);
-	bool inserted = false;
-	for (u32 offset = 0; offset < ArrayCount(simRegion.entityHash); offset++) {
-		u32 hashMask = (ArrayCount(simRegion.entityHash) - 1);
-		u32 hashIndex = (entity.storageIndex + offset) & hashMask;
-		Entity* entityHash = simRegion.entityHash[hashIndex];
-		if (!entityHash) {
-			simRegion.entities[simRegion.entityCount] = entity;
-			simRegion.entityHash[hashIndex] = &simRegion.entities[simRegion.entityCount];
-			simRegion.entityCount++;
-			inserted = true;
-			break;
-		}
-	}
-	Assert(inserted);
+	Assert(!entityHash->ptr && "entity hash entry in hash table must not exist");
+	simRegion.entities[simRegion.entityCount] = entity;
+	entityHash->index = entity.storageIndex;
+	entityHash->ptr = &simRegion.entities[simRegion.entityCount];
+	simRegion.entityCount++;
 	return;
-}
-
-internal
-Entity* GetEntityFromSim(SimRegion& simRegion, u32 storageEntityIndex) {
-	for (u32 offset = 0; offset < ArrayCount(simRegion.entityHash); offset++) {
-		u32 hashMask = (ArrayCount(simRegion.entityHash) - 1);
-		u32 hashIndex = (storageEntityIndex + offset) & hashMask;
-		Entity* entityHash = simRegion.entityHash[hashIndex];
-		if (entityHash && entityHash->storageIndex == storageEntityIndex) {
-			return entityHash;
-		}
-	}
-	return 0;
 }
 
 internal
@@ -383,58 +385,6 @@ void EndSimulation(MemoryArena& simArena, SimRegion& simRegion, ProgramState* st
 	}
 	ZeroMemory(simArena);
 }
-
-#if 0
-internal
-EntityBoth GetHighEntity(ProgramState* state, u32 highEntityIndex) {
-	Assert(!"At this moment this is turned off");
-	EntityBoth entity = {};
-	Assert(highEntityIndex > 0 && highEntityIndex < state->highEntityCount);
-	if (highEntityIndex > 0 && highEntityIndex < state->highEntityCount) {
-		entity.high = &state->highEntities[highEntityIndex];
-		entity.low = GetLowEntity(state, entity.high->lowEntityIndex);
-		Assert(entity.low->highEntityIndex == highEntityIndex);
-	}
-	Assert(entity.high);
-	Assert(entity.low);
-	return entity;
-}
-
-internal
-HighEntity* MakeEntityHighFrequency(ProgramState* state, LowEntity& low, u32 lowEntityIndex, V2 cameraRelativePos) {
-	if (state->highEntityCount >= ArrayCount(state->highEntities)) {
-		Assert(!"Too little high entities!");
-		return 0;
-	}
-	Assert(low.highEntityIndex == 0);
-	HighEntity high = {};
-	high.pos = cameraRelativePos;
-	high.vel = V2{ 0, 0 };
-	high.lowEntityIndex = lowEntityIndex;
-	
-	state->highEntities[state->highEntityCount] = high;
-	low.highEntityIndex = state->highEntityCount;
-	state->highEntityCount++;
-	return &state->highEntities[state->highEntityCount];
-}
-
-internal
-HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
-	Assert(!"At this moment this is turned off");
-	HighEntity* result = 0;
-	LowEntity* low = GetLowEntity(state, lowEntityIndex);
-	Assert(low);
-	if (!low) {
-		return result;
-	}
-	if (low->highEntityIndex > 0) {
-		return &state->highEntities[low->highEntityIndex];
-	}
-	DiffWorldPosition diff = Subtract(state->world, low->worldPos, state->cameraPos);
-	result = MakeEntityHighFrequency(state, *low, lowEntityIndex, diff.dXY);
-	return result;
-}
-#endif
 
 internal
 u32 InitializePlayer(ProgramState* state) {
@@ -702,7 +652,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			state->playerEntityIndexes[playerIdx] = playerLowEntityIndex;
 		}
 
-		Entity* entity = GetEntityFromSim(*simRegion, playerLowEntityIndex);
+		Entity* entity = GetEntityByStorageIndex(*simRegion, playerLowEntityIndex);
 		if (!entity) {
 			continue;
 		}
@@ -759,10 +709,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			i32 index = entity->storageIndex % ArrayCount(randomNumbers);
 			u32 randomNum = randomNumbers[index];
 			f32 color = scast(f32, randomNum) / scast(f32, 1000000);
-#else
-			f32 color = 1.f;
-#endif
 			RenderRectangle(bitmap, min, max, color, color, color);
+#else
+			RenderRectangle(bitmap, min, max, 1.f, 1.f, 1.f);
+#endif	
 		}
 		else if (entity->type == EntityType_Player) {
 			RenderRectangle(bitmap, min, max, 0.f, 1.f, 1.f);
