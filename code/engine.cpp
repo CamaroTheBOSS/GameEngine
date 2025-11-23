@@ -262,35 +262,35 @@ void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIn
 }
 
 internal
-u32 AddEntity(ProgramState* state, LowEntity& low) {
-	Assert(state->lowEntityCount < ArrayCount(state->lowEntities));
-	if (state->lowEntityCount >= ArrayCount(state->lowEntities)) {
+u32 AddEntity(ProgramState* state, EntityStorage& storage) {
+	Assert(state->storageEntityCount < ArrayCount(state->storageEntities));
+	if (state->storageEntityCount >= ArrayCount(state->storageEntities)) {
 		return 0;
 	}
-	ChangeEntityChunkLocation(state->world, state->worldArena, state->lowEntityCount, 0, low.worldPos);
-	state->lowEntities[state->lowEntityCount++] = low;
-	return state->lowEntityCount - 1;
+	ChangeEntityChunkLocation(state->world, state->worldArena, state->storageEntityCount, 0, storage.entity.worldPos);
+	state->storageEntities[state->storageEntityCount++] = storage;
+	return state->storageEntityCount - 1;
 }
 
 internal
 u32 AddWall(ProgramState* state, u32 absX, u32 absY, u32 absZ) {
-	LowEntity low = {};
-	low.worldPos = GetChunkPositionFromWorldPosition(state->world, absX, absY, absZ);
-	low.size = state->world.tileSizeInMeters;
-	low.collide = true;
-	low.type = EntityType_Wall;
-	return AddEntity(state, low);
+	EntityStorage storage = {};
+	storage.entity.worldPos = GetChunkPositionFromWorldPosition(state->world, absX, absY, absZ);
+	storage.entity.size = state->world.tileSizeInMeters;
+	storage.entity.collide = true;
+	storage.entity.type = EntityType_Wall;
+	return AddEntity(state, storage);
 }
 
 internal
-LowEntity* GetLowEntity(ProgramState* state, u32 storageEntityIndex) {
-	LowEntity* entity = 0;
+EntityStorage* GetEntityStorage(ProgramState* state, u32 storageEntityIndex) {
+	EntityStorage* storage = 0;
 	// TODO: should I keep this assertion?
 	//Assert(storageEntityIndex > 0 && storageEntityIndex < state->storageEntityCount);
-	if (storageEntityIndex > 0 && storageEntityIndex < state->lowEntityCount) {
-		entity = &state->lowEntities[storageEntityIndex];
+	if (storageEntityIndex > 0 && storageEntityIndex < state->storageEntityCount) {
+		storage = &state->storageEntities[storageEntityIndex];
 	}
-	return entity;
+	return storage;
 }
 
 internal
@@ -333,23 +333,17 @@ SimRegion* BeginSimulation(MemoryArena& simArena, ProgramState* state, World& wo
 			}
 			for (LowEntityBlock* entities = chunk->entities; entities; entities = entities->next) {
 				for (u32 index = 0; index < entities->entityCount; index++) {
-					u32 lowEntityIndex = entities->entityIndexes[index];
-					LowEntity* low = GetLowEntity(state, lowEntityIndex);
-					Assert(low);
-					if (!low) {
+					u32 storageEntityIndex = entities->entityIndexes[index];
+					EntityStorage* storage = GetEntityStorage(state, storageEntityIndex);
+					Assert(storage);
+					if (!storage) {
 						continue;
 					}
-					DiffWorldPosition diff = Subtract(world, low->worldPos, simRegion->origin);
+					DiffWorldPosition diff = Subtract(world, storage->entity.worldPos, simRegion->origin);
 					if (IsInRectangle(simRegion->bounds, diff.dXY)) {
-						Entity entity = {};
-						entity.collide = low->collide;
-						entity.storageIndex = lowEntityIndex;
-						entity.type = low->type;
+						Entity entity = storage->entity;
+						entity.storageIndex = storageEntityIndex;
 						entity.pos = diff.dXY;
-						entity.worldPos = low->worldPos;
-						entity.size = low->size;
-						entity.faceDir = low->faceDir;
-						entity.vel = low->vel;
 						AddEntityToSim(*simRegion, entity);
 					}
 				}
@@ -362,17 +356,13 @@ SimRegion* BeginSimulation(MemoryArena& simArena, ProgramState* state, World& wo
 void EndSimulation(SimRegion& simRegion, ProgramState* state) {
 	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 		Entity* entity = simRegion.entities + entityIndex;
-		LowEntity* low = GetLowEntity(state, entity->storageIndex);
-		low->collide = entity->collide;
-		low->type = entity->type;
-		low->pos = entity->pos;
-		low->worldPos = entity->worldPos;
-		low->size = entity->size;
-		low->faceDir = entity->faceDir;
-		low->vel = entity->vel;
+		EntityStorage* storage = GetEntityStorage(state, entity->storageIndex);
+		Assert(storage && entity);
+		storage->entity = *entity;
 	}
 }
 
+#if 0
 internal
 EntityBoth GetHighEntity(ProgramState* state, u32 highEntityIndex) {
 	Assert(!"At this moment this is turned off");
@@ -422,20 +412,18 @@ HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
 	result = MakeEntityHighFrequency(state, *low, lowEntityIndex, diff.dXY);
 	return result;
 }
+#endif
 
 internal
 u32 InitializePlayer(ProgramState* state) {
-	LowEntity low = {};
-	low.worldPos = GetChunkPositionFromWorldPosition(state->world, 8, 5, 0);
-	low.faceDir = 0;
-	low.type = EntityType_Player;
-	low.size = { state->world.tileSizeInMeters.X * 0.7f,
+	EntityStorage storage = {};
+	storage.entity.worldPos = GetChunkPositionFromWorldPosition(state->world, 8, 5, 0);
+	storage.entity.faceDir = 0;
+	storage.entity.type = EntityType_Player;
+	storage.entity.size = { state->world.tileSizeInMeters.X * 0.7f,
 					state->world.tileSizeInMeters.Y * 0.4f };
-	low.collide = true;
-	u32 index = AddEntity(state, low);
-	// TODO: think whether this is okay to have one frame latency between adding player
-	// and actual simulating him
-	//HighEntity* high = MakeEntityHighFrequency(state, index);
+	storage.entity.collide = true;
+	u32 index = AddEntity(state, storage);
 	if (!state->cameraEntityIndex) {
 		state->cameraEntityIndex = index;
 	}
@@ -531,9 +519,9 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 
 internal
 void SetCamera(ProgramState* state) {
-	LowEntity* cameraEntityLow = GetLowEntity(state, state->cameraEntityIndex);
-	if (cameraEntityLow) {
-		state->cameraPos = OffsetWorldPosition(state->world, state->cameraPos, cameraEntityLow->pos);
+	EntityStorage* cameraEntityStorage = GetEntityStorage(state, state->cameraEntityIndex);
+	if (cameraEntityStorage) {
+		state->cameraPos = OffsetWorldPosition(state->world, state->cameraPos, cameraEntityStorage->entity.pos);
 	}
 }
 
@@ -542,8 +530,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	World& world = state->world;
 	if (!state->isInitialized) {
-		state->highEntityCount = 1;
-		state->lowEntityCount = 1;
+		state->storageEntityCount = 1;
 		
 		state->worldArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
 		state->worldArena.capacity = memory.permanentMemorySize - sizeof(ProgramState);

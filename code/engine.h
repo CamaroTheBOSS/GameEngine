@@ -89,28 +89,6 @@ struct LoadedBitmap {
 	u32 alignY;
 };
 
-struct HighEntity {
-	V2 pos;
-	V2 vel;
-	u32 lowEntityIndex;
-};
-
-struct LowEntity {
-	EntityType type;
-	V2 pos;
-	WorldPosition worldPos;
-	V2 size;
-	u32 faceDir;
-	u32 highEntityIndex;
-	bool collide;
-	V2 vel;
-};
-
-struct EntityBoth {
-	LowEntity* low;
-	HighEntity* high;
-};
-
 struct ProgramState {
 	// Global state of the program
 	u32 highFreqBoundHalfDim;
@@ -118,11 +96,8 @@ struct ProgramState {
 	MemoryArena worldArena;
 	World world;
 	
-
-	u32 highEntityCount;
-	HighEntity highEntities[256];
-	u32 lowEntityCount;
-	LowEntity lowEntities[10000];
+	u32 storageEntityCount;
+	EntityStorage storageEntities[10000];
 
 	u32 playerEntityIndexes[MAX_CONTROLLERS];
 	u32 cameraEntityIndex;
