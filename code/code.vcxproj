@@ -136,6 +136,7 @@
   <ItemGroup>
     <ClCompile Include="engine_intrinsics.h" />
     <ClCompile Include="engine_math.h" />
+    <ClCompile Include="engine_simulation.cpp" />
     <ClCompile Include="engine_world.cpp" />
     <ClCompile Include="engine.cpp" />
     <ClCompile Include="win32_main.cpp" />
@@ -143,6 +144,7 @@
   <ItemGroup>
     <ClInclude Include="engine.h" />
     <ClInclude Include="engine_common.h" />
+    <ClInclude Include="engine_simulation.h" />
     <ClInclude Include="engine_world.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

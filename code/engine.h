@@ -1,5 +1,6 @@
 #include "engine_common.h"
 #include "engine_world.h"
+#include "engine_simulation.h"
 
 struct BitmapData {
 	// Platform independent buffer to render graphics
@@ -88,12 +89,6 @@ struct LoadedBitmap {
 	u32 alignY;
 };
 
-enum EntityType {
-	EntityType_Nonexist = 0,
-	EntityType_Player,
-	EntityType_Wall
-};
-
 struct HighEntity {
 	V2 pos;
 	V2 vel;
@@ -102,14 +97,16 @@ struct HighEntity {
 
 struct LowEntity {
 	EntityType type;
-	WorldPosition pos;
+	V2 pos;
+	WorldPosition worldPos;
 	V2 size;
 	u32 faceDir;
 	u32 highEntityIndex;
 	bool collide;
+	V2 vel;
 };
 
-struct Entity {
+struct EntityBoth {
 	LowEntity* low;
 	HighEntity* high;
 };

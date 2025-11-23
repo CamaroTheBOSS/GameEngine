@@ -267,7 +267,7 @@ u32 AddEntity(ProgramState* state, LowEntity& low) {
 	if (state->lowEntityCount >= ArrayCount(state->lowEntities)) {
 		return 0;
 	}
-	ChangeEntityChunkLocation(state->world, state->worldArena, state->lowEntityCount, 0, low.pos);
+	ChangeEntityChunkLocation(state->world, state->worldArena, state->lowEntityCount, 0, low.worldPos);
 	state->lowEntities[state->lowEntityCount++] = low;
 	return state->lowEntityCount - 1;
 }
@@ -275,7 +275,7 @@ u32 AddEntity(ProgramState* state, LowEntity& low) {
 internal
 u32 AddWall(ProgramState* state, u32 absX, u32 absY, u32 absZ) {
 	LowEntity low = {};
-	low.pos = GetChunkPositionFromWorldPosition(state->world, absX, absY, absZ);
+	low.worldPos = GetChunkPositionFromWorldPosition(state->world, absX, absY, absZ);
 	low.size = state->world.tileSizeInMeters;
 	low.collide = true;
 	low.type = EntityType_Wall;
@@ -283,23 +283,104 @@ u32 AddWall(ProgramState* state, u32 absX, u32 absY, u32 absZ) {
 }
 
 internal
-LowEntity* GetEntity(ProgramState* state, u32 lowEntityIndex) {
+LowEntity* GetLowEntity(ProgramState* state, u32 storageEntityIndex) {
 	LowEntity* entity = 0;
 	// TODO: should I keep this assertion?
-	//Assert(lowEntityIndex > 0 && lowEntityIndex < state->lowEntityCount);
-	if (lowEntityIndex > 0 && lowEntityIndex < state->lowEntityCount) {
-		entity = &state->lowEntities[lowEntityIndex];
+	//Assert(storageEntityIndex > 0 && storageEntityIndex < state->storageEntityCount);
+	if (storageEntityIndex > 0 && storageEntityIndex < state->lowEntityCount) {
+		entity = &state->lowEntities[storageEntityIndex];
 	}
 	return entity;
 }
 
 internal
-Entity GetHighEntity(ProgramState* state, u32 highEntityIndex) {
-	Entity entity = {};
+void AddEntityToSim(SimRegion& simRegion, Entity& entity) {
+	Assert(simRegion.entityCount < simRegion.maxEntityCount);
+	if (simRegion.entityCount >= simRegion.maxEntityCount) {
+		return;
+	}
+	simRegion.entities[simRegion.entityCount++] = entity;
+	return;
+}
+
+internal
+Entity* GetEntity(SimRegion& simRegion, u32 storageEntityIndex) {
+	// TODO: BETTER LOOKUP, CAUSE THIS IS A DISASTER!!!!!!!!
+	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
+		Entity* entity = simRegion.entities + entityIndex;
+		if (entity->storageIndex == storageEntityIndex) {
+			return entity;
+		}
+	}
+	return 0;
+}
+
+SimRegion* BeginSimulation(MemoryArena& simArena, ProgramState* state, World& world, 
+	WorldPosition& origin, Rect2 bounds) 
+{
+	SimRegion* simRegion = ptrcast(SimRegion, PushStructSize(simArena, SimRegion));
+	simRegion->entityCount = 0;
+	simRegion->maxEntityCount = ArrayCount(simRegion->entities);
+	simRegion->origin = origin;
+	simRegion->bounds = bounds;
+	WorldPosition minChunk = OffsetWorldPosition(world, origin, GetMinCorner(bounds));
+	WorldPosition maxChunk = OffsetWorldPosition(world, origin, GetMaxCorner(bounds));
+	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
+		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
+			WorldChunk* chunk = GetWorldChunk(world, chunkX, chunkY, origin.chunkZ);
+			if (!chunk) {
+				continue;
+			}
+			for (LowEntityBlock* entities = chunk->entities; entities; entities = entities->next) {
+				for (u32 index = 0; index < entities->entityCount; index++) {
+					u32 lowEntityIndex = entities->entityIndexes[index];
+					LowEntity* low = GetLowEntity(state, lowEntityIndex);
+					Assert(low);
+					if (!low) {
+						continue;
+					}
+					DiffWorldPosition diff = Subtract(world, low->worldPos, simRegion->origin);
+					if (IsInRectangle(simRegion->bounds, diff.dXY)) {
+						Entity entity = {};
+						entity.collide = low->collide;
+						entity.storageIndex = lowEntityIndex;
+						entity.type = low->type;
+						entity.pos = diff.dXY;
+						entity.worldPos = low->worldPos;
+						entity.size = low->size;
+						entity.faceDir = low->faceDir;
+						entity.vel = low->vel;
+						AddEntityToSim(*simRegion, entity);
+					}
+				}
+			}
+		}
+	}
+	return simRegion;
+}
+
+void EndSimulation(SimRegion& simRegion, ProgramState* state) {
+	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
+		Entity* entity = simRegion.entities + entityIndex;
+		LowEntity* low = GetLowEntity(state, entity->storageIndex);
+		low->collide = entity->collide;
+		low->type = entity->type;
+		low->pos = entity->pos;
+		low->worldPos = entity->worldPos;
+		low->size = entity->size;
+		low->faceDir = entity->faceDir;
+		low->vel = entity->vel;
+	}
+}
+
+internal
+EntityBoth GetHighEntity(ProgramState* state, u32 highEntityIndex) {
+	Assert(!"At this moment this is turned off");
+	EntityBoth entity = {};
 	Assert(highEntityIndex > 0 && highEntityIndex < state->highEntityCount);
 	if (highEntityIndex > 0 && highEntityIndex < state->highEntityCount) {
 		entity.high = &state->highEntities[highEntityIndex];
-		entity.low = GetEntity(state, entity.high->lowEntityIndex);
+		entity.low = GetLowEntity(state, entity.high->lowEntityIndex);
 		Assert(entity.low->highEntityIndex == highEntityIndex);
 	}
 	Assert(entity.high);
@@ -327,13 +408,9 @@ HighEntity* MakeEntityHighFrequency(ProgramState* state, LowEntity& low, u32 low
 
 internal
 HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
-#if 0
+	Assert(!"At this moment this is turned off");
 	HighEntity* result = 0;
-	if (state->highEntityCount >= ArrayCount(state->highEntities)) {
-		Assert(!"Too little high entities!");
-		return result;
-	}
-	LowEntity* low = GetEntity(state, lowEntityIndex);
+	LowEntity* low = GetLowEntity(state, lowEntityIndex);
 	Assert(low);
 	if (!low) {
 		return result;
@@ -341,43 +418,24 @@ HighEntity* MakeEntityHighFrequency(ProgramState* state, u32 lowEntityIndex) {
 	if (low->highEntityIndex > 0) {
 		return &state->highEntities[low->highEntityIndex];
 	}
-	DiffWorldPosition diff = Subtract(state->world, low->pos, state->cameraPos);
-	HighEntity high = {};
-	high.pos = diff.dXY;
-	high.vel = V2{ 0, 0 };
-	high.lowEntityIndex = lowEntityIndex;
-
-	state->highEntities[state->highEntityCount] = high;
-	low->highEntityIndex = state->highEntityCount;
-	state->highEntityCount++;
-	return &state->highEntities[state->highEntityCount];
-#else
-	HighEntity* result = 0;
-	LowEntity* low = GetEntity(state, lowEntityIndex);
-	Assert(low);
-	if (!low) {
-		return result;
-	}
-	if (low->highEntityIndex > 0) {
-		return &state->highEntities[low->highEntityIndex];
-	}
-	DiffWorldPosition diff = Subtract(state->world, low->pos, state->cameraPos);
+	DiffWorldPosition diff = Subtract(state->world, low->worldPos, state->cameraPos);
 	result = MakeEntityHighFrequency(state, *low, lowEntityIndex, diff.dXY);
 	return result;
-#endif
 }
 
 internal
 u32 InitializePlayer(ProgramState* state) {
 	LowEntity low = {};
-	low.pos = GetChunkPositionFromWorldPosition(state->world, 8, 5, 0);
+	low.worldPos = GetChunkPositionFromWorldPosition(state->world, 8, 5, 0);
 	low.faceDir = 0;
 	low.type = EntityType_Player;
 	low.size = { state->world.tileSizeInMeters.X * 0.7f,
 					state->world.tileSizeInMeters.Y * 0.4f };
 	low.collide = true;
 	u32 index = AddEntity(state, low);
-	HighEntity* high = MakeEntityHighFrequency(state, index);
+	// TODO: think whether this is okay to have one frame latency between adding player
+	// and actual simulating him
+	//HighEntity* high = MakeEntityHighFrequency(state, index);
 	if (!state->cameraEntityIndex) {
 		state->cameraEntityIndex = index;
 	}
@@ -401,17 +459,10 @@ bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDe
 }
 
 internal
-void MoveEntity(ProgramState* state, World& world, Entity entity, V2 acceleration, f32 dt) {
-	Assert(entity.high);
-	Assert(entity.low);
-	Assert(&state->highEntities[entity.low->highEntityIndex] == entity.high);
-	if (!entity.low || !entity.high) {
-		return;
-	}
-	
-	V2 moveDelta = 0.5f * acceleration * Squared(dt) + entity.high->vel * dt;
-	entity.high->vel += acceleration * dt;
-	V2 nextPlayerPosition = entity.high->pos + moveDelta;
+void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity& entity, V2 acceleration, f32 dt) {
+	V2 moveDelta = 0.5f * acceleration * Squared(dt) + entity.vel * dt;
+	entity.vel += acceleration * dt;
+	V2 nextPlayerPosition = entity.pos + moveDelta;
 
 	// TODO: G.J.K algorithm for other collision shapes like circles, elipses etc.
 	for (u32 iteration = 0; iteration < 4; iteration++) {
@@ -421,16 +472,18 @@ void MoveEntity(ProgramState* state, World& world, Entity entity, V2 acceleratio
 		f32 tMin = 1.0f;
 		V2 wallNormal = {};
 		bool hitCollision = false;
-		V2 desiredPosition = entity.high->pos + moveDelta;
-		for (u32 entityIndex = 1; entityIndex < state->highEntityCount; entityIndex++) {
-			Entity other = GetHighEntity(state, entityIndex);
-			if (!other.low->collide || other.high == entity.high) {
+		V2 desiredPosition = entity.pos + moveDelta;
+		// TODO: When simRegion is involved, should I have null entity? If yes, change here to 1 and in
+		// renderer loop as well
+		for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
+			Entity* other = simRegion.entities + entityIndex;
+			if (!other) {
 				continue;
 			}
 
-			V2 diff = other.high->pos - entity.high->pos;
-			V2 minCorner = diff - 0.5f * other.low->size - 0.5f * entity.low->size;
-			V2 maxCorner = diff + 0.5f * other.low->size + 0.5f * entity.low->size;
+			V2 diff = other->pos - entity.pos;
+			V2 minCorner = diff - 0.5f * other->size - 0.5f * entity.size;
+			V2 maxCorner = diff + 0.5f * other->size + 0.5f * entity.size;
 
 			if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
 				moveDelta.Y, &tMin)) {
@@ -457,93 +510,31 @@ void MoveEntity(ProgramState* state, World& world, Entity entity, V2 acceleratio
 				hitCollision = true;
 			}
 		}
-		entity.high->pos += moveDelta * tMin;
+		entity.pos += moveDelta * tMin;
 		if (hitCollision) {
-			entity.high->vel -= Inner(entity.high->vel, wallNormal) * wallNormal;
-			moveDelta = desiredPosition - entity.high->pos;
+			entity.vel -= Inner(entity.vel, wallNormal) * wallNormal;
+			moveDelta = desiredPosition - entity.pos;
 			moveDelta -= Inner(moveDelta, wallNormal) * wallNormal;
 		}
 		if (tMin == 1.0f) {
 			break;
 		}
 	}
-	WorldPosition newEntityPos = OffsetWorldPosition(state->world, state->cameraPos, entity.high->pos);
-	ChangeEntityChunkLocation(world, state->worldArena, entity.high->lowEntityIndex, &entity.low->pos, newEntityPos);
-	entity.low->pos = newEntityPos;
+	WorldPosition newEntityPos = OffsetWorldPosition(state->world, state->cameraPos, entity.pos);
+	// TODO: change location of ChangeEntityChunkLocation, it can be potentially problem in the future
+	// cause this changes location of low entity which is not updated by EndSimulation(), so it looks
+	// like it has been moved by until EndSimulation() is not called its data is not in sync with chunk
+	// location
+	ChangeEntityChunkLocation(world, state->worldArena, entity.storageIndex, &entity.worldPos, newEntityPos);
+	entity.worldPos = newEntityPos;
 }
 
 internal
 void SetCamera(ProgramState* state) {
-	LowEntity* cameraEntityLow = GetEntity(state, state->cameraEntityIndex);
-	Rect2 cameraBounds = GetRectFromCenterHalfDim(V2{ 0, 0 }, state->highFreqBoundHalfDim * state->world.tileSizeInMeters.X);
-	V2 cameraDeltaMove = {};
+	LowEntity* cameraEntityLow = GetLowEntity(state, state->cameraEntityIndex);
 	if (cameraEntityLow) {
-		HighEntity* cameraEntityHigh = MakeEntityHighFrequency(state, state->cameraEntityIndex);
-		if (cameraEntityHigh) {
-			cameraDeltaMove = cameraEntityHigh->pos;
-		}
-		state->cameraPos = OffsetWorldPosition(state->world, state->cameraPos, cameraDeltaMove);
+		state->cameraPos = OffsetWorldPosition(state->world, state->cameraPos, cameraEntityLow->pos);
 	}
-	for (u32 highIndex = 1; highIndex < state->highEntityCount;) {
-		HighEntity* high = state->highEntities + highIndex;
-		LowEntity* low = GetEntity(state, high->lowEntityIndex);
-		Assert(highIndex == low->highEntityIndex);
-		high->pos -= cameraDeltaMove;
-		if (!IsInRectangle(cameraBounds, high->pos)) {
-			// Remove entity from high set
-			if (highIndex == state->highEntityCount - 1) {
-				*high = {};
-				low->highEntityIndex = 0;
-				state->highEntityCount--;
-			}
-			else {
-				HighEntity* lastOneHigh = &state->highEntities[--state->highEntityCount];
-				Assert(lastOneHigh->lowEntityIndex > 0);
-				LowEntity* lastOneLow = GetEntity(state, lastOneHigh->lowEntityIndex);
-				*high = *lastOneHigh;
-				low->highEntityIndex = 0;
-				*lastOneHigh = {};
-				lastOneLow->highEntityIndex = highIndex;
-			}
-		}
-		else {
-			highIndex++;
-		}
-	}
-#if 1
-	WorldPosition minChunk = OffsetWorldPosition(state->world, state->cameraPos, GetMinCorner(cameraBounds));
-	WorldPosition maxChunk = OffsetWorldPosition(state->world, state->cameraPos, GetMaxCorner(cameraBounds));
-	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
-		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
-			WorldChunk* chunk = GetWorldChunk(state->world, chunkX, chunkY, state->cameraPos.chunkZ);
-			if (!chunk) {
-				continue;
-			}
-			for (LowEntityBlock* entities = chunk->entities; entities; entities = entities->next) {
-				for (u32 index = 0; index < entities->entityCount; index++) {
-					u32 lowEntityIndex = entities->entityIndexes[index];
-					LowEntity* low = GetEntity(state, lowEntityIndex);
-					Assert(low);
-					if (!low || low->highEntityIndex != 0) {
-						continue;
-					}
-					DiffWorldPosition diff = Subtract(state->world, low->pos, state->cameraPos);
-					if (IsInRectangle(cameraBounds, diff.dXY)) {
-						MakeEntityHighFrequency(state, *low, lowEntityIndex, diff.dXY);
-					}
-				}
-			}
-		}
-	}
-#else
-	for (u32 entityIndex = 1; entityIndex < state->lowEntityCount; entityIndex++) {
-		LowEntity* low = GetEntity(state, entityIndex);
-		DiffWorldPosition diff = Subtract(state->world, low->pos, state->cameraPos);
-		if (IsInRectangle(cameraBounds, diff.dXY)) {
-			MakeEntityHighFrequency(state, entityIndex);
-		}
-	}
-#endif
 }
 
 
@@ -686,9 +677,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 		state->isInitialized = true;
 	}
-
 	SetCamera(state);
-
+	MemoryArena simArena = {};
+	simArena.data = ptrcast(u8, memory.transientMemory);
+	simArena.capacity = memory.transientMemorySize;
+	Rect2 cameraBounds = GetRectFromCenterHalfDim(
+		V2{ 0, 0 }, state->highFreqBoundHalfDim * state->world.tileSizeInMeters.X
+	);
+	SimRegion* simRegion = BeginSimulation(simArena, state, world, state->cameraPos, cameraBounds);
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
 		Controller& controller = controllers[playerIdx];
 		u32 playerLowEntityIndex = state->playerEntityIndexes[playerIdx];
@@ -696,31 +692,27 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			playerLowEntityIndex = InitializePlayer(state);
 			state->playerEntityIndexes[playerIdx] = playerLowEntityIndex;
 		}
-		Entity entity = {};
-		entity.low = GetEntity(state, playerLowEntityIndex);
-		if (!entity.low) {
+
+		Entity* entity = GetEntity(*simRegion, playerLowEntityIndex);
+		if (!entity) {
 			continue;
 		}
-		Assert(entity.low&& entity.low->highEntityIndex > 0);
-		entity.high = &state->highEntities[entity.low->highEntityIndex];
-
-
 		V2 acceleration = {};
 		f32 speed = 75.0f;
 		if (controller.isADown) {
-			entity.low->faceDir = 1;
+			entity->faceDir = 1;
 			acceleration.X -= 1.f;
 		}
 		if (controller.isWDown) {
-			entity.low->faceDir = 2;
+			entity->faceDir = 2;
 			acceleration.Y += 1.f;
 		}
 		if (controller.isSDown) {
-			entity.low->faceDir = 3;
+			entity->faceDir = 3;
 			acceleration.Y -= 1.f;
 		}
 		if (controller.isDDown) {
-			entity.low->faceDir = 0;
+			entity->faceDir = 0;
 			acceleration.X += 1.f;
 		}
 		if (controller.isSpaceDown) {
@@ -730,9 +722,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (playerAccLength != 0) {
 			acceleration *= speed / Length(acceleration);
 		}
-		acceleration -= 10.0f * entity.high->vel;
+		acceleration -= 10.0f * entity->vel;
 
-		MoveEntity(state, world, entity, acceleration, controller.dtFrame);
+		MoveEntity(*simRegion, state, world, *entity, acceleration, controller.dtFrame);
 	}
 
 	f32 pixelsPerMeter = 42.85714f;
@@ -740,28 +732,37 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	V2 lowerStart = { -world.tileSizeInMeters.X * pixelsPerMeter / 2.0f,
 					  scast(f32, bitmap.height) };
 	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 0.5f, 0.5f, 0.5f);
-	for (u32 entityIndex = 1; entityIndex < state->highEntityCount; entityIndex++) {
-		Entity entity = GetHighEntity(state, entityIndex);
-		if (!entity.high || !entity.low) {
+	for (u32 entityIndex = 0; entityIndex < simRegion->entityCount; entityIndex++) {
+		Entity* entity = simRegion->entities + entityIndex;
+		if (!entity) {
 			continue;
 		}
 
-		V2 center = { lowerStart.X + entity.high->pos.X * pixelsPerMeter + bitmap.width / 2.0f,
-					  lowerStart.Y - entity.high->pos.Y * pixelsPerMeter - bitmap.height / 2.0f };
-		V2 min = { center.X - entity.low->size.X / 2.f * pixelsPerMeter,
-				   center.Y - entity.low->size.Y / 2.f * pixelsPerMeter };
-		V2 max = { min.X + entity.low->size.X * pixelsPerMeter,
-				   min.Y + entity.low->size.Y * pixelsPerMeter };
+		V2 center = { lowerStart.X + entity->pos.X * pixelsPerMeter + bitmap.width / 2.0f,
+					  lowerStart.Y - entity->pos.Y * pixelsPerMeter - bitmap.height / 2.0f };
+		V2 min = { center.X - entity->size.X / 2.f * pixelsPerMeter,
+				   center.Y - entity->size.Y / 2.f * pixelsPerMeter };
+		V2 max = { min.X + entity->size.X * pixelsPerMeter,
+				   min.Y + entity->size.Y * pixelsPerMeter };
 
-		if (entity.low->type == EntityType_Wall) {
-			RenderRectangle(bitmap, min, max, 1.f, 1.f, 1.f);
+		if (entity->type == EntityType_Wall) {
+#if 0
+			i32 index = entity->storageIndex % ArrayCount(randomNumbers);
+			u32 randomNum = randomNumbers[index];
+			f32 color = scast(f32, randomNum) / scast(f32, 1000000);
+#else
+			f32 color = 1.f;
+#endif
+			RenderRectangle(bitmap, min, max, color, color, color);
 		}
-		else if (entity.low->type == EntityType_Player) {
+		else if (entity->type == EntityType_Player) {
 			RenderRectangle(bitmap, min, max, 0.f, 1.f, 1.f);
-			RenderBitmap(bitmap, state->playerMoveAnim[entity.low->faceDir], V2{min.X, max.Y});
+			RenderBitmap(bitmap, state->playerMoveAnim[entity->faceDir], V2{min.X, max.Y});
 		}
 		else {
 			RenderRectangle(bitmap, min, max, 0.f, 1.f, 0.f);
 		}
 	}
+
+	EndSimulation(*simRegion, state);
 }
