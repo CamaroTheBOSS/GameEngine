@@ -93,12 +93,8 @@ struct ProgramState {
 	// Global state of the program
 	u32 highFreqBoundHalfDim;
 	WorldPosition cameraPos;
-	MemoryArena worldArena;
 	World world;
 	
-	u32 storageEntityCount;
-	EntityStorage storageEntities[10000];
-
 	u32 playerEntityIndexes[MAX_CONTROLLERS];
 	u32 cameraEntityIndex;
 	LoadedBitmap playerMoveAnim[4];

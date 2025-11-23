@@ -18,7 +18,7 @@ WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY
 }
 
 internal
-WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, MemoryArena* arena = 0) {
+WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, MemoryArena* arena) {
 	static_assert((ArrayCount(world.hashWorldChunks) & (ArrayCount(world.hashWorldChunks) - 1)) == 0 &&
 					"hashValue is ANDed with a mask based with assert that the size of hashWorldChunks is power of two");
 	Assert(chunkX > INT32_MIN + CHUNK_SAFE_MARGIN);
@@ -115,11 +115,6 @@ WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, f32 off
 	return OffsetWorldPosition(world, position, V2{ offsetX, offsetY });
 }
 
-struct DiffWorldPosition {
-	V2 dXY;
-	f32 dZ;
-};
-
 internal
 DiffWorldPosition Subtract(World& world, WorldPosition& first, WorldPosition& second) {
 	DiffWorldPosition diff = {};
@@ -196,4 +191,5 @@ void InitializeWorld(World& world) {
 	world.tileCountY = 9;
 	world.tileSizeInMeters = V2{ 1.4f , 1.4f };
 	world.chunkSizeInMeters = CHUNK_DIM_IN_TILES * world.tileSizeInMeters;
+	world.storageEntityCount = 1;
 }

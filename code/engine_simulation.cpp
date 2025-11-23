@@ -1,34 +1,33 @@
 #include "engine_simulation.h"
-struct ProgramState;
 
 internal
-u32 AddEntity(ProgramState* state, EntityStorage& storage) {
-	Assert(state->storageEntityCount < ArrayCount(state->storageEntities));
-	if (state->storageEntityCount >= ArrayCount(state->storageEntities)) {
+u32 AddEntity(World& world, EntityStorage& storage) {
+	Assert(world.storageEntityCount < ArrayCount(world.storageEntities));
+	if (world.storageEntityCount >= ArrayCount(world.storageEntities)) {
 		return 0;
 	}
-	ChangeEntityChunkLocation(state->world, state->worldArena, state->storageEntityCount, 0, storage.entity.worldPos);
-	state->storageEntities[state->storageEntityCount++] = storage;
-	return state->storageEntityCount - 1;
+	ChangeEntityChunkLocation(world, world.arena, world.storageEntityCount, 0, storage.entity.worldPos);
+	world.storageEntities[world.storageEntityCount++] = storage;
+	return world.storageEntityCount - 1;
 }
 
 internal
-u32 AddWall(ProgramState* state, u32 absX, u32 absY, u32 absZ) {
+u32 AddWall(World& world, u32 absX, u32 absY, u32 absZ) {
 	EntityStorage storage = {};
-	storage.entity.worldPos = GetChunkPositionFromWorldPosition(state->world, absX, absY, absZ);
-	storage.entity.size = state->world.tileSizeInMeters;
+	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
+	storage.entity.size = world.tileSizeInMeters;
 	storage.entity.collide = true;
 	storage.entity.type = EntityType_Wall;
-	return AddEntity(state, storage);
+	return AddEntity(world, storage);
 }
 
 internal
-EntityStorage* GetEntityStorage(ProgramState* state, u32 storageEntityIndex) {
+EntityStorage* GetEntityStorage(World& world, u32 storageEntityIndex) {
 	EntityStorage* storage = 0;
 	// TODO: should I keep this assertion?
 	//Assert(storageEntityIndex > 0 && storageEntityIndex < state->storageEntityCount);
-	if (storageEntityIndex > 0 && storageEntityIndex < state->storageEntityCount) {
-		storage = &state->storageEntities[storageEntityIndex];
+	if (storageEntityIndex > 0 && storageEntityIndex < world.storageEntityCount) {
+		storage = &world.storageEntities[storageEntityIndex];
 	}
 	return storage;
 }
@@ -75,7 +74,7 @@ void AddEntityToSim(SimRegion& simRegion, Entity& entity) {
 }
 
 internal
-SimRegion* BeginSimulation(MemoryArena& simArena, ProgramState* state, World& world,
+SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 	WorldPosition& origin, Rect2 bounds)
 {
 	SimRegion* simRegion = ptrcast(SimRegion, PushStructSize(simArena, SimRegion));
@@ -94,7 +93,7 @@ SimRegion* BeginSimulation(MemoryArena& simArena, ProgramState* state, World& wo
 			for (LowEntityBlock* entities = chunk->entities; entities; entities = entities->next) {
 				for (u32 index = 0; index < entities->entityCount; index++) {
 					u32 storageEntityIndex = entities->entityIndexes[index];
-					EntityStorage* storage = GetEntityStorage(state, storageEntityIndex);
+					EntityStorage* storage = GetEntityStorage(world, storageEntityIndex);
 					Assert(storage);
 					if (!storage) {
 						continue;
@@ -114,10 +113,10 @@ SimRegion* BeginSimulation(MemoryArena& simArena, ProgramState* state, World& wo
 }
 
 internal
-void EndSimulation(MemoryArena& simArena, SimRegion& simRegion, ProgramState* state) {
+void EndSimulation(MemoryArena& simArena, SimRegion& simRegion, World& world) {
 	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 		Entity* entity = simRegion.entities + entityIndex;
-		EntityStorage* storage = GetEntityStorage(state, entity->storageIndex);
+		EntityStorage* storage = GetEntityStorage(world, entity->storageIndex);
 		Assert(storage && entity);
 		if (storage && entity) {
 			storage->entity = *entity;

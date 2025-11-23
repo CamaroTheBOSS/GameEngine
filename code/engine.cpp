@@ -213,7 +213,7 @@ u32 InitializePlayer(ProgramState* state) {
 	storage.entity.size = { state->world.tileSizeInMeters.X * 0.7f,
 					state->world.tileSizeInMeters.Y * 0.4f };
 	storage.entity.collide = true;
-	u32 index = AddEntity(state, storage);
+	u32 index = AddEntity(state->world, storage);
 	if (!state->cameraEntityIndex) {
 		state->cameraEntityIndex = index;
 	}
@@ -298,18 +298,18 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 			break;
 		}
 	}
-	WorldPosition newEntityPos = OffsetWorldPosition(state->world, state->cameraPos, entity.pos);
+	WorldPosition newEntityPos = OffsetWorldPosition(world, state->cameraPos, entity.pos);
 	// TODO: change location of ChangeEntityChunkLocation, it can be potentially problem in the future
 	// cause this changes location of low entity which is not updated by EndSimulation(), so it looks
 	// like it has been moved by until EndSimulation() is not called its data is not in sync with chunk
 	// location
-	ChangeEntityChunkLocation(world, state->worldArena, entity.storageIndex, &entity.worldPos, newEntityPos);
+	ChangeEntityChunkLocation(world, world.arena, entity.storageIndex, &entity.worldPos, newEntityPos);
 	entity.worldPos = newEntityPos;
 }
 
 internal
 void SetCamera(ProgramState* state) {
-	EntityStorage* cameraEntityStorage = GetEntityStorage(state, state->cameraEntityIndex);
+	EntityStorage* cameraEntityStorage = GetEntityStorage(state->world, state->cameraEntityIndex);
 	if (cameraEntityStorage) {
 		state->cameraPos = OffsetWorldPosition(state->world, state->cameraPos, cameraEntityStorage->entity.pos);
 	}
@@ -320,15 +320,12 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	World& world = state->world;
 	if (!state->isInitialized) {
-		state->storageEntityCount = 1;
-		
-		state->worldArena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
-		state->worldArena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
-		state->worldArena.used = 0;
-		state->highFreqBoundHalfDim = 15;
-
 		InitializeWorld(world);
+		world.arena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
+		world.arena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
+		world.arena.used = 0;
 
+		state->highFreqBoundHalfDim = 15;
 		state->cameraPos = GetChunkPositionFromWorldPosition(
 			world, world.tileCountX / 2, world.tileCountY / 2, 0
 		);
@@ -427,7 +424,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					}
 					// TODO: Chunk allocation on demand
 					if (tileValue == 2) {
-						AddWall(state, absTileX, absTileY, absTileZ);
+						AddWall(world, absTileX, absTileY, absTileZ);
 					}
 					
 				}
@@ -461,7 +458,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	Rect2 cameraBounds = GetRectFromCenterHalfDim(
 		V2{ 0, 0 }, state->highFreqBoundHalfDim * state->world.tileSizeInMeters.X
 	);
-	SimRegion* simRegion = BeginSimulation(simArena, state, world, state->cameraPos, cameraBounds);
+	SimRegion* simRegion = BeginSimulation(simArena, world, state->cameraPos, cameraBounds);
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
 		Controller& controller = controllers[playerIdx];
 		u32 playerLowEntityIndex = state->playerEntityIndexes[playerIdx];
@@ -541,5 +538,5 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 
-	EndSimulation(simArena, *simRegion, state);
+	EndSimulation(simArena, *simRegion, world);
 }
