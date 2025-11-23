@@ -794,8 +794,7 @@ int CALLBACK WinMain(
 	}
 	Win32GameCode gameCode = {};
 	SoundData soundData = {};
-	Controller controllers[5];
-
+	InputData inputData = {};
 
 	DWORD length = GetModuleFileNameA(0, win32State.exeFilePath, MY_MAX_PATH);
 	char* tmpChar = win32State.exeFilePath;
@@ -827,18 +826,17 @@ int CALLBACK WinMain(
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 	while (globalRunning) {
 		Win32ReloadGameCode(gameCode);
-		Win32ProcessOSMessages(win32State, programMemory, controllers[KB_CONTROLLER_IDX]);
+		Win32ProcessOSMessages(win32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
 		for (DWORD cIndex = 0; cIndex < XUSER_MAX_COUNT; cIndex++) {
-			Win32GatherGamepadInput(controllers[cIndex], cIndex);
-			controllers[cIndex].dtFrame = targetFrameRefreshSeconds;
+			Win32GatherGamepadInput(inputData.controllers[cIndex], cIndex);
 		}
 		if (win32State.dLoopRecord.recording) {
-			Win32DebugRecordInput(win32State, controllers[KB_CONTROLLER_IDX]);
+			Win32DebugRecordInput(win32State, inputData.controllers[KB_CONTROLLER_IDX]);
 		}
 		else if (win32State.dLoopRecord.replaying) {
-			Win32DebugReplayInput(win32State, programMemory, controllers[KB_CONTROLLER_IDX]);
+			Win32DebugReplayInput(win32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
 		}
-		controllers[KB_CONTROLLER_IDX].dtFrame = targetFrameRefreshSeconds;
+		inputData.dtFrame = targetFrameRefreshSeconds;
 		
 
 		// PART: Preparing SoundData structure for game main loop
@@ -861,7 +859,7 @@ int CALLBACK WinMain(
 		soundData.nChannels = globalSoundData.dataFormat.Format.nChannels;
 
 		// PART: Game main loop
-		gameCode.GameMainLoopFrame(programMemory, globalBitmap, soundData, controllers);
+		gameCode.GameMainLoopFrame(programMemory, globalBitmap, soundData, inputData);
 
 	
 		// PART: Timing stuff

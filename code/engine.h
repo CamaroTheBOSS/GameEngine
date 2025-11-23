@@ -47,7 +47,10 @@ struct Controller {
 	bool isMouseRDown = false;
 	bool isMouse1BDown = false;
 	bool isMouse2BDown = false;
-	
+};
+
+struct InputData {
+	Controller controllers[MAX_CONTROLLERS];
 	f32 dtFrame;
 };
 
@@ -105,7 +108,7 @@ struct ProgramState {
 
 #include <stdlib.h>
 /* Functionalities served by the program layer for platform layer */
-#define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, Controller* controllers)
+#define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, InputData& input)
 typedef GAME_MAIN_LOOP_FRAME(game_main_loop_frame);
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {
 	float* data = reinterpret_cast<float*>(soundData.data);

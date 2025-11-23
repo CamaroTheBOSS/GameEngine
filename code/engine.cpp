@@ -460,7 +460,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	);
 	SimRegion* simRegion = BeginSimulation(simArena, world, state->cameraPos, cameraBounds);
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
-		Controller& controller = controllers[playerIdx];
+		Controller& controller = input.controllers[playerIdx];
 		u32 playerLowEntityIndex = state->playerEntityIndexes[playerIdx];
 		if (controller.isSpaceDown && playerLowEntityIndex == 0) {
 			playerLowEntityIndex = InitializePlayer(state);
@@ -498,7 +498,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		acceleration -= 10.0f * entity->vel;
 
-		MoveEntity(*simRegion, state, world, *entity, acceleration, controller.dtFrame);
+		MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 	}
 
 	f32 pixelsPerMeter = 42.85714f;
