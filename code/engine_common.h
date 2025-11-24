@@ -18,7 +18,7 @@
 #endif
 
 #if !COMPILER_MSVC && !COMPILER_LLVM && !COMPILER_GPLUSPLUS
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && !defined(__clang__)
 #define COMPILER_MSVC 1
 #endif
 #if defined(__GNUC__)
@@ -36,7 +36,11 @@
 #define MB(bytes) (kB(bytes) * 1024)
 #define GB(bytes) (MB(bytes) * 1024)
 #define TB(bytes) (GB(bytes) * 1024)
-#define Assert(expression) if (!(expression)) { *(char*)0 = 0; }
+#if COMPILER_MSVC == 1
+	#define Assert(expression) if (!(expression)) { *(char*)0 = 0; }
+#else
+	#define Assert(expression) if (!(expression)) { __builtin_trap(); }
+#endif
 #define scast(type, expression) static_cast<type>(expression)
 #define ptrcast(type, expression) reinterpret_cast<type*>(expression)
 #define ArrayCount(arr) (sizeof(arr) / sizeof(arr[0]))

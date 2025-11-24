@@ -132,6 +132,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <None Include="build.bat" />
+    <None Include="clang_build.bat" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="engine_intrinsics.h" />

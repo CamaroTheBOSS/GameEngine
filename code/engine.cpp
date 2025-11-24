@@ -48,6 +48,29 @@ static u32 randomNumbers[] = {
 	1640785,	896580,		3578674,	680300,		447966
 };
 
+inline 
+void PushDrawCall(DrawCallGroup& group, LoadedBitmap* bitmap, Rect2 rectangle, f32 R, f32 G, f32 B, f32 A, V2 offset) {
+	Assert(group.count < ArrayCount(group.drawCalls));
+	DrawCall* call = &group.drawCalls[group.count++];
+	call->bitmap = bitmap;
+	call->rectangle = rectangle;
+	call->R = R;
+	call->G = G;
+	call->B = B;
+	call->A = A;
+	call->offset = offset;
+}
+
+inline
+void PushBitmap(DrawCallGroup& group, LoadedBitmap* bitmap, f32 A, V2 offset) {
+	PushDrawCall(group, bitmap, {}, 0, 0, 0, A, offset);
+}
+
+inline
+void PushRect(DrawCallGroup& group, Rect2 rect, f32 R, f32 G, f32 B, f32 A, V2 offset) {
+	PushDrawCall(group, 0, rect, R, G, B, A, offset);
+}
+
 internal 
 void RenderRectangle(BitmapData& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B) {
 	i32 minX = RoundF32ToI32(start.X);
@@ -220,6 +243,36 @@ u32 InitializePlayer(ProgramState* state) {
 	return index;
 }
 
+internal
+u32 AddWall(World& world, u32 absX, u32 absY, u32 absZ) {
+	EntityStorage storage = {};
+	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
+	storage.entity.size = world.tileSizeInMeters;
+	storage.entity.collide = true;
+	storage.entity.type = EntityType_Wall;
+	return AddEntity(world, storage);
+}
+
+internal
+u32 AddFamiliar(World& world, u32 absX, u32 absY, u32 absZ) {
+	EntityStorage storage = {};
+	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
+	storage.entity.size = V2{ 1.0f, 1.25f };
+	storage.entity.collide = false;
+	storage.entity.type = EntityType_Familiar;
+	return AddEntity(world, storage);
+}
+
+internal
+u32 AddMonster(World& world, u32 absX, u32 absY, u32 absZ) {
+	EntityStorage storage = {};
+	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
+	storage.entity.size = V2{ 1.0f, 1.25f };
+	storage.entity.collide = true;
+	storage.entity.type = EntityType_Monster;
+	return AddEntity(world, storage);
+}
+
 bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDeltaX,
 					  f32 moveDeltaY, f32* tMin) {
 	if (moveDeltaX != 0) {
@@ -255,7 +308,7 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 		// renderer loop as well
 		for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 			Entity* other = simRegion.entities + entityIndex;
-			if (!other) {
+			if (!other || !other->collide) {
 				continue;
 			}
 
@@ -448,6 +501,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				lvlJustChanged = false;
 			}
 		}
+		AddFamiliar(world, 17 / 2, 9 / 2, 0);
+		AddMonster(world, 17 / 2, 7, 0);
 
 		state->isInitialized = true;
 	}
@@ -461,6 +516,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	SimRegion* simRegion = BeginSimulation(simArena, world, state->cameraPos, cameraBounds);
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
 		Controller& controller = input.controllers[playerIdx];
+		PlayerControls& playerControls = state->playerControls[playerIdx];
 		u32 playerLowEntityIndex = state->playerEntityIndexes[playerIdx];
 		if (controller.isSpaceDown && playerLowEntityIndex == 0) {
 			playerLowEntityIndex = InitializePlayer(state);
@@ -471,34 +527,32 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (!entity) {
 			continue;
 		}
-		V2 acceleration = {};
+		playerControls.acceleration = {};
 		f32 speed = 75.0f;
 		if (controller.isADown) {
 			entity->faceDir = 1;
-			acceleration.X -= 1.f;
+			playerControls.acceleration.X -= 1.f;
 		}
 		if (controller.isWDown) {
 			entity->faceDir = 2;
-			acceleration.Y += 1.f;
+			playerControls.acceleration.Y += 1.f;
 		}
 		if (controller.isSDown) {
 			entity->faceDir = 3;
-			acceleration.Y -= 1.f;
+			playerControls.acceleration.Y -= 1.f;
 		}
 		if (controller.isDDown) {
 			entity->faceDir = 0;
-			acceleration.X += 1.f;
+			playerControls.acceleration.X += 1.f;
 		}
 		if (controller.isSpaceDown) {
 			speed = 250.0f;
 		}
-		f32 playerAccLength = Length(acceleration);
+		f32 playerAccLength = Length(playerControls.acceleration);
 		if (playerAccLength != 0) {
-			acceleration *= speed / Length(acceleration);
+			playerControls.acceleration *= speed / Length(playerControls.acceleration);
 		}
-		acceleration -= 10.0f * entity->vel;
-
-		MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
+		playerControls.acceleration -= 10.0f * entity->vel;
 	}
 
 	f32 pixelsPerMeter = 42.85714f;
@@ -511,6 +565,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (!entity) {
 			continue;
 		}
+		DrawCallGroup drawCalls = {};
 
 		V2 center = { lowerStart.X + entity->pos.X * pixelsPerMeter + bitmap.width / 2.0f,
 					  lowerStart.Y - entity->pos.Y * pixelsPerMeter - bitmap.height / 2.0f };
@@ -519,22 +574,43 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		V2 max = { min.X + entity->size.X * pixelsPerMeter,
 				   min.Y + entity->size.Y * pixelsPerMeter };
 
-		if (entity->type == EntityType_Wall) {
-#if 0
-			i32 index = entity->storageIndex % ArrayCount(randomNumbers);
-			u32 randomNum = randomNumbers[index];
-			f32 color = scast(f32, randomNum) / scast(f32, 1000000);
-			RenderRectangle(bitmap, min, max, color, color, color);
-#else
+		switch(entity->type) {
+		case EntityType_Player: {
+			i32 thisPlayerControllerIndex = -1;
+			for (u32 controllerIndex = 0; controllerIndex < MAX_CONTROLLERS; controllerIndex++) {
+				u32 index = state->playerEntityIndexes[controllerIndex];
+				if (index == entity->storageIndex) {
+					thisPlayerControllerIndex = controllerIndex;
+					break;
+				}
+			}
+			Assert(thisPlayerControllerIndex != -1);
+			V2 acceleration = state->playerControls[thisPlayerControllerIndex].acceleration;
+			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
+			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 1.f, 1.f, 1.f, {});
+			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], 1.f, V2{ min.X, max.Y });
+		} break;
+		case EntityType_Wall: {
+			PushRect(drawCalls, GetRectFromMinMax(min, max), 1.f, 1.f, 1.f, 1.f, {});
 			RenderRectangle(bitmap, min, max, 1.f, 1.f, 1.f);
-#endif	
+		} break;
+		case EntityType_Familiar: {
+			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 0.f, 1.f, 1.f, {});
+		} break;
+		case EntityType_Monster: {
+			PushRect(drawCalls, GetRectFromMinMax(min, max), 1.f, 0.5f, 0.f, 1.f, {});
+		} break;
+		default: Assert(!"Function to draw entity not found!");
 		}
-		else if (entity->type == EntityType_Player) {
-			RenderRectangle(bitmap, min, max, 0.f, 1.f, 1.f);
-			RenderBitmap(bitmap, state->playerMoveAnim[entity->faceDir], V2{min.X, max.Y});
-		}
-		else {
-			RenderRectangle(bitmap, min, max, 0.f, 1.f, 0.f);
+
+		for (u32 drawCallIndex = 0; drawCallIndex < drawCalls.count; drawCallIndex++) {
+			DrawCall* call = drawCalls.drawCalls + drawCallIndex;
+			if (call->bitmap) {
+				RenderBitmap(bitmap, *call->bitmap, call->offset);
+			}
+			else {
+				RenderRectangle(bitmap, GetMinCorner(call->rectangle), GetMaxCorner(call->rectangle), call->R, call->G, call->B);
+			}
 		}
 	}
 

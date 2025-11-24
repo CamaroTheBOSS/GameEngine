@@ -12,16 +12,6 @@ u32 AddEntity(World& world, EntityStorage& storage) {
 }
 
 internal
-u32 AddWall(World& world, u32 absX, u32 absY, u32 absZ) {
-	EntityStorage storage = {};
-	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
-	storage.entity.size = world.tileSizeInMeters;
-	storage.entity.collide = true;
-	storage.entity.type = EntityType_Wall;
-	return AddEntity(world, storage);
-}
-
-internal
 EntityStorage* GetEntityStorage(World& world, u32 storageEntityIndex) {
 	EntityStorage* storage = 0;
 	// TODO: should I keep this assertion?

@@ -35,7 +35,9 @@ struct WorldChunk {
 enum EntityType {
 	EntityType_Nonexist = 0,
 	EntityType_Player,
-	EntityType_Wall
+	EntityType_Wall,
+	EntityType_Familiar,
+	EntityType_Monster
 };
 
 struct Entity {
@@ -68,8 +70,10 @@ struct World {
 	EntityStorage storageEntities[10000];
 };
 
+// Function declaration to help Intellisense got some sense :)
 internal WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, MemoryArena* arena = 0);
 internal WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, V2 offset);
 internal WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY);
 internal DiffWorldPosition Subtract(World& world, WorldPosition& first, WorldPosition& second);
 internal void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex, WorldPosition* oldPos, WorldPosition& newPos);
+internal WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY, i32 absZ);

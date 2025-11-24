@@ -92,6 +92,22 @@ struct LoadedBitmap {
 	u32 alignY;
 };
 
+struct DrawCall {
+	LoadedBitmap* bitmap;
+	Rect2 rectangle;
+	f32 R, G, B, A;
+	V2 offset;
+};
+
+struct DrawCallGroup {
+	u32 count;
+	DrawCall drawCalls[8];
+};
+
+struct PlayerControls {
+	V2 acceleration;
+};
+
 struct ProgramState {
 	// Global state of the program
 	u32 highFreqBoundHalfDim;
@@ -99,6 +115,7 @@ struct ProgramState {
 	World world;
 	
 	u32 playerEntityIndexes[MAX_CONTROLLERS];
+	PlayerControls playerControls[MAX_CONTROLLERS];
 	u32 cameraEntityIndex;
 	LoadedBitmap playerMoveAnim[4];
 	V2 playerSize;
