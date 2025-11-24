@@ -375,7 +375,7 @@ void UpdateFamiliar(SimRegion& simRegion, ProgramState* state, Entity* familiar,
 		}
 	}
 	V2 acceleration = {};
-	f32 speed = 50.0f;
+	f32 speed = 10.0f;
 	if (minDistance > Squared(2.0f)) {
 		acceleration = speed * (minDistanceEntityPos - familiar->pos) / SquareRoot(minDistance);
 	}

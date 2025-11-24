@@ -49,6 +49,14 @@ V2 operator*(V2 A, f32 scalar) {
 }
 
 inline
+V2 operator/(V2 A, f32 scalar) {
+	return V2{
+		A.X / scalar,
+		A.Y / scalar
+	};
+}
+
+inline
 V2& operator*=(V2& A, f32 scalar) {
 	A.X *= scalar;
 	A.Y *= scalar;
