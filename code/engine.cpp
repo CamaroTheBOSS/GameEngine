@@ -71,6 +71,19 @@ void PushRect(DrawCallGroup& group, Rect2 rect, f32 R, f32 G, f32 B, f32 A, V2 o
 	PushDrawCall(group, 0, rect, R, G, B, A, offset);
 }
 
+internal
+void RenderHitPoints(DrawCallGroup& group, Entity& entity, V2 center, V2 offset, f32 pixelsPerMeter, f32 distBetween, f32 pointSize) {
+	V2 realOffset = (offset + V2{ -scast(f32, entity.hitPoints.count - 1) * scast(f32, distBetween + pointSize) / 2.f , 0.f }) * pixelsPerMeter;
+	for (u32 hitPointIndex = 0; hitPointIndex < entity.hitPoints.count; hitPointIndex++) {
+		V2 hitPointMin = { center.X + realOffset.X - pointSize * 0.5f * pixelsPerMeter,
+						   center.Y - realOffset.Y - pointSize * 0.5f * pixelsPerMeter, };
+		V2 hitPointMax = { center.X + realOffset.X + pointSize * 0.5f * pixelsPerMeter,
+						   center.Y - realOffset.Y + pointSize * 0.5f * pixelsPerMeter, };
+		PushRect(group, GetRectFromMinMax(hitPointMin, hitPointMax), 1.f, 0.f, 0.f, 1.f, {});
+		realOffset.X += (distBetween + pointSize) * pixelsPerMeter;
+	}
+}
+
 internal 
 void RenderRectangle(BitmapData& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B) {
 	i32 minX = RoundF32ToI32(start.X);
@@ -227,6 +240,16 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 	return result;
 }
 
+inline
+void InitializeHitPoints(Entity& entity, u32 nHitPoints, u32 amount, u32 max) {
+	for (u32 hitPointIndex = 0; hitPointIndex < nHitPoints; hitPointIndex++) {
+		Assert(hitPointIndex < ArrayCount(entity.hitPoints.hitPoints));
+		entity.hitPoints.hitPoints[hitPointIndex].amount = amount;
+		entity.hitPoints.hitPoints[hitPointIndex].max = max;
+	}
+	entity.hitPoints.count = nHitPoints;
+}
+
 internal
 u32 InitializePlayer(ProgramState* state) {
 	EntityStorage storage = {};
@@ -236,6 +259,8 @@ u32 InitializePlayer(ProgramState* state) {
 	storage.entity.size = { state->world.tileSizeInMeters.X * 0.7f,
 					state->world.tileSizeInMeters.Y * 0.4f };
 	storage.entity.collide = true;
+	InitializeHitPoints(storage.entity, 4, 1, 1);
+	
 	u32 index = AddEntity(state->world, storage);
 	if (!state->cameraEntityIndex) {
 		state->cameraEntityIndex = index;
@@ -270,6 +295,7 @@ u32 AddMonster(World& world, u32 absX, u32 absY, u32 absZ) {
 	storage.entity.size = V2{ 1.0f, 1.25f };
 	storage.entity.collide = true;
 	storage.entity.type = EntityType_Monster;
+	InitializeHitPoints(storage.entity, 3, 1, 1);
 	return AddEntity(world, storage);
 }
 
@@ -612,6 +638,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 1.f, 1.f, 1.f, {});
 			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], 1.f, V2{ min.X, max.Y });
+			RenderHitPoints(drawCalls, *entity, center, V2{0.f, -0.5f}, pixelsPerMeter, 0.1f, 0.2f);
 		} break;
 		case EntityType_Wall: {
 			PushRect(drawCalls, GetRectFromMinMax(min, max), 1.f, 1.f, 1.f, 1.f, {});
@@ -623,6 +650,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		} break;
 		case EntityType_Monster: {
 			PushRect(drawCalls, GetRectFromMinMax(min, max), 1.f, 0.5f, 0.f, 1.f, {});
+			RenderHitPoints(drawCalls, *entity, center, V2{ 0.f, -0.8f }, pixelsPerMeter, 0.1f, 0.2f);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
 		}

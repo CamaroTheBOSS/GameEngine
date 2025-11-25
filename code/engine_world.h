@@ -40,6 +40,16 @@ enum EntityType {
 	EntityType_Monster
 };
 
+struct HP {
+	u32 amount;
+	u32 max;
+};
+
+struct HitPoints {
+	u32 count;
+	HP hitPoints[16];
+};
+
 struct Entity {
 	u32 storageIndex;
 	V2 pos;
@@ -49,6 +59,7 @@ struct Entity {
 	V2 size;
 	u32 faceDir;
 	u32 highEntityIndex;
+	HitPoints hitPoints;
 	bool collide;
 };
 
