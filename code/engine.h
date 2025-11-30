@@ -39,9 +39,9 @@ struct Controller {
 	bool isSpaceDown = false;
 	bool isEscDown = false;
 
-	// Mouse data
-	int mouseX;
-	int mouseY;
+	// Mouse data (<0-1> value relative to window size where 0 is left or top, and 1 is right or bottom)
+	f32 mouseX;
+	f32 mouseY;
 	bool isMouseLDown = false;
 	bool isMouseMDown = false;
 	bool isMouseRDown = false;

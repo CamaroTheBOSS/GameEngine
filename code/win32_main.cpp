@@ -46,6 +46,13 @@ struct DebugLoopRecord {
 
 struct Win32State {
 	HWND window;
+
+	// TODO change to some structure with X and Y access like screen dim
+	u32 bltOffsetX;
+	u32 bltOffsetY;
+	u32 displayWidth;
+	u32 displayHeight;
+
 	char exeFilePath[MY_MAX_PATH];
 	char exeDirectory[MY_MAX_PATH];
 	char* exeFileName;
@@ -62,6 +69,7 @@ struct ScreenDimension {
 
 static bool globalRunning;
 static BitmapData globalBitmap;
+static Win32State globalWin32State;
 static BITMAPINFO globalBitmapInfo;
 static SoundRenderData globalSoundData;
 static LARGE_INTEGER globalPerformanceFreq;
@@ -445,34 +453,22 @@ void Win32ResizeBitmapMemory(BitmapData& bitmap, int newWidth, int newHeight) {
 }
 
 internal
-void Win32DisplayWindow(HDC deviceContext, BitmapData bitmap, int width, int height) {
+void Win32DisplayWindow(HDC deviceContext, Win32State& state, BitmapData bitmap, int width, int height) {
 	// TODO change that to more shipping quality version of fullscreen
-	if (2 * bitmap.width <= scast(u32, width) && 2 * bitmap.height <= scast(u32, height)) {
-		StretchDIBits(
-			deviceContext,
-			0, 0, width, height,
-			0, 0, bitmap.width, bitmap.height,
-			bitmap.data,
-			&globalBitmapInfo,
-			DIB_RGB_COLORS, SRCCOPY
-		);
+	if (state.bltOffsetX || state.bltOffsetY) {
+		PatBlt(deviceContext, 0, 0, state.bltOffsetX, 600, BLACKNESS);
+		PatBlt(deviceContext, state.bltOffsetX, 0, 1000, state.bltOffsetY, BLACKNESS);
+		PatBlt(deviceContext, state.bltOffsetX + bitmap.width, 0, 1920, 1080, BLACKNESS);
+		PatBlt(deviceContext, 0, state.bltOffsetY + bitmap.height, 1000, 600, BLACKNESS);
 	}
-	else {
-		int offsetX = 10;
-		int offsetY = 10;
-		PatBlt(deviceContext, 0, 0, offsetX, 600, BLACKNESS);
-		PatBlt(deviceContext, offsetX, 0, 1000, offsetY, BLACKNESS);
-		PatBlt(deviceContext, offsetX + bitmap.width, 0, 1920, 1080, BLACKNESS);
-		PatBlt(deviceContext, 0, offsetY + bitmap.height, 1000, 600, BLACKNESS);
-		StretchDIBits(
-			deviceContext,
-			offsetX, offsetY, bitmap.width, bitmap.height,
-			0, 0, bitmap.width, bitmap.height,
-			bitmap.data,
-			&globalBitmapInfo,
-			DIB_RGB_COLORS, SRCCOPY
-		);
-	}
+	StretchDIBits(
+		deviceContext,
+		state.bltOffsetX, state.bltOffsetY, state.displayWidth, state.displayHeight,
+		0, 0, bitmap.width, bitmap.height,
+		bitmap.data,
+		&globalBitmapInfo,
+		DIB_RGB_COLORS, SRCCOPY
+	);
 }
 
 internal
@@ -490,6 +486,12 @@ void ToggleFullscreen(HWND window) {
 				SWP_NOOWNERZORDER | SWP_FRAMECHANGED
 			);
 		}
+		ScreenDimension dim = GetWindowDimension(globalWin32State.window);
+		// TODO: change to function parameter
+		globalWin32State.bltOffsetX = 0;
+		globalWin32State.bltOffsetY = 0;
+		globalWin32State.displayWidth = dim.width;
+		globalWin32State.displayHeight = dim.height;
 	}
 	else {
 		SetWindowLong(window, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
@@ -498,6 +500,10 @@ void ToggleFullscreen(HWND window) {
 			SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
 			SWP_NOOWNERZORDER | SWP_FRAMECHANGED
 		);
+		globalWin32State.bltOffsetX = 10;
+		globalWin32State.bltOffsetY = 10;
+		globalWin32State.displayWidth = globalBitmap.width;
+		globalWin32State.displayHeight = globalBitmap.height;
 	}
 }
 
@@ -522,7 +528,7 @@ LRESULT CALLBACK Win32MainWindowCallback(
 		PAINTSTRUCT paint;
 		HDC deviceContext = BeginPaint(window, &paint);
 		auto dim = GetWindowDimension(window);
-		Win32DisplayWindow(deviceContext, globalBitmap, dim.width, dim.height);
+		Win32DisplayWindow(deviceContext, globalWin32State, globalBitmap, dim.width, dim.height);
 		EndPaint(window, &paint);
 
 	} break;
@@ -629,13 +635,16 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 	POINT point;
 	GetCursorPos(&point);
 	ScreenToClient(state.window, &point);
-	controller.mouseX = point.x;
-	controller.mouseY = point.y;
+	controller.mouseX = scast(f32, point.x - state.bltOffsetX) / state.displayWidth;
+	controller.mouseY = scast(f32, point.y - state.bltOffsetY) / state.displayHeight;
 	controller.isMouseMDown = GetKeyState(VK_MBUTTON) >> 15;
 	controller.isMouseRDown = GetKeyState(VK_RBUTTON) >> 15;
 	controller.isMouseLDown = GetKeyState(VK_LBUTTON) >> 15;
 	controller.isMouse1BDown = GetKeyState(VK_XBUTTON1) >> 15;
 	controller.isMouse2BDown = GetKeyState(VK_XBUTTON2) >> 15;
+	if (controller.isMouseLDown) {
+		int breakhere = 0;
+	}
 }
 
 internal
@@ -734,6 +743,8 @@ int CALLBACK WinMain(
 	LPSTR cmdLine,
 	int showCmd
 ) {
+	u32 globalBitmapWidth = 960;
+	u32 globalBitmapHeight = 540;
 	Win32LoadXInput();
 
 	HRESULT hr = CoInitialize(nullptr);
@@ -785,9 +796,14 @@ int CALLBACK WinMain(
 	MoveWindow(window, rect.left, rect.top, 1024, 600, true);
 
 	// PART: Initializing program memory
-	Win32State win32State = {};
-	win32State.window = window;
-	ProgramMemory programMemory = Win32InitProgramMemory(win32State);
+	// // TODO change globalWin32State to win32State
+	// Win32State win32State = {};
+	globalWin32State.window = window;
+	globalWin32State.bltOffsetX = 10;
+	globalWin32State.bltOffsetY = 10;
+	globalWin32State.displayWidth = globalBitmapWidth;
+	globalWin32State.displayHeight = globalBitmapHeight;
+	ProgramMemory programMemory = Win32InitProgramMemory(globalWin32State);
 	if (!programMemory.memoryBlock) {
 		// TODO: Logging
 		return 0;
@@ -796,24 +812,24 @@ int CALLBACK WinMain(
 	SoundData soundData = {};
 	InputData inputData = {};
 
-	DWORD length = GetModuleFileNameA(0, win32State.exeFilePath, MY_MAX_PATH);
-	char* tmpChar = win32State.exeFilePath;
+	DWORD length = GetModuleFileNameA(0, globalWin32State.exeFilePath, MY_MAX_PATH);
+	char* tmpChar = globalWin32State.exeFilePath;
 	for (u32 charIndex = 0; charIndex < length; charIndex++) {
 		if (*tmpChar == '\\') {
-			win32State.exeFileName = tmpChar + 1;
+			globalWin32State.exeFileName = tmpChar + 1;
 		}
 		tmpChar++;
 	}
-	CopyString(win32State.exeFilePath, win32State.exeFileName - win32State.exeFilePath, win32State.exeDirectory, MY_MAX_PATH);
+	CopyString(globalWin32State.exeFilePath, globalWin32State.exeFileName - globalWin32State.exeFilePath, globalWin32State.exeDirectory, MY_MAX_PATH);
 	char tmpStr[MY_MAX_PATH];
 	CopyString(gameCode.pathToDll, MY_MAX_PATH, tmpStr, MY_MAX_PATH);
-	ConcatenateString(win32State.exeDirectory, MY_MAX_PATH, tmpStr, MY_MAX_PATH, gameCode.pathToDll, MY_MAX_PATH);
+	ConcatenateString(globalWin32State.exeDirectory, MY_MAX_PATH, tmpStr, MY_MAX_PATH, gameCode.pathToDll, MY_MAX_PATH);
 	CopyString(gameCode.pathToTempDll, MY_MAX_PATH, tmpStr, MY_MAX_PATH);
-	ConcatenateString(win32State.exeDirectory, MY_MAX_PATH, tmpStr, MY_MAX_PATH, gameCode.pathToTempDll, MY_MAX_PATH);
+	ConcatenateString(globalWin32State.exeDirectory, MY_MAX_PATH, tmpStr, MY_MAX_PATH, gameCode.pathToTempDll, MY_MAX_PATH);
 
 	// NOTE: We can use one devicecontext because we specified CS_OWNDC so we dont share context with anyone
 	HDC deviceContext = GetDC(window);
-	Win32ResizeBitmapMemory(globalBitmap, 960, 540);
+	Win32ResizeBitmapMemory(globalBitmap, globalBitmapWidth, globalBitmapHeight);
 	globalRunning = true;
 
 	UINT schedulerGranularityMs = 1;
@@ -826,15 +842,15 @@ int CALLBACK WinMain(
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 	while (globalRunning) {
 		Win32ReloadGameCode(gameCode);
-		Win32ProcessOSMessages(win32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
+		Win32ProcessOSMessages(globalWin32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
 		for (DWORD cIndex = 0; cIndex < XUSER_MAX_COUNT; cIndex++) {
 			Win32GatherGamepadInput(inputData.controllers[cIndex], cIndex);
 		}
-		if (win32State.dLoopRecord.recording) {
-			Win32DebugRecordInput(win32State, inputData.controllers[KB_CONTROLLER_IDX]);
+		if (globalWin32State.dLoopRecord.recording) {
+			Win32DebugRecordInput(globalWin32State, inputData.controllers[KB_CONTROLLER_IDX]);
 		}
-		else if (win32State.dLoopRecord.replaying) {
-			Win32DebugReplayInput(win32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
+		else if (globalWin32State.dLoopRecord.replaying) {
+			Win32DebugReplayInput(globalWin32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
 		}
 		inputData.dtFrame = targetFrameRefreshSeconds;
 		
@@ -892,7 +908,7 @@ int CALLBACK WinMain(
 
 		// PART: Displaying window
 		auto dim = GetWindowDimension(window);
-		Win32DisplayWindow(deviceContext, globalBitmap, dim.width, dim.height);
+		Win32DisplayWindow(deviceContext, globalWin32State, globalBitmap, dim.width, dim.height);
 		ReleaseDC(window, deviceContext);
 
 		// PART: Playing sound

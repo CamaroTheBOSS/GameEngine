@@ -2,6 +2,8 @@
 #include "engine_world.cpp"
 #include "engine_simulation.cpp"
 
+constexpr f32 pixelsPerMeter = 42.85714f;
+
 internal
 void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 	static u64 runninngSampleIndex = 0;
@@ -72,7 +74,7 @@ void PushRect(DrawCallGroup& group, Rect2 rect, f32 R, f32 G, f32 B, f32 A, V2 o
 }
 
 internal
-void RenderHitPoints(DrawCallGroup& group, Entity& entity, V2 center, V2 offset, f32 pixelsPerMeter, f32 distBetween, f32 pointSize) {
+void RenderHitPoints(DrawCallGroup& group, Entity& entity, V2 center, V2 offset, f32 distBetween, f32 pointSize) {
 	V2 realOffset = (offset + V2{ -scast(f32, entity.hitPoints.count - 1) * scast(f32, distBetween + pointSize) / 2.f , 0.f }) * pixelsPerMeter;
 	for (u32 hitPointIndex = 0; hitPointIndex < entity.hitPoints.count; hitPointIndex++) {
 		V2 hitPointMin = { center.X + realOffset.X - pointSize * 0.5f * pixelsPerMeter,
@@ -253,6 +255,8 @@ void InitializeHitPoints(Entity& entity, u32 nHitPoints, u32 amount, u32 max) {
 
 internal
 u32 AddWall(World& world, u32 absX, u32 absY, u32 absZ) {
+	// TODO: Instead of changing world position into chunk position for all the objects just
+	// call AddEntity() which will do it for ourselves
 	EntityStorage storage = {};
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
 	storage.entity.size = world.tileSizeInMeters;
@@ -461,6 +465,14 @@ void MakeEntityNonSpatial(ProgramState* state, u32 storageEntityIndex, Entity& e
 	}
 }
 
+internal
+V2 MapScreenSpacePosIntoCameraSpace(f32 screenPosX, f32 screenPosY, u32 screenWidth, u32 screenHeight) {
+	V2 pos = {};
+	pos.X = screenWidth * (screenPosX - 0.5f) / pixelsPerMeter;
+	pos.Y = screenHeight * (0.5f - screenPosY) / pixelsPerMeter;
+	return pos;
+}
+
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
@@ -643,6 +655,26 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		if (controller.isMouseLDown) {
 			entity->sword->distanceRemaining = 5.f;
+			V2 mousePos = MapScreenSpacePosIntoCameraSpace(controller.mouseX, controller.mouseY, bitmap.width, bitmap.height);
+			//mousePos -= entity->sword->size / 2.f;
+			
+#if 0
+			EntityStorage storage = {};
+			storage.entity.worldPos = OffsetWorldPosition(world, state->cameraPos, mousePos);
+			storage.entity.size = world.tileSizeInMeters;
+			SetFlag(storage.entity, EntityFlag_Collide);
+			storage.entity.type = EntityType_Wall;
+			AddEntity(world, storage);
+#endif
+			f32 mouseVecLength = Length(mousePos);
+			f32 projectileSpeed = 5.f;
+			if (mouseVecLength != 0.f) {
+				entity->sword->vel = mousePos / Length(mousePos) * projectileSpeed;
+			}
+			else {
+				entity->sword->vel = V2{ projectileSpeed, 0.f };
+			}
+			
 			MakeEntitySpatial(*simRegion, state->world, entity->sword->storageIndex, *entity->sword, entity->worldPos);
 		}
 		f32 playerAccLength = Length(playerControls.acceleration);
@@ -652,10 +684,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		playerControls.acceleration -= 10.0f * entity->vel;
 	}
 
-	f32 pixelsPerMeter = 42.85714f;
-	//pixelsPerMeter = 3.85714f;
-	V2 lowerStart = { -world.tileSizeInMeters.X * pixelsPerMeter / 2.0f,
-					  scast(f32, bitmap.height) };
 	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 0.5f, 0.5f, 0.5f);
 	for (u32 entityIndex = 0; entityIndex < simRegion->entityCount; entityIndex++) {
 		Entity* entity = simRegion->entities + entityIndex;
@@ -664,8 +692,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		DrawCallGroup drawCalls = {};
 
-		V2 center = { lowerStart.X + entity->pos.X * pixelsPerMeter + bitmap.width / 2.0f,
-					  lowerStart.Y - entity->pos.Y * pixelsPerMeter - bitmap.height / 2.0f };
+		V2 center = { entity->pos.X * pixelsPerMeter + bitmap.width / 2.0f,
+					  scast(f32, bitmap.height) - entity->pos.Y * pixelsPerMeter - bitmap.height / 2.0f };
 		V2 min = { center.X - entity->size.X / 2.f * pixelsPerMeter,
 				   center.Y - entity->size.Y / 2.f * pixelsPerMeter };
 		V2 max = { min.X + entity->size.X * pixelsPerMeter,
@@ -686,7 +714,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 1.f, 1.f, 1.f, {});
 			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], 1.f, V2{ min.X, max.Y });
-			RenderHitPoints(drawCalls, *entity, center, V2{0.f, -0.5f}, pixelsPerMeter, 0.1f, 0.2f);
+			RenderHitPoints(drawCalls, *entity, center, V2{0.f, -0.5f}, 0.1f, 0.2f);
 		} break;
 		case EntityType_Wall: {
 			PushRect(drawCalls, GetRectFromMinMax(min, max), 1.f, 1.f, 1.f, 1.f, {});
@@ -698,17 +726,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		} break;
 		case EntityType_Monster: {
 			PushRect(drawCalls, GetRectFromMinMax(min, max), 1.f, 0.5f, 0.f, 1.f, {});
-			RenderHitPoints(drawCalls, *entity, center, V2{ 0.f, -0.8f }, pixelsPerMeter, 0.1f, 0.2f);
+			RenderHitPoints(drawCalls, *entity, center, V2{ 0.f, -0.8f }, 0.1f, 0.2f);
 		} break;
 		case EntityType_Sword: {
 			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 0.f, 0.f, 1.f, {});
 			if (entity->distanceRemaining <= 0.f) {
 				MakeEntityNonSpatial(state, entity->storageIndex, *entity);
 			}
-			V2 acceleration = V2{ 30.f, 0.f };
-			// TODO: move drag to MoveEntity
-			acceleration -= 10.0f * entity->vel;
-			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
+			MoveEntity(*simRegion, state, world, *entity, V2{ 0.f, 0.f }, input.dtFrame);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
 		}
