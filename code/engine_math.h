@@ -78,6 +78,17 @@ V2& operator-=(V2& A, V2 B) {
 }
 
 inline
+bool operator==(V2 A, V2 B) {
+	return A.X == B.X && 
+		   A.Y == B.Y;
+}
+
+inline
+bool operator!=(V2 A, V2 B) {
+	return !(A == B);
+}
+
+inline
 f32 Squared(f32 A) {
 	return A * A;
 }

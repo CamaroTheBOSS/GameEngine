@@ -6,7 +6,9 @@ u32 AddEntity(World& world, EntityStorage& storage) {
 	if (world.storageEntityCount >= ArrayCount(world.storageEntities)) {
 		return 0;
 	}
-	ChangeEntityChunkLocation(world, world.arena, world.storageEntityCount, 0, storage.entity.worldPos);
+	ChangeEntityChunkLocation(world, world.arena, world.storageEntityCount, 
+		storage.entity, 0, storage.entity.worldPos
+	);
 	world.storageEntities[world.storageEntityCount++] = storage;
 	return world.storageEntityCount - 1;
 }
@@ -48,17 +50,26 @@ Entity* GetEntityByStorageIndex(SimRegion& simRegion, u32 storageEntityIndex) {
 }
 
 inline
-void AddEntityToSim(SimRegion& simRegion, Entity& entity) {
+void TryAddEntityToSim(SimRegion& simRegion, World& world, u32 storageEntityIndex, Entity& entity) {
+	DiffWorldPosition diff = Subtract(world, entity.worldPos, simRegion.origin);
+	if (!IsInRectangle(simRegion.bounds, diff.dXY)) {
+		return;
+	}
 	Assert(simRegion.entityCount < simRegion.maxEntityCount);
+	Assert(storageEntityIndex != 0);
 	if (simRegion.entityCount >= simRegion.maxEntityCount) {
 		return;
 	}
-	EntityHash* entityHash = GetHashFromStorageIndex(simRegion, entity.storageIndex);
-	Assert(entity.storageIndex != 0);
+	EntityHash* entityHash = GetHashFromStorageIndex(simRegion, storageEntityIndex);
 	Assert(!entityHash->ptr && "entity hash entry in hash table must not exist");
-	simRegion.entities[simRegion.entityCount] = entity;
-	entityHash->index = entity.storageIndex;
-	entityHash->ptr = &simRegion.entities[simRegion.entityCount];
+
+	Entity* simEntity = &simRegion.entities[simRegion.entityCount];
+	*simEntity = entity;
+	simEntity->storageIndex = storageEntityIndex;
+	simEntity->pos = diff.dXY;
+
+	entityHash->index = storageEntityIndex;
+	entityHash->ptr = simEntity;
 	simRegion.entityCount++;
 	return;
 }
@@ -84,17 +95,7 @@ SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 				for (u32 index = 0; index < entities->entityCount; index++) {
 					u32 storageEntityIndex = entities->entityIndexes[index];
 					EntityStorage* storage = GetEntityStorage(world, storageEntityIndex);
-					Assert(storage);
-					if (!storage) {
-						continue;
-					}
-					DiffWorldPosition diff = Subtract(world, storage->entity.worldPos, simRegion->origin);
-					if (IsInRectangle(simRegion->bounds, diff.dXY)) {
-						Entity entity = storage->entity;
-						entity.storageIndex = storageEntityIndex;
-						entity.pos = diff.dXY;
-						AddEntityToSim(*simRegion, entity);
-					}
+					TryAddEntityToSim(*simRegion, world, storageEntityIndex, storage->entity);
 				}
 			}
 		}

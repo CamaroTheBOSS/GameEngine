@@ -2,6 +2,43 @@
 
 #define CHUNK_DIM_IN_TILES 16
 #define CHUNK_SAFE_MARGIN 256
+inline
+WorldPosition NullPosition() {
+	WorldPosition pos = {};
+	pos.chunkX = INT32_MAX;
+	pos.chunkY = INT32_MAX;
+	pos.chunkZ = INT32_MAX;
+	return pos;
+}
+
+inline
+bool operator==(const WorldPosition& first, const WorldPosition& other) {
+	return first.chunkX == other.chunkX &&
+		   first.chunkY == other.chunkY &&
+		   first.chunkZ == other.chunkZ &&
+		   first.offset == other.offset;
+}
+
+inline
+bool operator!=(const WorldPosition& first, const WorldPosition& other) {
+	return !(first == other);
+}
+
+inline
+void SetFlag(Entity& entity, u32 flag) {
+	entity.flags = entity.flags | flag;
+}
+
+inline
+void ClearFlag(Entity& entity, u32 flag) {
+	entity.flags = entity.flags & (~flag);
+}
+
+inline
+bool IsFlagSet(Entity& entity, u32 flag) {
+	bool result = entity.flags & flag;
+	return result;
+}
 
 internal
 WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY, i32 absZ) {
@@ -128,7 +165,7 @@ DiffWorldPosition Subtract(World& world, WorldPosition& first, WorldPosition& se
 }
 
 internal
-void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex,
+void ChangeEntityChunkLocationRaw(World& world, MemoryArena& arena, u32 lowEntityIndex,
 	WorldPosition* oldPos, WorldPosition& newPos)
 {
 	if (oldPos && AreOnTheSameChunk(*oldPos, newPos)) {
@@ -160,29 +197,44 @@ void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIn
 			}
 		}
 	}
-	WorldChunk* chunk = GetWorldChunk(world, newPos.chunkX, newPos.chunkY, newPos.chunkZ, &arena);
-	LowEntityBlock* firstBlock = chunk->entities;
-	if (!firstBlock) {
-		chunk->entities = ptrcast(LowEntityBlock, PushStructSize(arena, LowEntityBlock));
-		firstBlock = chunk->entities;
-	}
-	if (firstBlock->entityCount == ArrayCount(firstBlock->entityIndexes)) {
-		if (world.freeEntityBlockList) {
-			Assert(world.freeEntityBlockList->entityCount == 0);
-			LowEntityBlock* block = chunk->entities;
-			chunk->entities = world.freeEntityBlockList;
-			world.freeEntityBlockList = world.freeEntityBlockList->next;
-			chunk->entities->next = block;
-			firstBlock = chunk->entities;
-		}
-		else {
-			LowEntityBlock* block = chunk->entities;
+	if (newPos != NullPosition()) {
+		WorldChunk* chunk = GetWorldChunk(world, newPos.chunkX, newPos.chunkY, newPos.chunkZ, &arena);
+		LowEntityBlock* firstBlock = chunk->entities;
+		if (!firstBlock) {
 			chunk->entities = ptrcast(LowEntityBlock, PushStructSize(arena, LowEntityBlock));
-			chunk->entities->next = block;
 			firstBlock = chunk->entities;
 		}
+		if (firstBlock->entityCount == ArrayCount(firstBlock->entityIndexes)) {
+			if (world.freeEntityBlockList) {
+				Assert(world.freeEntityBlockList->entityCount == 0);
+				LowEntityBlock* block = chunk->entities;
+				chunk->entities = world.freeEntityBlockList;
+				world.freeEntityBlockList = world.freeEntityBlockList->next;
+				chunk->entities->next = block;
+				firstBlock = chunk->entities;
+			}
+			else {
+				LowEntityBlock* block = chunk->entities;
+				chunk->entities = ptrcast(LowEntityBlock, PushStructSize(arena, LowEntityBlock));
+				chunk->entities->next = block;
+				firstBlock = chunk->entities;
+			}
+		}
+		firstBlock->entityIndexes[firstBlock->entityCount++] = lowEntityIndex;
 	}
-	firstBlock->entityIndexes[firstBlock->entityCount++] = lowEntityIndex;
+}
+
+void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex, Entity& entity,
+	WorldPosition* oldPos, WorldPosition& newPos)
+{
+	ChangeEntityChunkLocationRaw(world, arena, lowEntityIndex, oldPos, newPos);
+	if (newPos == NullPosition()) {
+		SetFlag(entity, EntityFlag_NonSpatial);
+	}
+	else {
+		ClearFlag(entity, EntityFlag_NonSpatial);
+	}
+	entity.worldPos = newPos;
 }
 
 internal

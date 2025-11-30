@@ -37,7 +37,13 @@ enum EntityType {
 	EntityType_Player,
 	EntityType_Wall,
 	EntityType_Familiar,
-	EntityType_Monster
+	EntityType_Monster,
+	EntityType_Sword,
+};
+
+enum EntityFlag : u32 {
+	EntityFlag_Collide		= (1 << 0),
+	EntityFlag_NonSpatial	= (1 << 1),
 };
 
 struct HP {
@@ -60,7 +66,9 @@ struct Entity {
 	u32 faceDir;
 	u32 highEntityIndex;
 	HitPoints hitPoints;
-	bool collide;
+	u32 flags;
+	Entity* sword;
+	f32 distanceRemaining;
 };
 
 struct EntityStorage {
@@ -86,5 +94,9 @@ internal WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chu
 internal WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, V2 offset);
 internal WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY);
 internal DiffWorldPosition Subtract(World& world, WorldPosition& first, WorldPosition& second);
-internal void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex, WorldPosition* oldPos, WorldPosition& newPos);
+internal void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex, Entity& entity, WorldPosition* oldPos, WorldPosition& newPos);
 internal WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY, i32 absZ);
+inline void SetFlag(Entity& entity, u32 flag);
+inline void ClearFlag(Entity& entity, u32 flag);
+inline bool IsFlagSet(Entity& entity, u32 flag);
+inline WorldPosition NullPosition();
