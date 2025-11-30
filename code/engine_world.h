@@ -42,8 +42,8 @@ enum EntityType {
 };
 
 enum EntityFlag : u32 {
-	EntityFlag_Collide		= (1 << 0),
-	EntityFlag_NonSpatial	= (1 << 1),
+	EntityFlag_StopsOnCollide	= (1 << 0),
+	EntityFlag_NonSpatial		= (1 << 1),
 };
 
 struct HP {

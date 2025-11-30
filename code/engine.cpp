@@ -260,7 +260,7 @@ u32 AddWall(World& world, u32 absX, u32 absY, u32 absZ) {
 	EntityStorage storage = {};
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
 	storage.entity.size = world.tileSizeInMeters;
-	SetFlag(storage.entity, EntityFlag_Collide);
+	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
 	storage.entity.type = EntityType_Wall;
 	return AddEntity(world, storage);
 }
@@ -288,7 +288,7 @@ u32 AddMonster(World& world, u32 absX, u32 absY, u32 absZ) {
 	EntityStorage storage = {};
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
 	storage.entity.size = V2{ 1.0f, 1.25f };
-	SetFlag(storage.entity, EntityFlag_Collide);
+	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
 	storage.entity.type = EntityType_Monster;
 	InitializeHitPoints(storage.entity, 3, 1, 1);
 	return AddEntity(world, storage);
@@ -302,7 +302,7 @@ u32 InitializePlayer(ProgramState* state) {
 	storage.entity.type = EntityType_Player;
 	storage.entity.size = { state->world.tileSizeInMeters.X * 0.7f,
 					state->world.tileSizeInMeters.Y * 0.4f };
-	SetFlag(storage.entity, EntityFlag_Collide);
+	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
 	InitializeHitPoints(storage.entity, 4, 1, 1);
 	u32 swIndex = AddSword(state->world);
 	EntityStorage* swordStorage = GetEntityStorage(state->world, swIndex);
@@ -334,6 +334,25 @@ bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDe
 }
 
 internal
+bool ShouldCollide(Entity& first, Entity& second) {
+	return true;
+}
+
+internal
+bool HandleCollision(Entity& first, Entity& second) {
+	bool stopOnCollide = (IsFlagSet(first, EntityFlag_StopsOnCollide) && IsFlagSet(second, EntityFlag_StopsOnCollide));
+	if (!ShouldCollide(first, second)) {
+		return stopOnCollide;
+	}
+	if (first.type == EntityType_Sword && second.type == EntityType_Monster) {
+		if (second.hitPoints.count > 0) {
+			second.hitPoints.count--;
+		}
+	}
+	return stopOnCollide;
+}
+
+internal
 void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity& entity, V2 acceleration, f32 dt) {
 	if (IsFlagSet(entity, EntityFlag_NonSpatial)) {
 		return;
@@ -356,43 +375,48 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 		V2 wallNormal = {};
 		bool hitCollision = false;
 		V2 desiredPosition = entity.pos + moveDelta;
-		if (IsFlagSet(entity, EntityFlag_Collide)) {
-			for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
-				Entity* other = simRegion.entities + entityIndex;
-				if (!other || !IsFlagSet(*other, EntityFlag_Collide) || IsFlagSet(*other, EntityFlag_NonSpatial)) {
-					continue;
-				}
+		Entity* hitEntity = 0;
 
-				V2 diff = other->pos - entity.pos;
-				V2 minCorner = diff - 0.5f * other->size - 0.5f * entity.size;
-				V2 maxCorner = diff + 0.5f * other->size + 0.5f * entity.size;
+		for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
+			Entity* other = simRegion.entities + entityIndex;
+			if (!other || IsFlagSet(*other, EntityFlag_NonSpatial)) {
+				continue;
+			}
 
-				if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
-					moveDelta.Y, &tMin)) {
-					// Left wall
-					wallNormal = { 1.f, 0.f };
-					hitCollision = true;
-				}
-				if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
-					moveDelta.Y, &tMin)) {
-					// Right wall
-					wallNormal = { -1.f, 0.f };
-					hitCollision = true;
-				}
-				if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
-					moveDelta.X, &tMin)) {
-					// Bottom wall
-					wallNormal = { 0.f, 1.f };
-					hitCollision = true;
-				}
-				if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
-					moveDelta.X, &tMin)) {
-					// Top wall
-					wallNormal = { 0.f, -1.f };
-					hitCollision = true;
-				}
+			V2 diff = other->pos - entity.pos;
+			V2 minCorner = diff - 0.5f * other->size - 0.5f * entity.size;
+			V2 maxCorner = diff + 0.5f * other->size + 0.5f * entity.size;
+
+			if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
+				moveDelta.Y, &tMin)) {
+				// Left wall
+				wallNormal = { 1.f, 0.f };
+				hitCollision = true;
+				hitEntity = other;
+			}
+			if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
+				moveDelta.Y, &tMin)) {
+				// Right wall
+				wallNormal = { -1.f, 0.f };
+				hitCollision = true;
+				hitEntity = other;
+			}
+			if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
+				moveDelta.X, &tMin)) {
+				// Bottom wall
+				wallNormal = { 0.f, 1.f };
+				hitCollision = true;
+				hitEntity = other;
+			}
+			if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
+				moveDelta.X, &tMin)) {
+				// Top wall
+				wallNormal = { 0.f, -1.f };
+				hitCollision = true;
+				hitEntity = other;
 			}
 		}
+
 		entity.pos += moveDelta * tMin;
 		if (entity.distanceRemaining != 0.f) {
 			constexpr f32 dEpsilon = 0.01f;
@@ -402,9 +426,17 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 			}
 		}
 		if (hitCollision) {
-			entity.vel -= Inner(entity.vel, wallNormal) * wallNormal;
-			moveDelta = desiredPosition - entity.pos;
-			moveDelta -= Inner(moveDelta, wallNormal) * wallNormal;
+			Assert(hitEntity);
+			bool stopOnCollision = HandleCollision(entity, *hitEntity);
+			if (stopOnCollision) {
+				entity.vel -= Inner(entity.vel, wallNormal) * wallNormal;
+				moveDelta = desiredPosition - entity.pos;
+				moveDelta -= Inner(moveDelta, wallNormal) * wallNormal;
+			}
+			else {
+				// TODO: Can it be done in a better, smarter way?
+				entity.pos += moveDelta * (1 - tMin);
+			}
 		}
 		if (tMin == 1.0f) {
 			break;
