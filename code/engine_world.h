@@ -75,6 +75,12 @@ struct EntityStorage {
 	Entity entity;
 };
 
+struct PairwiseCollision {
+	u32 storageIndex1;
+	u32 storageIndex2;
+	PairwiseCollision* next;
+};
+
 struct World {
 	u32 tileCountX;
 	u32 tileCountY;
@@ -87,6 +93,9 @@ struct World {
 
 	u32 storageEntityCount;
 	EntityStorage storageEntities[10000];
+
+	PairwiseCollision* hashCollisions[4096];
+	PairwiseCollision* freeCollisionsList;
 };
 
 // Function declaration to help Intellisense got some sense :)

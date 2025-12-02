@@ -333,15 +333,125 @@ bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDe
 	return false;
 }
 
+inline
+u32 GetCollisionHashValue(World& world, u32 hashEntry) {
+	Assert(hashEntry);
+	// TODO: Better hash function
+	u32 hash = hashEntry & (ArrayCount(world.hashCollisions) - 1);
+	return hash;
+}
+
 internal
-bool ShouldCollide(Entity& first, Entity& second) {
+void AddCollisionRule(World& world, MemoryArena& arena, u32 firstStorageIndex, u32 secondStorageIndex) {
+	// TODO hold multiple indexes inside one block instead of pair per block cause this is memory inefficient
+	u32 hash = GetCollisionHashValue(world, firstStorageIndex);
+	PairwiseCollision* block = world.hashCollisions[hash];
+	PairwiseCollision* newPair = 0;
+	if (world.freeCollisionsList) {
+		newPair = world.freeCollisionsList;
+		world.freeCollisionsList = world.freeCollisionsList->next;
+	}
+	else {
+		newPair = ptrcast(PairwiseCollision, PushStructSize(arena, PairwiseCollision));
+	}
+	newPair->storageIndex1 = firstStorageIndex;
+	newPair->storageIndex2 = secondStorageIndex;
+	world.hashCollisions[hash] = newPair;
+	newPair->next = block;
+}
+
+internal
+void ClearCollisionRuleForEntityPair(World& world, u32 firstStorageIndex, u32 secondStorageIndex) {
+	u32 hash = GetCollisionHashValue(world, firstStorageIndex);
+	PairwiseCollision* firstBlock = world.hashCollisions[hash];
+	if (!firstBlock) {
+		Assert(!"Tried to clear non existing rule. Invalid code path");
+		return;
+	}
+	PairwiseCollision* previousBlock = 0;
+	for (PairwiseCollision* block = firstBlock; block; block = block->next) {
+		if (!block) {
+			Assert(!"Tried to clear non existing rule. Invalid code path");
+			break;
+		}
+		if (block->storageIndex1 == firstStorageIndex &&
+			block->storageIndex2 == secondStorageIndex) {
+			if (previousBlock) {
+				previousBlock->next = block->next;
+			}
+			else {
+				world.hashCollisions[hash] = block->next;
+			}
+			block->storageIndex1 = 0;
+			block->storageIndex2 = 0;
+			block->next = world.freeCollisionsList;
+			world.freeCollisionsList = block;
+			break;
+		}
+		previousBlock = block;
+	}
+}
+
+internal
+void ClearCollisionRuleForEntity(World& world, u32 entityStorageIndex) {
+	u32 hash = GetCollisionHashValue(world, entityStorageIndex);
+	PairwiseCollision* firstBlock = world.hashCollisions[hash];
+	if (!firstBlock) {
+		return;
+	}
+	PairwiseCollision* previousBlock = 0;
+	PairwiseCollision* block = firstBlock;
+	while (block) {
+		if (block->storageIndex1 == entityStorageIndex) {
+			u32 secondStorageIndex = block->storageIndex2;
+			ClearCollisionRuleForEntityPair(world, secondStorageIndex, entityStorageIndex);	
+			if (previousBlock) {
+				previousBlock->next = block->next;
+			}
+			else {
+				world.hashCollisions[hash] = block->next;
+			}
+			PairwiseCollision* tmp = block->next;
+			block->storageIndex1 = 0;
+			block->storageIndex2 = 0;
+			block->next = world.freeCollisionsList;
+			world.freeCollisionsList = block;
+			block = tmp;
+		}
+		else {
+			previousBlock = block;
+			block = block->next;
+		}
+	}
+}
+
+
+internal
+bool ShouldCollide(World& world, u32 firstStorageIndex, u32 secondStorageIndex) {
+	static_assert((ArrayCount(world.hashCollisions) & (ArrayCount(world.hashCollisions) - 1)) == 0 &&
+		"hashValue is ANDed with a mask based with assert that the size of hashCollisions is power of two");
+	Assert(firstStorageIndex);
+	Assert(secondStorageIndex);
+	Assert(firstStorageIndex != secondStorageIndex);
+
+	u32 hash = GetCollisionHashValue(world, firstStorageIndex);
+	PairwiseCollision* firstBlock = world.hashCollisions[hash];
+	for (PairwiseCollision* block = firstBlock; block; block = block->next) {
+		if (!block) {
+			return true;
+		}
+		if (block->storageIndex1 == firstStorageIndex &&
+			block->storageIndex2 == secondStorageIndex) {
+			return false;
+		}
+	}
 	return true;
 }
 
 internal
-bool HandleCollision(Entity& first, Entity& second) {
+bool HandleCollision(World& world, Entity& first, Entity& second) {
 	bool stopOnCollide = (IsFlagSet(first, EntityFlag_StopsOnCollide) && IsFlagSet(second, EntityFlag_StopsOnCollide));
-	if (!ShouldCollide(first, second)) {
+	if (!ShouldCollide(world, first.storageIndex, second.storageIndex)) {
 		return stopOnCollide;
 	}
 	if (first.type == EntityType_Sword && second.type == EntityType_Monster) {
@@ -349,6 +459,8 @@ bool HandleCollision(Entity& first, Entity& second) {
 			second.hitPoints.count--;
 		}
 	}
+	AddCollisionRule(world, world.arena, first.storageIndex, second.storageIndex);
+	AddCollisionRule(world, world.arena, second.storageIndex, first.storageIndex);
 	return stopOnCollide;
 }
 
@@ -427,7 +539,7 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 		}
 		if (hitCollision) {
 			Assert(hitEntity);
-			bool stopOnCollision = HandleCollision(entity, *hitEntity);
+			bool stopOnCollision = HandleCollision(world, entity, *hitEntity);
 			if (stopOnCollision) {
 				entity.vel -= Inner(entity.vel, wallNormal) * wallNormal;
 				moveDelta = desiredPosition - entity.pos;
@@ -494,6 +606,7 @@ void MakeEntityNonSpatial(ProgramState* state, u32 storageEntityIndex, Entity& e
 	if (!IsFlagSet(entity, EntityFlag_NonSpatial)) {
 		WorldPosition nullPosition = NullPosition();
 		ChangeEntityChunkLocation(state->world, state->world.arena, storageEntityIndex, entity, &entity.worldPos, nullPosition);
+		ClearCollisionRuleForEntity(state->world, storageEntityIndex);
 	}
 }
 
