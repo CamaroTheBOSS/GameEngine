@@ -582,10 +582,12 @@ void UpdateFamiliar(SimRegion& simRegion, ProgramState* state, Entity* familiar,
 	}
 	V3 acceleration = {};
 	f32 speed = 50.0f;
+	static float t = 0.f;
 	if (minDistance > Squared(2.0f)) {
 		acceleration = speed * (minDistanceEntityPos - familiar->pos) / SquareRoot(minDistance);
-		acceleration.Z = 0.f;
 	}
+	acceleration.Z = 8.0f * sinf(6 * t);
+	t += dt;
 	acceleration -= 10.0f * familiar->vel;
 	MoveEntity(simRegion, state, state->world, *familiar, acceleration, dt);
 }
@@ -847,7 +849,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		DrawCallGroup drawCalls = {};
 
 		V2 center = { entity->pos.X * pixelsPerMeter + bitmap.width / 2.0f,
-					  scast(f32, bitmap.height) - entity->pos.Y * pixelsPerMeter - bitmap.height / 2.0f };
+					  scast(f32, bitmap.height) - entity->pos.Y * pixelsPerMeter - bitmap.height / 2.0f - entity->pos.Z * pixelsPerMeter };
 		V2 min = { center.X - entity->size.X / 2.f * pixelsPerMeter,
 				   center.Y - entity->size.Y / 2.f * pixelsPerMeter };
 		V2 max = { min.X + entity->size.X * pixelsPerMeter,
