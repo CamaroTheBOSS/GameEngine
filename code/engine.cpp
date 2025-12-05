@@ -606,7 +606,6 @@ void MakeEntityNonSpatial(ProgramState* state, u32 storageEntityIndex, Entity& e
 	if (!IsFlagSet(entity, EntityFlag_NonSpatial)) {
 		WorldPosition nullPosition = NullPosition();
 		ChangeEntityChunkLocation(state->world, state->world.arena, storageEntityIndex, entity, &entity.worldPos, nullPosition);
-		ClearCollisionRuleForEntity(state->world, storageEntityIndex);
 	}
 }
 
@@ -876,6 +875,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		case EntityType_Sword: {
 			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 0.f, 0.f, 1.f, {});
 			if (entity->distanceRemaining <= 0.f) {
+				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
 				MakeEntityNonSpatial(state, entity->storageIndex, *entity);
 			}
 			MoveEntity(*simRegion, state, world, *entity, V2{ 0.f, 0.f }, input.dtFrame);
