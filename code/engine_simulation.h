@@ -9,7 +9,7 @@ struct EntityHash {
 
 struct SimRegion {
 	WorldPosition origin;
-	Rect2 bounds;
+	Rect3 bounds;
 
 	u32 maxEntityCount;
 	u32 entityCount;

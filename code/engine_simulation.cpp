@@ -51,8 +51,8 @@ Entity* GetEntityByStorageIndex(SimRegion& simRegion, u32 storageEntityIndex) {
 
 inline
 void TryAddEntityToSim(SimRegion& simRegion, World& world, u32 storageEntityIndex, Entity& entity) {
-	DiffWorldPosition diff = Subtract(world, entity.worldPos, simRegion.origin);
-	if (!IsInRectangle(simRegion.bounds, diff.dXY)) {
+	V3 diff = Subtract(world, entity.worldPos, simRegion.origin);
+	if (!IsInRectangle(simRegion.bounds, diff)) {
 		return;
 	}
 	Assert(simRegion.entityCount < simRegion.maxEntityCount);
@@ -66,7 +66,7 @@ void TryAddEntityToSim(SimRegion& simRegion, World& world, u32 storageEntityInde
 	Entity* simEntity = &simRegion.entities[simRegion.entityCount];
 	*simEntity = entity;
 	simEntity->storageIndex = storageEntityIndex;
-	simEntity->pos = diff.dXY;
+	simEntity->pos = diff;
 
 	entityHash->index = storageEntityIndex;
 	entityHash->ptr = simEntity;
@@ -76,7 +76,7 @@ void TryAddEntityToSim(SimRegion& simRegion, World& world, u32 storageEntityInde
 
 internal
 SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
-	WorldPosition& origin, Rect2 bounds)
+	WorldPosition& origin, Rect3 bounds)
 {
 	SimRegion* simRegion = ptrcast(SimRegion, PushStructSize(simArena, SimRegion));
 	simRegion->entityCount = 0;
@@ -85,17 +85,19 @@ SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 	simRegion->bounds = bounds;
 	WorldPosition minChunk = OffsetWorldPosition(world, origin, GetMinCorner(bounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, origin, GetMaxCorner(bounds));
-	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
-		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
-			WorldChunk* chunk = GetWorldChunk(world, chunkX, chunkY, origin.chunkZ);
-			if (!chunk) {
-				continue;
-			}
-			for (LowEntityBlock* entities = chunk->entities; entities; entities = entities->next) {
-				for (u32 index = 0; index < entities->entityCount; index++) {
-					u32 storageEntityIndex = entities->entityIndexes[index];
-					EntityStorage* storage = GetEntityStorage(world, storageEntityIndex);
-					TryAddEntityToSim(*simRegion, world, storageEntityIndex, storage->entity);
+	for (i32 chunkZ = minChunk.chunkZ; chunkZ <= maxChunk.chunkZ; chunkZ++) {
+		for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
+			for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
+				WorldChunk* chunk = GetWorldChunk(world, chunkX, chunkY, chunkZ);
+				if (!chunk) {
+					continue;
+				}
+				for (LowEntityBlock* entities = chunk->entities; entities; entities = entities->next) {
+					for (u32 index = 0; index < entities->entityCount; index++) {
+						u32 storageEntityIndex = entities->entityIndexes[index];
+						EntityStorage* storage = GetEntityStorage(world, storageEntityIndex);
+						TryAddEntityToSim(*simRegion, world, storageEntityIndex, storage->entity);
+					}
 				}
 			}
 		}

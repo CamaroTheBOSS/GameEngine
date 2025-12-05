@@ -259,7 +259,7 @@ u32 AddWall(World& world, u32 absX, u32 absY, u32 absZ) {
 	// call AddEntity() which will do it for ourselves
 	EntityStorage storage = {};
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
-	storage.entity.size = world.tileSizeInMeters;
+	storage.entity.size = V2{ world.tileSizeInMeters.X, world.tileSizeInMeters.Y };
 	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
 	storage.entity.type = EntityType_Wall;
 	return AddEntity(world, storage);
@@ -465,28 +465,28 @@ bool HandleCollision(World& world, Entity& first, Entity& second) {
 }
 
 internal
-void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity& entity, V2 acceleration, f32 dt) {
+void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity& entity, V3 acceleration, f32 dt) {
 	if (IsFlagSet(entity, EntityFlag_NonSpatial)) {
 		return;
 	}
 	f32 distanceRemaining = (entity.distanceRemaining != 0.f) ?
 		entity.distanceRemaining :
 		100000.f;
-	V2 moveDelta = 0.5f * acceleration * Squared(dt) + entity.vel * dt;
+	V3 moveDelta = 0.5f * acceleration * Squared(dt) + entity.vel * dt;
 	f32 moveDeltaLength = Length(moveDelta);
 	if (moveDeltaLength > distanceRemaining) {
 		moveDelta *= distanceRemaining / moveDeltaLength;
 	}
 
 	entity.vel += acceleration * dt;
-	V2 nextPlayerPosition = entity.pos + moveDelta;
+	V3 nextPlayerPosition = entity.pos + moveDelta;
 
 	// TODO: G.J.K algorithm for other collision shapes like circles, elipses etc.
 	for (u32 iteration = 0; iteration < 4; iteration++) {
 		f32 tMin = 1.0f;
-		V2 wallNormal = {};
+		V3 wallNormal = {};
 		bool hitCollision = false;
-		V2 desiredPosition = entity.pos + moveDelta;
+		V3 desiredPosition = entity.pos + moveDelta;
 		Entity* hitEntity = 0;
 
 		for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
@@ -495,35 +495,35 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 				continue;
 			}
 
-			V2 diff = other->pos - entity.pos;
-			V2 minCorner = diff - 0.5f * other->size - 0.5f * entity.size;
-			V2 maxCorner = diff + 0.5f * other->size + 0.5f * entity.size;
+			V3 diff = other->pos - entity.pos;
+			V2 minCorner = diff.XY - 0.5f * other->size - 0.5f * entity.size;
+			V2 maxCorner = diff.XY + 0.5f * other->size + 0.5f * entity.size;
 
 			if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
 				moveDelta.Y, &tMin)) {
 				// Left wall
-				wallNormal = { 1.f, 0.f };
+				wallNormal = { 1.f, 0.f, 0.f };
 				hitCollision = true;
 				hitEntity = other;
 			}
 			if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
 				moveDelta.Y, &tMin)) {
 				// Right wall
-				wallNormal = { -1.f, 0.f };
+				wallNormal = { -1.f, 0.f, 0.f };
 				hitCollision = true;
 				hitEntity = other;
 			}
 			if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
 				moveDelta.X, &tMin)) {
 				// Bottom wall
-				wallNormal = { 0.f, 1.f };
+				wallNormal = { 0.f, 1.f, 0.f };
 				hitCollision = true;
 				hitEntity = other;
 			}
 			if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
 				moveDelta.X, &tMin)) {
 				// Top wall
-				wallNormal = { 0.f, -1.f };
+				wallNormal = { 0.f, -1.f, 0.f };
 				hitCollision = true;
 				hitEntity = other;
 			}
@@ -565,7 +565,7 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 internal
 void UpdateFamiliar(SimRegion& simRegion, ProgramState* state, Entity* familiar, f32 dt) {
 	f32 minDistance = Squared(10.f);
-	V2 minDistanceEntityPos = {};
+	V3 minDistanceEntityPos = {};
 	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 		Entity* entity = simRegion.entities + entityIndex;
 		if (entity->type == EntityType_Player) {
@@ -576,10 +576,11 @@ void UpdateFamiliar(SimRegion& simRegion, ProgramState* state, Entity* familiar,
 			}
 		}
 	}
-	V2 acceleration = {};
+	V3 acceleration = {};
 	f32 speed = 50.0f;
 	if (minDistance > Squared(2.0f)) {
 		acceleration = speed * (minDistanceEntityPos - familiar->pos) / SquareRoot(minDistance);
+		acceleration.Z = 0.f;
 	}
 	acceleration -= 10.0f * familiar->vel;
 	MoveEntity(simRegion, state, state->world, *familiar, acceleration, dt);
@@ -627,7 +628,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		world.arena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
 		world.arena.used = 0;
 
-		state->highFreqBoundHalfDim = 15;
+		state->highFreqBoundDim = 30;
+		state->highFreqBoundHeight = 1;
 		state->cameraPos = GetChunkPositionFromWorldPosition(
 			world, world.tileCountX / 2, world.tileCountY / 2, 0
 		);
@@ -752,6 +754,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		AddFamiliar(world, 17 / 2, 9 / 2, 0);
 		AddMonster(world, 17 / 2, 7, 0);
+		//AddWall(world, 3, 3, 14);
 
 		state->isInitialized = true;
 	}
@@ -759,9 +762,12 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	MemoryArena simArena = {};
 	simArena.data = ptrcast(u8, memory.transientMemory);
 	simArena.capacity = memory.transientMemorySize;
-	Rect2 cameraBounds = GetRectFromCenterHalfDim(
-		V2{ 0, 0 }, state->highFreqBoundHalfDim * state->world.tileSizeInMeters.X
-	);
+	V3 cameraBoundsDims = {
+		state->highFreqBoundDim * state->world.tileSizeInMeters.X,
+		state->highFreqBoundDim * state->world.tileSizeInMeters.Y,
+		state->highFreqBoundHeight * state->world.tileSizeInMeters.Z
+	};
+	Rect3 cameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, cameraBoundsDims);
 	SimRegion* simRegion = BeginSimulation(simArena, world, state->cameraPos, cameraBounds);
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
 		Controller& controller = input.controllers[playerIdx];
@@ -813,10 +819,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			f32 mouseVecLength = Length(mousePos);
 			f32 projectileSpeed = 5.f;
 			if (mouseVecLength != 0.f) {
-				entity->sword->vel = mousePos / Length(mousePos) * projectileSpeed;
+				entity->sword->vel.XY = mousePos / Length(mousePos) * projectileSpeed;
 			}
 			else {
-				entity->sword->vel = V2{ projectileSpeed, 0.f };
+				entity->sword->vel.XY = V2{ projectileSpeed, 0.f };
 			}
 			
 			MakeEntitySpatial(*simRegion, state->world, entity->sword->storageIndex, *entity->sword, entity->worldPos);
@@ -854,7 +860,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				}
 			}
 			Assert(playerControls);
-			V2 acceleration = playerControls->acceleration;
+			V3 acceleration = playerControls->acceleration;
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 1.f, 1.f, 1.f, {});
 			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], 1.f, V2{ min.X, max.Y });
@@ -878,7 +884,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
 				MakeEntityNonSpatial(state, entity->storageIndex, *entity);
 			}
-			MoveEntity(*simRegion, state, world, *entity, V2{ 0.f, 0.f }, input.dtFrame);
+			MoveEntity(*simRegion, state, world, *entity, V3{ 0.f, 0.f, 0.f }, input.dtFrame);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
 		}

@@ -265,10 +265,84 @@ Rect2 GetRectFromCenterDim(V2 center, f32 dim) {
 }
 
 inline
+Rect2 GetRectFromCenterDim(V2 center, V2 dims) {
+	Rect2 rect{
+		.min = center - dims / 2.f,
+		.max = center + dims / 2.f,
+	};
+	return rect;
+}
+
+inline
 bool IsInRectangle(Rect2 rect, V2 point) {
 	return point.X < rect.max.X &&
 		   point.X >= rect.min.X &&
 		   point.Y < rect.max.Y &&
 		   point.Y >= rect.min.Y;
+}
+
+struct Rect3 {
+	V3 min;
+	V3 max;
+};
+
+inline
+V3 GetMinCorner(Rect3 rect) {
+	return rect.min;
+}
+
+inline
+V3 GetMaxCorner(Rect3 rect) {
+	return rect.max;
+}
+
+inline
+V3 GetCenter(Rect3 rect) {
+	return 0.5f * (rect.max - rect.min);
+}
+
+inline
+Rect3 GetRectFromMinMax(V3 min, V3 max) {
+	return Rect3{ min, max };
+}
+
+inline
+Rect3 GetRectFromCenterHalfDim(V3 center, f32 halfDim) {
+	Rect3 rect = {};
+	rect.min = V3{
+		center.X - halfDim,
+		center.Y - halfDim,
+		center.Z - halfDim
+	};
+	rect.max = V3{
+		center.X + halfDim,
+		center.Y + halfDim,
+		center.Z + halfDim
+	};
+	return rect;
+}
+
+inline
+Rect3 GetRectFromCenterDim(V3 center, f32 dim) {
+	return GetRectFromCenterHalfDim(center, dim / 2.f);
+}
+
+inline
+Rect3 GetRectFromCenterDim(V3 center, V3 dims) {
+	Rect3 rect{
+		.min = center - dims / 2.f,
+		.max = center + dims / 2.f,
+	};
+	return rect;
+}
+
+inline
+bool IsInRectangle(Rect3 rect, V3 point) {
+	return point.X < rect.max.X &&
+		point.X >= rect.min.X &&
+		point.Y < rect.max.Y &&
+		point.Y >= rect.min.Y &&
+		point.Z < rect.max.Z &&
+		point.Z >= rect.min.Z;
 }
 #pragma warning(pop)

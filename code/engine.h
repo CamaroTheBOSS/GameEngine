@@ -105,12 +105,13 @@ struct DrawCallGroup {
 };
 
 struct PlayerControls {
-	V2 acceleration;
+	V3 acceleration;
 };
 
 struct ProgramState {
 	// Global state of the program
-	u32 highFreqBoundHalfDim;
+	u32 highFreqBoundDim;
+	u32 highFreqBoundHeight;
 	WorldPosition cameraPos;
 	World world;
 	
@@ -118,7 +119,6 @@ struct ProgramState {
 	PlayerControls playerControls[MAX_CONTROLLERS];
 	u32 cameraEntityIndex;
 	LoadedBitmap playerMoveAnim[4];
-	V2 playerSize;
 	
 	bool isInitialized;
 };

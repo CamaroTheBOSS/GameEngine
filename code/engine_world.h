@@ -8,12 +8,7 @@ struct WorldPosition {
 	i32 chunkZ;
 
 	// Pos inside world chunk in meters
-	V2 offset;
-};
-
-struct DiffWorldPosition {
-	V2 dXY;
-	f32 dZ;
+	V3 offset;
 };
 
 // TODO change name to EntityStorageBlock
@@ -58,11 +53,11 @@ struct HitPoints {
 
 struct Entity {
 	u32 storageIndex;
-	V2 pos;
-	V2 vel;
+	V3 pos;
+	V3 vel;
 	EntityType type;
 	WorldPosition worldPos;
-	V2 size;
+	V2 size; // TODO: should be V3?
 	u32 faceDir;
 	u32 highEntityIndex;
 	HitPoints hitPoints;
@@ -84,8 +79,8 @@ struct PairwiseCollision {
 struct World {
 	u32 tileCountX;
 	u32 tileCountY;
-	V2 tileSizeInMeters;
-	V2 chunkSizeInMeters;
+	V3 tileSizeInMeters;
+	V3 chunkSizeInMeters;
 
 	MemoryArena arena;
 	WorldChunk* hashWorldChunks[4096];
@@ -100,9 +95,9 @@ struct World {
 
 // Function declaration to help Intellisense got some sense :)
 internal WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, MemoryArena* arena = 0);
-internal WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, V2 offset);
-internal WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY);
-internal DiffWorldPosition Subtract(World& world, WorldPosition& first, WorldPosition& second);
+internal WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, V3 offset);
+internal WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY, f32 offsetZ);
+internal V3 Subtract(World& world, WorldPosition& first, WorldPosition& second);
 internal void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex, Entity& entity, WorldPosition* oldPos, WorldPosition& newPos);
 internal WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY, i32 absZ);
 inline void SetFlag(Entity& entity, u32 flag);

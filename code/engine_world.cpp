@@ -1,6 +1,7 @@
 #include "engine_world.h"
 
 #define CHUNK_DIM_IN_TILES 16
+#define CHUNK_HEIGHT_IN_TILES 1
 #define CHUNK_SAFE_MARGIN 256
 inline
 WorldPosition NullPosition() {
@@ -43,14 +44,17 @@ bool IsFlagSet(Entity& entity, u32 flag) {
 internal
 WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY, i32 absZ) {
 	WorldPosition chunkPos = {};
-	// TODO do something with f32 precision, when absX,absY will be high, precision might be lost
+	// TODO(IMPORTANT) do something with f32 precision, when absX,absY,absZ will be high, precision might be lost
 	chunkPos.chunkX = FloorF32ToI32(absX / scast(f32, CHUNK_DIM_IN_TILES));
 	chunkPos.chunkY = FloorF32ToI32(absY / scast(f32, CHUNK_DIM_IN_TILES));
-	chunkPos.chunkZ = absZ;
+	chunkPos.chunkZ = FloorF32ToI32(absZ / scast(f32, CHUNK_HEIGHT_IN_TILES));
 	i32 relWorldX = absX - chunkPos.chunkX * CHUNK_DIM_IN_TILES;
 	i32 relWorldY = absY - chunkPos.chunkY * CHUNK_DIM_IN_TILES;
-	chunkPos.offset = V2{ (scast(f32, relWorldX) - CHUNK_DIM_IN_TILES / 2.f) * world.tileSizeInMeters.X,
-						  (scast(f32, relWorldY) - CHUNK_DIM_IN_TILES / 2.f) * world.tileSizeInMeters.Y };
+	i32 relWorldZ = absZ - chunkPos.chunkZ * CHUNK_HEIGHT_IN_TILES;
+	// NOTE: offset from center X,Y, but bottom Z part of a chunk
+	chunkPos.offset = V3{ (scast(f32, relWorldX) - CHUNK_DIM_IN_TILES / 2.f) * world.tileSizeInMeters.X,
+						  (scast(f32, relWorldY) - CHUNK_DIM_IN_TILES / 2.f) * world.tileSizeInMeters.Y,
+						   scast(f32, relWorldZ) * world.tileSizeInMeters.Z };
 	return chunkPos;
 }
 
@@ -99,7 +103,7 @@ WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, Memo
 	return 0;
 }
 
-internal
+internal // TODO: delete this function, it is ackward
 WorldPosition CenteredWorldPosition(i32 absX, i32 absY, i32 absZ) {
 	WorldPosition pos = {};
 	pos.chunkX = absX;
@@ -121,18 +125,24 @@ internal
 void FixWorldPosition(World& world, WorldPosition& position) {
 	i32 offsetX = RoundF32ToI32(position.offset.X / world.chunkSizeInMeters.X);
 	i32 offsetY = RoundF32ToI32(position.offset.Y / world.chunkSizeInMeters.Y);
+	i32 offsetZ = FloorF32ToI32(position.offset.Z / world.chunkSizeInMeters.Z);
 	position.chunkX += offsetX;
 	position.chunkY += offsetY;
+	position.chunkZ += offsetZ;
 	position.offset.X -= offsetX * world.chunkSizeInMeters.X;
 	position.offset.Y -= offsetY * world.chunkSizeInMeters.Y;
+	position.offset.Z -= offsetZ * world.chunkSizeInMeters.Z;
 	Assert(position.offset.X >= -world.chunkSizeInMeters.X / 2.0f);
-	Assert(position.offset.Y >= -world.chunkSizeInMeters.Y / 2.0f);
 	Assert(position.offset.X <= world.chunkSizeInMeters.X / 2.0f);
+	Assert(position.offset.Y >= -world.chunkSizeInMeters.Y / 2.0f);
 	Assert(position.offset.Y <= world.chunkSizeInMeters.Y / 2.0f);
+	Assert(position.offset.Z >= 0.f);
+	Assert(position.offset.Z <= world.chunkSizeInMeters.Z);
+
 }
 
 internal
-WorldPosition MapCameraSpacePositionToWorldPosition(World& world, V2 cameraSpacePosition) {
+WorldPosition MapCameraSpacePositionToWorldPosition(World& world, V3 cameraSpacePosition) {
 	WorldPosition position = {};
 	position.offset = cameraSpacePosition;
 	FixWorldPosition(world, position);
@@ -140,7 +150,7 @@ WorldPosition MapCameraSpacePositionToWorldPosition(World& world, V2 cameraSpace
 }
 
 internal
-WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, V2 offset) {
+WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, V3 offset) {
 	WorldPosition newPosition = position;
 	newPosition.offset += offset;
 	FixWorldPosition(world, newPosition);
@@ -148,19 +158,18 @@ WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, V2 offs
 }
 
 internal
-WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY) {
-	return OffsetWorldPosition(world, position, V2{ offsetX, offsetY });
+WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY, f32 offsetZ) {
+	return OffsetWorldPosition(world, position, V3{ offsetX, offsetY, offsetZ });
 }
 
 internal
-DiffWorldPosition Subtract(World& world, WorldPosition& first, WorldPosition& second) {
-	DiffWorldPosition diff = {};
+V3 Subtract(World& world, WorldPosition& first, WorldPosition& second) {
 	// TODO: Think what if absX, absY is 2^32-1 and 2^32 (do we have a bug with overflowing again?)
-	diff.dXY = {
+	V3 diff = {
 		scast(f32, first.chunkX - second.chunkX) * world.chunkSizeInMeters.X + (first.offset.X - second.offset.X),
-		scast(f32, first.chunkY - second.chunkY) * world.chunkSizeInMeters.Y + (first.offset.Y - second.offset.Y)
+		scast(f32, first.chunkY - second.chunkY) * world.chunkSizeInMeters.Y + (first.offset.Y - second.offset.Y),
+		scast(f32, first.chunkZ - second.chunkZ)* world.chunkSizeInMeters.Z + (first.offset.Z - second.offset.Z)
 	};
-	diff.dZ = scast(f32, first.chunkZ - second.chunkZ);
 	return diff;
 }
 
@@ -241,7 +250,11 @@ internal
 void InitializeWorld(World& world) {
 	world.tileCountX = 17;
 	world.tileCountY = 9;
-	world.tileSizeInMeters = V2{ 1.4f , 1.4f };
-	world.chunkSizeInMeters = CHUNK_DIM_IN_TILES * world.tileSizeInMeters;
+	world.tileSizeInMeters = V3{ 1.4f , 1.4f, 1.4f };
+	world.chunkSizeInMeters = V3{
+		CHUNK_DIM_IN_TILES * world.tileSizeInMeters.Z,
+		CHUNK_DIM_IN_TILES * world.tileSizeInMeters.Y,
+		CHUNK_HEIGHT_IN_TILES * world.tileSizeInMeters.Z
+	};
 	world.storageEntityCount = 1;
 }
