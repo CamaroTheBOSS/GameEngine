@@ -586,7 +586,7 @@ void UpdateFamiliar(SimRegion& simRegion, ProgramState* state, Entity* familiar,
 	if (minDistance > Squared(2.0f)) {
 		acceleration = speed * (minDistanceEntityPos - familiar->pos) / SquareRoot(minDistance);
 	}
-	acceleration.Z = 8.0f * sinf(6 * t);
+	acceleration.Z = 10.0f * sinf(6 * t);
 	t += dt;
 	acceleration -= 10.0f * familiar->vel;
 	MoveEntity(simRegion, state, state->world, *familiar, acceleration, dt);
@@ -832,6 +832,13 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 			
 			MakeEntitySpatial(*simRegion, state->world, entity->sword->storageIndex, *entity->sword, entity->worldPos);
+		}
+		playerControls.acceleration.Z = 0.f;
+		if (controller.isUpDown) {
+			playerControls.acceleration.Z += 10.0f;
+		}
+		if (controller.isDownDown) {
+			playerControls.acceleration.Z -= 10.0f;
 		}
 		f32 playerAccLength = Length(playerControls.acceleration);
 		if (playerAccLength != 0) {
