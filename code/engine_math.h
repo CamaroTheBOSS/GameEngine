@@ -93,6 +93,11 @@ f32 Inner(V2 A, V2 B) {
 	return A.X * B.X + A.Y * B.Y;
 }
 
+inline
+V2 Hadamard(V2 A, V2 B) {
+	return V2{ A.X * B.X, A.Y * B.Y };
+}
+
 inline f32 LengthSq(V2 A) {
 	return Inner(A, A);
 }
@@ -205,6 +210,11 @@ bool operator!=(V3 A, V3 B) {
 inline // Inner / Scalar / Dot
 f32 Inner(V3 A, V3 B) {
 	return A.X * B.X + A.Y * B.Y + A.Z * B.Z;
+}
+
+inline
+V3 Hadamard(V3 A, V3 B) {
+	return V3{ A.X * B.X, A.Y * B.Y, A.Z * B.Z };
 }
 
 inline f32 LengthSq(V3 A) {

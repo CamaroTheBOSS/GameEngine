@@ -450,7 +450,11 @@ bool ShouldCollide(World& world, u32 firstStorageIndex, u32 secondStorageIndex) 
 
 internal
 bool HandleCollision(World& world, Entity& first, Entity& second) {
+	// TODO: Think of better approach of collision handling. This is prototype
 	bool stopOnCollide = (IsFlagSet(first, EntityFlag_StopsOnCollide) && IsFlagSet(second, EntityFlag_StopsOnCollide));
+	if (first.type == EntityType_Familiar && second.type == EntityType_Wall) {
+		stopOnCollide = true;
+	}
 	if (!ShouldCollide(world, first.storageIndex, second.storageIndex)) {
 		return stopOnCollide;
 	}
