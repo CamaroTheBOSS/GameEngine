@@ -88,11 +88,6 @@ bool operator!=(V2 A, V2 B) {
 	return !(A == B);
 }
 
-inline
-f32 Squared(f32 A) {
-	return A * A;
-}
-
 inline // Inner / Scalar / Dot
 f32 Inner(V2 A, V2 B) {
 	return A.X * B.X + A.Y * B.Y;
@@ -104,6 +99,125 @@ inline f32 LengthSq(V2 A) {
 
 inline f32 Length(V2 A) {
 	return SquareRoot(LengthSq(A));
+}
+
+union V3 {
+	struct {
+		f32 X, Y, Z;
+	};
+	struct {
+		V2 XY;
+		f32 Z;
+	};
+	struct {
+		f32 X;
+		V2 YZ;
+	};
+	f32 E[3];
+};
+
+inline
+V3 operator+(V3 A, V3 B) {
+	return V3{
+		A.X + B.X,
+		A.Y + B.Y,
+		A.Z + B.Z
+	};
+}
+
+inline
+V3 operator-(V3 A, V3 B) {
+	return V3{
+		A.X - B.X,
+		A.Y - B.Y,
+		A.Z - B.Z
+	};
+}
+
+inline
+V3 operator-(V3 A) {
+	return V3{
+		-A.X,
+		-A.Y,
+		-A.Z
+	};
+}
+
+inline
+V3 operator*(f32 scalar, V3 A) {
+	return V3{
+		scalar * A.X,
+		scalar * A.Y,
+		scalar * A.Z
+	};
+}
+
+inline
+V3 operator*(V3 A, f32 scalar) {
+	return scalar * A;
+}
+
+inline
+V3 operator/(V3 A, f32 scalar) {
+	return V3{
+		A.X / scalar,
+		A.Y / scalar,
+		A.Z / scalar
+	};
+}
+
+inline
+V3& operator*=(V3& A, f32 scalar) {
+	A.X *= scalar;
+	A.Y *= scalar;
+	A.Z *= scalar;
+	return A;
+}
+
+inline
+V3& operator+=(V3& A, V3 B) {
+	A.X += B.X;
+	A.Y += B.Y;
+	A.Z += B.Z;
+	return A;
+}
+
+inline
+V3& operator-=(V3& A, V3 B) {
+	A.X -= B.X;
+	A.Y -= B.Y;
+	A.Z -= B.Z;
+	return A;
+}
+
+inline
+bool operator==(V3 A, V3 B) {
+	return A.X == B.X &&
+		A.Y == B.Y &&
+		A.Z == B.Z;
+}
+
+inline
+bool operator!=(V3 A, V3 B) {
+	return !(A == B);
+}
+
+inline // Inner / Scalar / Dot
+f32 Inner(V3 A, V3 B) {
+	return A.X * B.X + A.Y * B.Y + A.Z * B.Z;
+}
+
+inline f32 LengthSq(V3 A) {
+	return Inner(A, A);
+}
+
+inline f32 Length(V3 A) {
+	return SquareRoot(LengthSq(A));
+}
+
+inline
+f32 Squared(f32 A) {
+	return A * A;
 }
 
 struct Rect2 {
