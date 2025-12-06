@@ -42,7 +42,7 @@ bool IsFlagSet(Entity& entity, u32 flag) {
 }
 
 internal
-WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY, i32 absZ) {
+WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY, i32 absZ, V3 offset) {
 	WorldPosition chunkPos = {};
 	// TODO(IMPORTANT) do something with f32 precision, when absX,absY,absZ will be high, precision might be lost
 	chunkPos.chunkX = FloorF32ToI32(absX / scast(f32, CHUNK_DIM_IN_TILES));
@@ -55,6 +55,7 @@ WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY
 	chunkPos.offset = V3{ (scast(f32, relWorldX) - CHUNK_DIM_IN_TILES / 2.f) * world.tileSizeInMeters.X,
 						  (scast(f32, relWorldY) - CHUNK_DIM_IN_TILES / 2.f) * world.tileSizeInMeters.Y,
 						   scast(f32, relWorldZ) * world.tileSizeInMeters.Z };
+	chunkPos = OffsetWorldPosition(world, chunkPos, offset);
 	return chunkPos;
 }
 
@@ -147,6 +148,18 @@ WorldPosition MapCameraSpacePositionToWorldPosition(World& world, V3 cameraSpace
 	position.offset = cameraSpacePosition;
 	FixWorldPosition(world, position);
 	return position;
+}
+
+internal
+f32 GetHeightFromTheClosestGroundLevel(World& world, WorldPosition& pos) {
+	u32 heightRelToChunk = FloorF32ToU32(pos.offset.Z / world.tileSizeInMeters.Z);
+	return pos.offset.Z - heightRelToChunk * world.tileSizeInMeters.Z;
+}
+
+internal
+f32 GetDistanceToTheClosestGroundLevel(World& world, WorldPosition& pos) {
+	u32 heightRelToChunk = RoundF32ToU32(pos.offset.Z / world.tileSizeInMeters.Z);
+	return pos.offset.Z - heightRelToChunk * world.tileSizeInMeters.Z;
 }
 
 internal

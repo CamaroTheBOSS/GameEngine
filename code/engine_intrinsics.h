@@ -35,6 +35,14 @@ i32 Abs(i32 value) {
 }
 
 inline
+f32 Abs(f32 value) {
+	if (value < 0) {
+		return -value;
+	}
+	return value;
+}
+
+inline
 f32 SquareRoot(f32 value) {
 	return sqrtf(value);
 }

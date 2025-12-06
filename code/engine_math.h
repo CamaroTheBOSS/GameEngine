@@ -291,6 +291,50 @@ bool IsInRectangle(Rect2 rect, V2 point) {
 		   point.Y >= rect.min.Y;
 }
 
+inline
+V2 Clip(V2 val, f32 min, f32 max) {
+	// TODO: Speed up with SIMD
+	V2 result = val;
+	if		(result.X < min) result.X = min;
+	else if (result.X > max) result.X = max;
+	if		(result.Y < min) result.Y = min;
+	else if (result.Y > max) result.Y = max;
+	return result;
+}
+
+inline 
+f32 Clip(f32 val, f32 min, f32 max) {
+	f32 result = val;
+	if		(result < min) result = min;
+	else if (result > max) result = max;
+	return result;
+}
+
+inline
+V2 PointRelativeToRect(Rect2 rect, V2 point) {
+	V2 result = V2{
+		(point.X - rect.min.X) / (rect.max.X - rect.min.X),
+		(point.Y - rect.min.Y) / (rect.max.Y - rect.min.Y),
+	};
+	result = Clip(result, 0.f, 1.f);
+	return result;
+}
+
+inline 
+bool EntityOverlapsWithRegion(V2 XY, V2 dim, Rect2 rect) {
+	Rect2 grownRect = GetRectFromMinMax(rect.min - dim / 2, rect.max + dim / 2);
+	return IsInRectangle(grownRect, XY);
+}
+
+inline
+bool RectanglesOverlapsWithEachOther(Rect2 A, Rect2 B) {
+	bool notOverlap = A.min.X > B.max.X ||
+					  B.min.X > A.max.X ||
+					  A.min.Y > B.max.Y ||
+					  B.min.Y > A.max.Y;
+	return !notOverlap;
+}
+
 struct Rect3 {
 	V3 min;
 	V3 max;
@@ -354,5 +398,56 @@ bool IsInRectangle(Rect3 rect, V3 point) {
 		point.Y >= rect.min.Y &&
 		point.Z < rect.max.Z &&
 		point.Z >= rect.min.Z;
+}
+
+inline
+bool IsInOrAtRectangle(Rect3 rect, V3 point) {
+	return point.X < rect.max.X &&
+		point.X >= rect.min.X &&
+		point.Y <= rect.max.Y &&
+		point.Y >= rect.min.Y &&
+		point.Z <= rect.max.Z &&
+		point.Z >= rect.min.Z;
+}
+
+inline
+V3 Clip(V3 val, f32 min, f32 max) {
+	// TODO: Speed up with SIMD
+	V3 result = val;
+	if		(result.X < min) result.X = min;
+	else if (result.X > max) result.X = max;
+	if		(result.Y < min) result.Y = min;
+	else if (result.Y > max) result.Y = max;
+	if		(result.Z < min) result.Z = min;
+	else if (result.Z > max) result.Z = max;
+	return result;
+}
+
+inline
+V3 PointRelativeToRect(Rect3 rect, V3 point) {
+	V3 result = V3{
+		(point.X - rect.min.X) / (rect.max.X - rect.min.X),
+		(point.Y - rect.min.Y) / (rect.max.Y - rect.min.Y),
+		(point.Z - rect.min.Z) / (rect.max.Z - rect.min.Z),
+	};
+	result = Clip(result, 0.f, 1.f);
+	return result;
+}
+
+inline
+bool EntityOverlapsWithRegion(V3 XYZ, V3 dim, Rect3 rect) {
+	Rect3 grownRect = GetRectFromMinMax(rect.min - dim / 2, rect.max + dim / 2);
+	return IsInRectangle(grownRect, XYZ);
+}
+
+inline
+bool RectanglesOverlapsWithEachOther(Rect3 A, Rect3 B) {
+	bool notOverlap = A.min.X > B.max.X ||
+					  B.min.X > A.max.X ||
+					  A.min.Y > B.max.Y ||
+					  B.min.Y > A.max.Y ||
+					  A.min.Z > B.max.Z ||
+					  B.min.Z > A.max.Z;
+	return !notOverlap;
 }
 #pragma warning(pop)

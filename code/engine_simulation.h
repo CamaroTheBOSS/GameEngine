@@ -10,6 +10,7 @@ struct EntityHash {
 struct SimRegion {
 	WorldPosition origin;
 	Rect3 bounds;
+	f32 distanceToClosestGroundZ;
 
 	u32 maxEntityCount;
 	u32 entityCount;

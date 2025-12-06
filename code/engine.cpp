@@ -259,9 +259,25 @@ u32 AddWall(World& world, u32 absX, u32 absY, u32 absZ) {
 	// call AddEntity() which will do it for ourselves
 	EntityStorage storage = {};
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
-	storage.entity.size = V2{ world.tileSizeInMeters.X, world.tileSizeInMeters.Y };
+	storage.entity.size = world.tileSizeInMeters;
 	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
 	storage.entity.type = EntityType_Wall;
+	return AddEntity(world, storage);
+}
+
+
+internal
+u32 AddStairs(World& world, u32 absX, u32 absY, u32 absZ) {
+	EntityStorage storage = {};
+	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ, V3{0.f, 0.f, world.tileSizeInMeters.Z / 2.f});
+	// TODO this Z size should be EXACTLY tileSizeInMeters.Z, need to change that!!!
+	storage.entity.size = V3{ 
+		world.tileSizeInMeters.X * 2, 
+		world.tileSizeInMeters.Y, 
+		world.tileSizeInMeters.Z 
+	};
+	SetFlag(storage.entity, EntityFlag_Overlaps);
+	storage.entity.type = EntityType_Stairs;
 	return AddEntity(world, storage);
 }
 
@@ -269,7 +285,7 @@ internal
 u32 AddFamiliar(World& world, u32 absX, u32 absY, u32 absZ) {
 	EntityStorage storage = {};
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
-	storage.entity.size = V2{ 1.0f, 1.25f };
+	storage.entity.size = V3{ 1.0f, 1.25f, 0.25f };
 	storage.entity.type = EntityType_Familiar;
 	return AddEntity(world, storage);
 }
@@ -278,7 +294,7 @@ internal
 u32 AddSword(World& world) {
 	EntityStorage storage = {};
 	storage.entity.worldPos = NullPosition();
-	storage.entity.size = V2{ 0.5f, 0.5f };
+	storage.entity.size = V3{ 0.5f, 0.5f, 0.25f };
 	storage.entity.type = EntityType_Sword;
 	return AddEntity(world, storage);
 }
@@ -287,7 +303,7 @@ internal
 u32 AddMonster(World& world, u32 absX, u32 absY, u32 absZ) {
 	EntityStorage storage = {};
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
-	storage.entity.size = V2{ 1.0f, 1.25f };
+	storage.entity.size = V3{ 1.0f, 1.25f, 0.25f };
 	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
 	storage.entity.type = EntityType_Monster;
 	InitializeHitPoints(storage.entity, 3, 1, 1);
@@ -449,6 +465,17 @@ bool ShouldCollide(World& world, u32 firstStorageIndex, u32 secondStorageIndex) 
 }
 
 internal
+void HandleOverlap(World& world, Entity& first, Entity& second) {
+	if (first.type == EntityType_Player && second.type == EntityType_Stairs) {
+		V3 normalizedPos = PointRelativeToRect(GetRectFromCenterDim(second.pos, second.size), first.pos);
+		f32 stairsUpperPosZ = second.pos.Z + second.size.Z / 2.f;
+		f32 stairsLowerPosZ = second.pos.Z - second.size.Z / 2.f;
+		first.pos.Z = stairsLowerPosZ + (1.0f - normalizedPos.X) * second.size.Z;
+		first.pos.Z = Clip(first.pos.Z, stairsLowerPosZ, stairsUpperPosZ);
+	}
+}
+
+internal
 bool HandleCollision(World& world, Entity& first, Entity& second) {
 	// TODO: Think of better approach of collision handling. This is prototype
 	bool stopOnCollide = (IsFlagSet(first, EntityFlag_StopsOnCollide) && IsFlagSet(second, EntityFlag_StopsOnCollide));
@@ -485,6 +512,8 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 	entity.vel += acceleration * dt;
 	V3 nextPlayerPosition = entity.pos + moveDelta;
 
+	u32 overlapEntityCount = 0;
+	u32 overlapEntities[16] = {};
 	// TODO: G.J.K algorithm for other collision shapes like circles, elipses etc.
 	for (u32 iteration = 0; iteration < 4; iteration++) {
 		f32 tMin = 1.0f;
@@ -495,13 +524,13 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 
 		for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 			Entity* other = simRegion.entities + entityIndex;
-			if (!other || IsFlagSet(*other, EntityFlag_NonSpatial)) {
+			if (!other || IsFlagSet(*other, EntityFlag_NonSpatial) || other->storageIndex == entity.storageIndex) {
 				continue;
 			}
 
 			V3 diff = other->pos - entity.pos;
-			V2 minCorner = diff.XY - 0.5f * other->size - 0.5f * entity.size;
-			V2 maxCorner = diff.XY + 0.5f * other->size + 0.5f * entity.size;
+			V3 minCorner = diff - 0.5f * other->size - 0.5f * entity.size;
+			V3 maxCorner = diff + 0.5f * other->size + 0.5f * entity.size;
 
 			if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
 				moveDelta.Y, &tMin)) {
@@ -531,6 +560,28 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 				hitCollision = true;
 				hitEntity = other;
 			}
+			if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
+				int breakHere = 5;
+			}
+			if (IsFlagSet(*other, EntityFlag_Overlaps) &&
+				IsInOrAtRectangle(GetRectFromMinMax(minCorner, maxCorner), entity.pos))
+			{
+				if (overlapEntityCount < ArrayCount(overlapEntities)) {
+					bool found = false;
+					for (u32 overlapEntityIdx = 0; overlapEntityIdx < overlapEntityCount; overlapEntityIdx++) {
+						if (overlapEntities[overlapEntityIdx] == entityIndex) {
+							found = true;
+							break;
+						}
+					}
+					if (!found) {
+						overlapEntities[overlapEntityCount++] = entityIndex;
+					}
+				}
+				else {
+					Assert(!"Exceeded number of overlapped entities");
+				}
+			}
 		}
 
 		entity.pos += moveDelta * tMin;
@@ -558,6 +609,22 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 			break;
 		}
 	}
+	bool onStairs = false;
+	for (u32 overlapEntityIdx = 0; overlapEntityIdx < overlapEntityCount; overlapEntityIdx++) {
+		Entity* other = simRegion.entities + overlapEntities[overlapEntityIdx];
+		HandleOverlap(world, entity, *other);
+		if (other->type == EntityType_Stairs) {
+			onStairs = true;
+		}
+	}
+	if (!onStairs && entity.pos.Z != simRegion.distanceToClosestGroundZ) {
+		if (entity.type == EntityType_Player) {
+			int breakHere = 5;
+		}
+		entity.pos.Z = -simRegion.distanceToClosestGroundZ;
+		entity.vel.Z = 0.f;
+	}
+
 	WorldPosition newEntityPos = OffsetWorldPosition(world, state->cameraPos, entity.pos);
 	// TODO: change location of ChangeEntityChunkLocation, it can be potentially problem in the future
 	// cause this changes location of low entity which is not updated by EndSimulation(), so it looks
@@ -635,7 +702,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		world.arena.used = 0;
 
 		state->highFreqBoundDim = 30;
-		state->highFreqBoundHeight = 1;
+		state->highFreqBoundHeight = 2;
 		state->cameraPos = GetChunkPositionFromWorldPosition(
 			world, world.tileCountX / 2, world.tileCountY / 2, 0
 		);
@@ -671,7 +738,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		for (u32 screenIndex = 0; screenIndex < 100; screenIndex++) {
 			randomNIdx = (randomNIdx + 1) % ArrayCount(randomNumbers);
 			u32 randomNumber = randomNumbers[randomNIdx];
-#if 0
+#if 1
 			u32 mod = randomNumber % 3;
 #else
 			u32 mod = randomNumber % 2;
@@ -696,6 +763,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					u32 absTileY = screenY * world.tileCountY + tileY;
 
 					u32 tileValue = 1;
+					bool putStairs = false;
 					if (tileX == 0) {
 						tileValue = 2;
 						if (doorLeft && tileY == world.tileCountY / 2) {
@@ -720,21 +788,24 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 							tileValue = 1;
 						}
 					}
-					if (ladder && absTileZ == 0 && tileX == 1 && tileY == 1) {
-						tileValue = 3; // Ladder up
+					if (ladder && absTileZ == 0 && tileX == 2 && tileY == 1) {
+						putStairs = true; // Ladder up
 					}
 					else if (ladder && absTileZ == 1 && tileX == 2 && tileY == 2) {
-						tileValue = 4; // Ladder down
+						//tileValue = 4; // Ladder down
 					}
-					else if (lvlJustChanged && absTileZ == 0 && tileX == 1 && tileY == 1) {
-						tileValue = 3; // Ladder up
+					else if (lvlJustChanged && absTileZ == 0 && tileX == 2 && tileY == 1) {
+						putStairs = true; // Ladder up
 					}
 					else if (lvlJustChanged && absTileZ == 1 && tileX == 2 && tileY == 2) {
-						tileValue = 4; // Ladder up
+						//tileValue = 4; // Ladder down
 					}
 					// TODO: Chunk allocation on demand
 					if (tileValue == 2) {
 						AddWall(world, absTileX, absTileY, absTileZ);
+					}
+					if (putStairs) {
+						AddStairs(world, absTileX, absTileY, absTileZ);
 					}
 					
 				}
@@ -881,7 +952,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		} break;
 		case EntityType_Wall: {
 			PushRect(drawCalls, GetRectFromMinMax(min, max), 1.f, 1.f, 1.f, 1.f, {});
-			RenderRectangle(bitmap, min, max, 1.f, 1.f, 1.f);
+		} break;
+		case EntityType_Stairs: {
+			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 0.f, 0.f, 1.f, {});
 		} break;
 		case EntityType_Familiar: {
 			UpdateFamiliar(*simRegion, state, entity, input.dtFrame);

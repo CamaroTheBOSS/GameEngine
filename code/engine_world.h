@@ -34,11 +34,13 @@ enum EntityType {
 	EntityType_Familiar,
 	EntityType_Monster,
 	EntityType_Sword,
+	EntityType_Stairs,
 };
 
 enum EntityFlag : u32 {
 	EntityFlag_StopsOnCollide	= (1 << 0),
 	EntityFlag_NonSpatial		= (1 << 1),
+	EntityFlag_Overlaps			= (1 << 2),
 };
 
 struct HP {
@@ -57,7 +59,7 @@ struct Entity {
 	V3 vel;
 	EntityType type;
 	WorldPosition worldPos;
-	V2 size; // TODO: should be V3?
+	V3 size;
 	u32 faceDir;
 	u32 highEntityIndex;
 	HitPoints hitPoints;
@@ -95,11 +97,13 @@ struct World {
 
 // Function declaration to help Intellisense got some sense :)
 internal WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, MemoryArena* arena = 0);
+internal f32 GetHeightFromTheClosestGroundLevel(World& world, WorldPosition& position);
+internal f32 GetDistanceToTheClosestGroundLevel(World& world, WorldPosition& pos);
 internal WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, V3 offset);
 internal WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, f32 offsetX, f32 offsetY, f32 offsetZ);
 internal V3 Subtract(World& world, WorldPosition& first, WorldPosition& second);
 internal void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex, Entity& entity, WorldPosition* oldPos, WorldPosition& newPos);
-internal WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY, i32 absZ);
+internal WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY, i32 absZ, V3 offset = V3{0.f, 0.f, 0.f});
 inline void SetFlag(Entity& entity, u32 flag);
 inline void ClearFlag(Entity& entity, u32 flag);
 inline bool IsFlagSet(Entity& entity, u32 flag);

@@ -83,6 +83,7 @@ SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 	simRegion->maxEntityCount = ArrayCount(simRegion->entities);
 	simRegion->origin = origin;
 	simRegion->bounds = bounds;
+	simRegion->distanceToClosestGroundZ = GetDistanceToTheClosestGroundLevel(world, origin);
 	WorldPosition minChunk = OffsetWorldPosition(world, origin, GetMinCorner(bounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, origin, GetMaxCorner(bounds));
 	for (i32 chunkZ = minChunk.chunkZ; chunkZ <= maxChunk.chunkZ; chunkZ++) {
