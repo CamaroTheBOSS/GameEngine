@@ -295,6 +295,7 @@ u32 AddSword(World& world) {
 	storage.entity.worldPos = NullPosition();
 	storage.entity.size = V3{ 0.5f, 0.5f, 0.25f };
 	storage.entity.type = EntityType_Sword;
+	SetFlag(storage.entity, EntityFlag_Movable);
 	return AddEntity(world, storage);
 }
 
@@ -669,18 +670,18 @@ void SetCamera(ProgramState* state) {
 
 internal
 void MakeEntitySpatial(SimRegion& simRegion, World& world, u32 storageEntityIndex, Entity& entity, WorldPosition& newPos) {
-	if (IsFlagSet(entity, EntityFlag_NonSpatial)) {
-		ChangeEntityChunkLocation(world, world.arena, storageEntityIndex, entity, 0, newPos);
-		TryAddEntityToSim(simRegion, world, storageEntityIndex, entity);
-	}
+	Assert(IsFlagSet(entity, EntityFlag_NonSpatial));
+	ChangeEntityChunkLocation(world, world.arena, storageEntityIndex, entity, 0, newPos);
+	TryAddEntityToSim(simRegion, world, storageEntityIndex, entity);
+	ClearFlag(entity, EntityFlag_NonSpatial);
 }
 
 internal
 void MakeEntityNonSpatial(ProgramState* state, u32 storageEntityIndex, Entity& entity) {
-	if (!IsFlagSet(entity, EntityFlag_NonSpatial)) {
-		WorldPosition nullPosition = NullPosition();
-		ChangeEntityChunkLocation(state->world, state->world.arena, storageEntityIndex, entity, &entity.worldPos, nullPosition);
-	}
+	Assert(!IsFlagSet(entity, EntityFlag_NonSpatial));
+	WorldPosition nullPosition = NullPosition();
+	ChangeEntityChunkLocation(state->world, state->world.arena, storageEntityIndex, entity, &entity.worldPos, nullPosition);
+	SetFlag(entity, EntityFlag_NonSpatial);
 }
 
 internal
@@ -882,7 +883,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (controller.isSpaceDown) {
 			speed = 250.0f;
 		}
-		if (controller.isMouseLDown) {
+		if (controller.isMouseLDown && IsFlagSet(*entity->sword, EntityFlag_NonSpatial)) {
 			entity->sword->distanceRemaining = 5.f;
 			V2 mousePos = MapScreenSpacePosIntoCameraSpace(controller.mouseX, controller.mouseY, bitmap.width, bitmap.height);
 			//mousePos -= entity->sword->size / 2.f;
