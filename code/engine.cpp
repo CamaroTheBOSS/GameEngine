@@ -715,8 +715,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		world.arena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
 		world.arena.used = 0;
 
-		state->highFreqBoundDim = 30;
-		state->highFreqBoundHeight = 2;
+		state->highFreqBoundDim = 30.f;
+		state->highFreqBoundHeight = 1.2f;
 		state->cameraPos = GetChunkPositionFromWorldPosition(
 			world, world.tileCountX / 2, world.tileCountY / 2, 0
 		);

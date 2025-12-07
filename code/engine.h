@@ -111,8 +111,8 @@ struct PlayerControls {
 
 struct ProgramState {
 	// Global state of the program
-	u32 highFreqBoundDim;
-	u32 highFreqBoundHeight;
+	f32 highFreqBoundDim;
+	f32 highFreqBoundHeight;
 	WorldPosition cameraPos;
 	World world;
 	
