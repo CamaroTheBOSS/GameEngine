@@ -5,6 +5,8 @@
 #include <Audioclient.h>
 #include <mmdeviceapi.h>
 #include <comdef.h>
+#include <sys/stat.h>
+
 
 #if defined(HANDMADE_INTERNAL_BUILD)
 LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(TB(static_cast<u64>(10)));

@@ -112,10 +112,10 @@ union V3 {
 	};
 	struct {
 		V2 XY;
-		f32 Z;
+		f32 _Z;
 	};
 	struct {
-		f32 X;
+		f32 _X;
 		V2 YZ;
 	};
 	f32 E[3];

@@ -1,5 +1,6 @@
 #pragma once
 #include "engine_common.h"
+#include <intrin.h>
 
 inline
 i32 RoundF32ToI32(f32 value) {
@@ -55,7 +56,7 @@ struct BitwiseSearchResult {
 inline 
 BitwiseSearchResult LeastSignificantHighBit(u32 value) {
 	BitwiseSearchResult result = {};
-#if COMPILER_MSVC
+#if COMPILER_MSVC || COMPILER_LLVM
 	_BitScanForward(ptrcast(unsigned long, &result.index), value);
 #else
 	u32 mask = 1;

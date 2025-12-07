@@ -2,11 +2,11 @@
 IF NOT EXIST ..\build (
 	mkdir ..\build
 )
-set CompilerFlags= -std=C++23 -g -fms-runtime-lib=static_dbg -O0 -DHANDMADE_INTERNAL_BUILD -DHANDMADE_SLOW
-set LinkerFlags= -l user32 gdi32 ole32 winmm
+set CompilerFlags= -fuse-ld=lld -std=c++23 -g -gcodeview -fms-runtime-lib=static_dbg -O0 -DHANDMADE_INTERNAL_BUILD -DHANDMADE_SLOW
+set LinkerFlags= -l user32 -l gdi32 -l ole32 -l winmm
 pushd ..\build
   echo %cd%
   del *.pdb > NUL 2> NUL
-  clang %CompilerFlags% ..\code\engine.cpp -LD  -incremental:no -opt:ref -PDB:engine%random%.pdb -EXPORT:GameMainLoopFrame
-  cl %CompilerFlags% ..\code\win32_main.cpp /link %LinkerFlags%
+  clang++ %CompilerFlags% ..\code\engine.cpp -shared -o engine.dll -Xlinker /pdb:engine%random%.pdb -Xlinker /export:GameMainLoopFrame 
+  clang++ %CompilerFlags% ..\code\win32_main.cpp -o win32_main.exe -Wl,%LinkerFlags%
 popd

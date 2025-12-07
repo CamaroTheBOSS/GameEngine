@@ -2,9 +2,7 @@
 #include <cstdint>
 #include <utility>
 #include <math.h>
-#include <span>
 
-#pragma once
 #if !defined(COMPILER_MSVC)
 #define COMPILER_MSVC 0
 #endif
@@ -19,12 +17,15 @@
 
 #if !COMPILER_MSVC && !COMPILER_LLVM && !COMPILER_GPLUSPLUS
 #if defined(_MSC_VER) && !defined(__clang__)
+#undef COMPILER_MSVC
 #define COMPILER_MSVC 1
 #endif
 #if defined(__GNUC__)
+#undef COMPILER_GPLUSPLUS
 #define COMPILER_GPLUSPLUS 1
 #endif
 #if defined(__clang__)
+#undef COMPILER_LLVM
 #define COMPILER_LLVM 1
 #endif
 #endif
