@@ -477,29 +477,33 @@ void HandleOverlap(World& world, Entity& first, Entity& second) {
 }
 
 internal
-bool HandleCollision(World& world, Entity& first, Entity& second) {
+bool HandleCollision(World& world, Entity& mover, Entity& obstacle) {
 	// TODO: Think of better approach of collision handling. This is prototype
-	bool stopOnCollide = (IsFlagSet(first, EntityFlag_StopsOnCollide) && IsFlagSet(second, EntityFlag_StopsOnCollide));
-	if (first.type == EntityType_Familiar && second.type == EntityType_Wall) {
+	bool stopOnCollide = (IsFlagSet(mover, EntityFlag_StopsOnCollide) && 
+		IsFlagSet(obstacle, EntityFlag_StopsOnCollide));
+	if (mover.type == EntityType_Familiar && obstacle.type == EntityType_Wall) {
 		stopOnCollide = true;
 	}
-	if (!ShouldCollide(world, first.storageIndex, second.storageIndex)) {
+	if (!ShouldCollide(world, mover.storageIndex, obstacle.storageIndex)) {
 		return stopOnCollide;
 	}
-	if (first.type == EntityType_Sword && second.type == EntityType_Monster) {
-		if (second.hitPoints.count > 0) {
-			second.hitPoints.count--;
+	if (mover.type == EntityType_Sword && obstacle.type == EntityType_Monster) {
+		if (obstacle.hitPoints.count > 0) {
+			obstacle.hitPoints.count--;
 		}
-		AddCollisionRule(world, world.arena, first.storageIndex, second.storageIndex);
-		AddCollisionRule(world, world.arena, second.storageIndex, first.storageIndex);
+		AddCollisionRule(world, world.arena, mover.storageIndex, obstacle.storageIndex);
+		AddCollisionRule(world, world.arena, obstacle.storageIndex, mover.storageIndex);
 	}
-	if (first.type == EntityType_Player && second.type == EntityType_Stairs) {
-		V3 normalizedPos = PointRelativeToRect(GetRectFromCenterDim(second.pos, second.size), first.pos);
-		if (normalizedPos.X < 0.1f || normalizedPos.X > 0.9f) {
-			stopOnCollide = true;
+	if (mover.type == EntityType_Player && obstacle.type == EntityType_Stairs) {
+		V3 normMoverPos = PointRelativeToRect(
+			GetRectFromCenterDim(obstacle.pos, obstacle.size), mover.pos
+		);
+		if (normMoverPos.Z < 0.5f && normMoverPos.Y < 0.1f ||
+			normMoverPos.Z >= 0.5f && normMoverPos.Y >= 0.9f) {
+			stopOnCollide = false;
 		}
 		else {
-			stopOnCollide = false;
+			stopOnCollide = true;
 		}
 	}
 	return stopOnCollide;
@@ -542,8 +546,6 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 	entity.vel += acceleration * dt;
 	V3 nextPlayerPosition = entity.pos + moveDelta;
 
-	u32 overlapEntityCount = 0;
-	u32 overlapEntities[16] = {};
 	// TODO: G.J.K algorithm for other collision shapes like circles, elipses etc.
 	for (u32 iteration = 0; iteration < 4; iteration++) {
 		f32 tMin = 1.0f;
@@ -560,53 +562,37 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 			V3 diff = other->pos - entity.pos;
 			V3 minCorner = diff - 0.5f * other->size - 0.5f * entity.size;
 			V3 maxCorner = diff + 0.5f * other->size + 0.5f * entity.size;
-
+			bool hit = false;
+			if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
+				int breakHere = 5;
+			}
 			if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
 				moveDelta.Y, &tMin)) {
 				// Left wall
 				wallNormal = { 1.f, 0.f, 0.f };
 				hitEntity = other;
+				hit = true;
 			}
 			if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
 				moveDelta.Y, &tMin)) {
 				// Right wall
 				wallNormal = { -1.f, 0.f, 0.f };
 				hitEntity = other;
+				hit = true;
 			}
 			if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
 				moveDelta.X, &tMin)) {
 				// Bottom wall
 				wallNormal = { 0.f, 1.f, 0.f };
 				hitEntity = other;
+				hit = true;
 			}
 			if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
 				moveDelta.X, &tMin)) {
 				// Top wall
 				wallNormal = { 0.f, -1.f, 0.f };
 				hitEntity = other;
-			}
-			if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
-				int breakHere = 5;
-			}
-			if (IsFlagSet(*other, EntityFlag_Overlaps) &&
-				IsInsideRectangle(GetRectFromMinMax(minCorner, maxCorner), entity.pos)
-				&& !hitEntity)
-			{
-				if (overlapEntityCount < ArrayCount(overlapEntities)) {
-					bool found = false;
-					for (u32 overlapEntityIdx = 0; overlapEntityIdx < overlapEntityCount; overlapEntityIdx++) {
-						if (overlapEntities[overlapEntityIdx] == entityIndex) {
-							found = true;
-							break;
-						}
-					}
-					if (!found) {
-						overlapEntities[overlapEntityCount++] = entityIndex;
-					}
-				}
-				else {
-					Assert(!"Exceeded number of overlapped entities");
-				}
+				hit = true;
 			}
 		}
 
@@ -627,6 +613,7 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 			}
 			else {
 				// TODO: Can it be done in a better, smarter way?
+				// TODO: distance should be updated here as well
 				moveDelta = desiredPosition - entity.pos;
 				entity.pos += moveDelta * (1.f - tMin);
 				break;
@@ -636,6 +623,32 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 			break;
 		}
 	}
+
+	u32 overlapEntityCount = 0;
+	u32 overlapEntities[16] = {};
+	// Note: Even if simulation won't be as accurate, because between hit iterations
+	// entity could potentially overlap with another entity, having this after all
+	// hit iterations seems to be good aproximation cause we don't need to mess up
+	// with lots of stuff. It's worth noting that in case of large dt it can result
+	// in missing some overlaps 
+	// TODO: (maybe it should be done more precisely for simulation with larger dt)
+	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
+		Entity* other = simRegion.entities + entityIndex;
+		if (!other || IsFlagSet(*other, EntityFlag_NonSpatial) || 
+			other->storageIndex == entity.storageIndex) {
+			continue;
+		}
+		if (!EntityOverlapsWithRegion(entity.pos, entity.size, 
+			GetRectFromCenterDim(other->pos, other->size)
+		)) {
+			continue;
+		}
+		Assert(overlapEntityCount < ArrayCount(overlapEntities));
+		if (overlapEntityCount < ArrayCount(overlapEntities)) {
+			overlapEntities[overlapEntityCount++] = entityIndex;
+		}
+	}
+
 	bool onStairs = false;
 	for (u32 overlapEntityIdx = 0; overlapEntityIdx < overlapEntityCount; overlapEntityIdx++) {
 		Entity* other = simRegion.entities + overlapEntities[overlapEntityIdx];
@@ -950,7 +963,13 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 1.f, 1.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Stairs: {
-			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 0.f, 0.f, 0.f, 1.f, {});
+			// TODO: This is extremaly janky, cause stairs are at height in the middle between
+			// two levels of ground, so collision handling is not in sync with render.
+			// Because of that, it seems like player is not colliding properly
+			// with the stairs, but drawing stairs without handling Z solves the problem
+			// Also it can be a problem with other entities which are not having Z coord
+			// equal to camera Z!
+			PushRect(drawCalls, V2{ entity->pos.X, entity->pos.Y - entity->pos.Z }, entity->size.XY, 0.f, 0.f, 0.f, 1.f, {});
 		} break;
 		case EntityType_Familiar: {
 			f32 minDistance = Squared(10.f);
@@ -995,7 +1014,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		for (u32 drawCallIndex = 0; drawCallIndex < drawCalls.count; drawCallIndex++) {
 			DrawCall* call = drawCalls.drawCalls + drawCallIndex;
 			V2 center = { call->center.X * pixelsPerMeter + bitmap.width / 2.0f,
-						  scast(f32, bitmap.height) - call->center.Y * pixelsPerMeter - bitmap.height / 2.0f - entity->pos.Z * pixelsPerMeter };
+						  scast(f32, bitmap.height) - call->center.Y * pixelsPerMeter - bitmap.height / 2.0f - entity->pos.Z * pixelsPerMeter};
 			if (call->bitmap) {
 				V2 offset = {
 					center.X - call->offset.X * pixelsPerMeter,
