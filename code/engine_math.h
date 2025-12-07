@@ -401,6 +401,16 @@ bool IsInRectangle(Rect3 rect, V3 point) {
 }
 
 inline
+bool IsInsideRectangle(Rect3 rect, V3 point) {
+	return point.X < rect.max.X &&
+		point.X > rect.min.X &&
+		point.Y < rect.max.Y &&
+		point.Y > rect.min.Y &&
+		point.Z < rect.max.Z &&
+		point.Z > rect.min.Z;
+}
+
+inline
 bool IsInOrAtRectangle(Rect3 rect, V3 point) {
 	return point.X < rect.max.X &&
 		point.X >= rect.min.X &&

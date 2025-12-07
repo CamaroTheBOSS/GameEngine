@@ -272,8 +272,8 @@ u32 AddStairs(World& world, u32 absX, u32 absY, u32 absZ) {
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ, V3{0.f, 0.f, world.tileSizeInMeters.Z / 2.f});
 	// TODO this Z size should be EXACTLY tileSizeInMeters.Z, need to change that!!!
 	storage.entity.size = V3{ 
-		world.tileSizeInMeters.X * 2, 
-		world.tileSizeInMeters.Y, 
+		world.tileSizeInMeters.X, 
+		world.tileSizeInMeters.Y * 2,
 		world.tileSizeInMeters.Z 
 	};
 	SetFlag(storage.entity, EntityFlag_Overlaps);
@@ -317,7 +317,8 @@ u32 InitializePlayer(ProgramState* state) {
 	storage.entity.faceDir = 0;
 	storage.entity.type = EntityType_Player;
 	storage.entity.size = { state->world.tileSizeInMeters.X * 0.7f,
-					state->world.tileSizeInMeters.Y * 0.4f };
+							state->world.tileSizeInMeters.Y * 0.4f,
+							0.25f };
 	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
 	InitializeHitPoints(storage.entity, 4, 1, 1);
 	u32 swIndex = AddSword(state->world);
@@ -470,7 +471,7 @@ void HandleOverlap(World& world, Entity& first, Entity& second) {
 		V3 normalizedPos = PointRelativeToRect(GetRectFromCenterDim(second.pos, second.size), first.pos);
 		f32 stairsUpperPosZ = second.pos.Z + second.size.Z / 2.f;
 		f32 stairsLowerPosZ = second.pos.Z - second.size.Z / 2.f;
-		first.pos.Z = stairsLowerPosZ + (1.0f - normalizedPos.X) * second.size.Z;
+		first.pos.Z = stairsLowerPosZ + normalizedPos.Y * second.size.Z;
 		first.pos.Z = Clip(first.pos.Z, stairsLowerPosZ, stairsUpperPosZ);
 	}
 }
@@ -489,9 +490,18 @@ bool HandleCollision(World& world, Entity& first, Entity& second) {
 		if (second.hitPoints.count > 0) {
 			second.hitPoints.count--;
 		}
+		AddCollisionRule(world, world.arena, first.storageIndex, second.storageIndex);
+		AddCollisionRule(world, world.arena, second.storageIndex, first.storageIndex);
 	}
-	AddCollisionRule(world, world.arena, first.storageIndex, second.storageIndex);
-	AddCollisionRule(world, world.arena, second.storageIndex, first.storageIndex);
+	if (first.type == EntityType_Player && second.type == EntityType_Stairs) {
+		V3 normalizedPos = PointRelativeToRect(GetRectFromCenterDim(second.pos, second.size), first.pos);
+		if (normalizedPos.X < 0.1f || normalizedPos.X > 0.9f) {
+			stopOnCollide = true;
+		}
+		else {
+			stopOnCollide = false;
+		}
+	}
 	return stopOnCollide;
 }
 
@@ -518,7 +528,6 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 	for (u32 iteration = 0; iteration < 4; iteration++) {
 		f32 tMin = 1.0f;
 		V3 wallNormal = {};
-		bool hitCollision = false;
 		V3 desiredPosition = entity.pos + moveDelta;
 		Entity* hitEntity = 0;
 
@@ -536,35 +545,32 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 				moveDelta.Y, &tMin)) {
 				// Left wall
 				wallNormal = { 1.f, 0.f, 0.f };
-				hitCollision = true;
 				hitEntity = other;
 			}
 			if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
 				moveDelta.Y, &tMin)) {
 				// Right wall
 				wallNormal = { -1.f, 0.f, 0.f };
-				hitCollision = true;
 				hitEntity = other;
 			}
 			if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
 				moveDelta.X, &tMin)) {
 				// Bottom wall
 				wallNormal = { 0.f, 1.f, 0.f };
-				hitCollision = true;
 				hitEntity = other;
 			}
 			if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
 				moveDelta.X, &tMin)) {
 				// Top wall
 				wallNormal = { 0.f, -1.f, 0.f };
-				hitCollision = true;
 				hitEntity = other;
 			}
 			if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
 				int breakHere = 5;
 			}
 			if (IsFlagSet(*other, EntityFlag_Overlaps) &&
-				IsInOrAtRectangle(GetRectFromMinMax(minCorner, maxCorner), entity.pos))
+				IsInsideRectangle(GetRectFromMinMax(minCorner, maxCorner), entity.pos)
+				&& !hitEntity)
 			{
 				if (overlapEntityCount < ArrayCount(overlapEntities)) {
 					bool found = false;
@@ -592,8 +598,7 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 				entity.distanceRemaining = 0.f;
 			}
 		}
-		if (hitCollision) {
-			Assert(hitEntity);
+		if (hitEntity) {
 			bool stopOnCollision = HandleCollision(world, entity, *hitEntity);
 			if (stopOnCollision) {
 				entity.vel -= Inner(entity.vel, wallNormal) * wallNormal;
@@ -788,13 +793,15 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 							tileValue = 1;
 						}
 					}
-					if (ladder && absTileZ == 0 && tileX == 2 && tileY == 1) {
+					u32 stairPosX = 9;
+					u32 stairPosY = 5;
+					if (ladder && absTileZ == 0 && tileX == stairPosX && tileY == stairPosY) {
 						putStairs = true; // Ladder up
 					}
 					else if (ladder && absTileZ == 1 && tileX == 2 && tileY == 2) {
 						//tileValue = 4; // Ladder down
 					}
-					else if (lvlJustChanged && absTileZ == 0 && tileX == 2 && tileY == 1) {
+					else if (lvlJustChanged && absTileZ == 0 && tileX == stairPosX && tileY == stairPosY) {
 						putStairs = true; // Ladder up
 					}
 					else if (lvlJustChanged && absTileZ == 1 && tileX == 2 && tileY == 2) {
