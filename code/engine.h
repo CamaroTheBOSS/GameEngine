@@ -94,7 +94,8 @@ struct LoadedBitmap {
 
 struct DrawCall {
 	LoadedBitmap* bitmap;
-	Rect2 rectangle;
+	V2 center;
+	V2 rectSize;
 	f32 R, G, B, A;
 	V2 offset;
 };

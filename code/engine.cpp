@@ -51,11 +51,12 @@ static u32 randomNumbers[] = {
 };
 
 inline 
-void PushDrawCall(DrawCallGroup& group, LoadedBitmap* bitmap, Rect2 rectangle, f32 R, f32 G, f32 B, f32 A, V2 offset) {
+void PushDrawCall(DrawCallGroup& group, LoadedBitmap* bitmap, V2 center, V2 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
 	Assert(group.count < ArrayCount(group.drawCalls));
 	DrawCall* call = &group.drawCalls[group.count++];
 	call->bitmap = bitmap;
-	call->rectangle = rectangle;
+	call->center = center;
+	call->rectSize = rectSize;
 	call->R = R;
 	call->G = G;
 	call->B = B;
@@ -64,25 +65,22 @@ void PushDrawCall(DrawCallGroup& group, LoadedBitmap* bitmap, Rect2 rectangle, f
 }
 
 inline
-void PushBitmap(DrawCallGroup& group, LoadedBitmap* bitmap, f32 A, V2 offset) {
-	PushDrawCall(group, bitmap, {}, 0, 0, 0, A, offset);
+void PushBitmap(DrawCallGroup& group, LoadedBitmap* bitmap, V2 center, f32 A, V2 offset) {
+	PushDrawCall(group, bitmap, center, {}, 0, 0, 0, A, offset);
 }
 
 inline
-void PushRect(DrawCallGroup& group, Rect2 rect, f32 R, f32 G, f32 B, f32 A, V2 offset) {
-	PushDrawCall(group, 0, rect, R, G, B, A, offset);
+void PushRect(DrawCallGroup& group, V2 center, V2 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
+	PushDrawCall(group, 0, center, rectSize, R, G, B, A, offset);
 }
 
 internal
 void RenderHitPoints(DrawCallGroup& group, Entity& entity, V2 center, V2 offset, f32 distBetween, f32 pointSize) {
-	V2 realOffset = (offset + V2{ -scast(f32, entity.hitPoints.count - 1) * scast(f32, distBetween + pointSize) / 2.f , 0.f }) * pixelsPerMeter;
+	V2 realOffset = (offset + V2{ -scast(f32, entity.hitPoints.count - 1) * scast(f32, distBetween + pointSize) / 2.f , 0.f });
+	V2 pointSizeVec = V2{ pointSize, pointSize };
 	for (u32 hitPointIndex = 0; hitPointIndex < entity.hitPoints.count; hitPointIndex++) {
-		V2 hitPointMin = { center.X + realOffset.X - pointSize * 0.5f * pixelsPerMeter,
-						   center.Y - realOffset.Y - pointSize * 0.5f * pixelsPerMeter, };
-		V2 hitPointMax = { center.X + realOffset.X + pointSize * 0.5f * pixelsPerMeter,
-						   center.Y - realOffset.Y + pointSize * 0.5f * pixelsPerMeter, };
-		PushRect(group, GetRectFromMinMax(hitPointMin, hitPointMax), 1.f, 0.f, 0.f, 1.f, {});
-		realOffset.X += (distBetween + pointSize) * pixelsPerMeter;
+		PushRect(group, center + realOffset, pointSizeVec, 1.f, 0.f, 0.f, 1.f, {});
+		realOffset.X += (distBetween + pointSize);
 	}
 }
 
@@ -505,6 +503,29 @@ bool HandleCollision(World& world, Entity& first, Entity& second) {
 	return stopOnCollide;
 }
 
+//void QuickSortHitEntitiesByAscendingT(HitEntity* array, u32 low, u32 high) {
+//	if (low >= high || low < 0) {
+//		return;
+//	}
+//
+//	u32 pivotIndex = low;
+//	HitEntity pivot = array[high];
+//	for (u32 index = low; index < high - 1; index++) {
+//		if (array[index].t <= pivot.t) {
+//			HitEntity tmp = array[index];
+//			array[index] = array[pivotIndex];
+//			array[pivotIndex] = array[index];
+//			pivotIndex = low + 1;
+//		}
+//	}
+//	HitEntity tmp = array[pivotIndex];
+//	array[pivotIndex] = array[high];
+//	array[high] = array[pivotIndex];
+//
+//	QuickSortHitEntitiesByAscendingT(array, low, pivotIndex - 1);
+//	QuickSortHitEntitiesByAscendingT(array, pivotIndex + 1, high);
+//}
+
 internal
 void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity& entity, V3 acceleration, f32 dt) {
 	if (IsFlagSet(entity, EntityFlag_NonSpatial)) {
@@ -607,7 +628,9 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 			}
 			else {
 				// TODO: Can it be done in a better, smarter way?
-				entity.pos += moveDelta * (1 - tMin);
+				moveDelta = desiredPosition - entity.pos;
+				entity.pos += moveDelta * (1.f - tMin);
+				break;
 			}
 		}
 		if (tMin == 1.0f) {
@@ -933,13 +956,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		DrawCallGroup drawCalls = {};
 
-		V2 center = { entity->pos.X * pixelsPerMeter + bitmap.width / 2.0f,
-					  scast(f32, bitmap.height) - entity->pos.Y * pixelsPerMeter - bitmap.height / 2.0f - entity->pos.Z * pixelsPerMeter };
-		V2 min = { center.X - entity->size.X / 2.f * pixelsPerMeter,
-				   center.Y - entity->size.Y / 2.f * pixelsPerMeter };
-		V2 max = { min.X + entity->size.X * pixelsPerMeter,
-				   min.Y + entity->size.Y * pixelsPerMeter };
-
 		switch(entity->type) {
 		case EntityType_Player: {
 			PlayerControls* playerControls = 0;
@@ -953,26 +969,26 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			Assert(playerControls);
 			V3 acceleration = playerControls->acceleration;
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
-			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 1.f, 1.f, 1.f, {});
-			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], 1.f, V2{ min.X, max.Y });
-			RenderHitPoints(drawCalls, *entity, center, V2{0.f, -0.5f}, 0.1f, 0.2f);
+			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 0.f, 1.f, 1.f, 1.f, {});
+			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], entity->pos.XY, 1.f, entity->size.XY / 2.f);
+			RenderHitPoints(drawCalls, *entity, entity->pos.XY, V2{0.f, -0.5f}, 0.1f, 0.2f);
 		} break;
 		case EntityType_Wall: {
-			PushRect(drawCalls, GetRectFromMinMax(min, max), 1.f, 1.f, 1.f, 1.f, {});
+			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 1.f, 1.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Stairs: {
-			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 0.f, 0.f, 1.f, {});
+			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 0.f, 0.f, 0.f, 1.f, {});
 		} break;
 		case EntityType_Familiar: {
 			UpdateFamiliar(*simRegion, state, entity, input.dtFrame);
-			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 0.f, 1.f, 1.f, {});
+			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 0.f, 0.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Monster: {
-			PushRect(drawCalls, GetRectFromMinMax(min, max), 1.f, 0.5f, 0.f, 1.f, {});
-			RenderHitPoints(drawCalls, *entity, center, V2{ 0.f, -0.8f }, 0.1f, 0.2f);
+			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 1.f, 0.5f, 0.f, 1.f, {});
+			RenderHitPoints(drawCalls, *entity, entity->pos.XY, V2{ 0.f, -0.8f }, 0.1f, 0.2f);
 		} break;
 		case EntityType_Sword: {
-			PushRect(drawCalls, GetRectFromMinMax(min, max), 0.f, 0.f, 0.f, 1.f, {});
+			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 0.f, 0.f, 0.f, 1.f, {});
 			if (entity->distanceRemaining <= 0.f) {
 				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
 				MakeEntityNonSpatial(state, entity->storageIndex, *entity);
@@ -984,11 +1000,19 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 		for (u32 drawCallIndex = 0; drawCallIndex < drawCalls.count; drawCallIndex++) {
 			DrawCall* call = drawCalls.drawCalls + drawCallIndex;
+			V2 center = { call->center.X * pixelsPerMeter + bitmap.width / 2.0f,
+						  scast(f32, bitmap.height) - call->center.Y * pixelsPerMeter - bitmap.height / 2.0f - entity->pos.Z * pixelsPerMeter };
 			if (call->bitmap) {
-				RenderBitmap(bitmap, *call->bitmap, call->offset);
+				V2 offset = {
+					center.X - call->offset.X * pixelsPerMeter,
+					center.Y + call->offset.Y * pixelsPerMeter
+				};
+				RenderBitmap(bitmap, *call->bitmap, offset);
 			}
 			else {
-				RenderRectangle(bitmap, GetMinCorner(call->rectangle), GetMaxCorner(call->rectangle), call->R, call->G, call->B);
+				V2 min = center - call->rectSize / 2.f * pixelsPerMeter;
+				V2 max = min + call->rectSize * pixelsPerMeter;
+				RenderRectangle(bitmap, min, max, call->R, call->G, call->B);
 			}
 		}
 	}
