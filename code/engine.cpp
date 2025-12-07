@@ -285,6 +285,7 @@ u32 AddFamiliar(World& world, u32 absX, u32 absY, u32 absZ) {
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
 	storage.entity.size = V3{ 1.0f, 1.25f, 0.25f };
 	storage.entity.type = EntityType_Familiar;
+	SetFlag(storage.entity, EntityFlag_Movable);
 	return AddEntity(world, storage);
 }
 
@@ -302,7 +303,7 @@ u32 AddMonster(World& world, u32 absX, u32 absY, u32 absZ) {
 	EntityStorage storage = {};
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
 	storage.entity.size = V3{ 1.0f, 1.25f, 0.25f };
-	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
+	SetFlag(storage.entity, EntityFlag_StopsOnCollide | EntityFlag_Movable);
 	storage.entity.type = EntityType_Monster;
 	InitializeHitPoints(storage.entity, 3, 1, 1);
 	return AddEntity(world, storage);
@@ -317,7 +318,7 @@ u32 InitializePlayer(ProgramState* state) {
 	storage.entity.size = { state->world.tileSizeInMeters.X * 0.7f,
 							state->world.tileSizeInMeters.Y * 0.4f,
 							0.25f };
-	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
+	SetFlag(storage.entity, EntityFlag_StopsOnCollide | EntityFlag_Movable);
 	InitializeHitPoints(storage.entity, 4, 1, 1);
 	u32 swIndex = AddSword(state->world);
 	EntityStorage* swordStorage = GetEntityStorage(state->world, swIndex);
@@ -528,9 +529,6 @@ bool HandleCollision(World& world, Entity& first, Entity& second) {
 
 internal
 void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity& entity, V3 acceleration, f32 dt) {
-	if (IsFlagSet(entity, EntityFlag_NonSpatial)) {
-		return;
-	}
 	f32 distanceRemaining = (entity.distanceRemaining != 0.f) ?
 		entity.distanceRemaining :
 		100000.f;
@@ -659,32 +657,6 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 	// like it has been moved by until EndSimulation() is not called its data is not in sync with chunk
 	// location
 	ChangeEntityChunkLocation(world, world.arena, entity.storageIndex, entity, &entity.worldPos, newEntityPos);
-}
-
-internal
-void UpdateFamiliar(SimRegion& simRegion, ProgramState* state, Entity* familiar, f32 dt) {
-	f32 minDistance = Squared(10.f);
-	V3 minDistanceEntityPos = {};
-	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
-		Entity* entity = simRegion.entities + entityIndex;
-		if (entity->type == EntityType_Player) {
-			f32 distance = LengthSq(entity->pos - familiar->pos);
-			if (distance < minDistance) {
-				minDistance = distance;
-				minDistanceEntityPos = entity->pos;
-			}
-		}
-	}
-	V3 acceleration = {};
-	f32 speed = 50.0f;
-	static float t = 0.f;
-	if (minDistance > Squared(2.0f)) {
-		acceleration = speed * (minDistanceEntityPos - familiar->pos) / SquareRoot(minDistance);
-	}
-	acceleration.Z = 10.0f * sinf(6 * t);
-	t += dt;
-	acceleration -= 10.0f * familiar->vel;
-	MoveEntity(simRegion, state, state->world, *familiar, acceleration, dt);
 }
 
 internal
@@ -955,6 +927,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			continue;
 		}
 		DrawCallGroup drawCalls = {};
+		V3 acceleration = V3{ 0, 0, 0 };
 
 		switch(entity->type) {
 		case EntityType_Player: {
@@ -967,8 +940,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				}
 			}
 			Assert(playerControls);
-			V3 acceleration = playerControls->acceleration;
-			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
+			acceleration = playerControls->acceleration;
 			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 0.f, 1.f, 1.f, 1.f, {});
 			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], entity->pos.XY, 1.f, entity->size.XY / 2.f);
 			RenderHitPoints(drawCalls, *entity, entity->pos.XY, V2{0.f, -0.5f}, 0.1f, 0.2f);
@@ -980,7 +952,26 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 0.f, 0.f, 0.f, 1.f, {});
 		} break;
 		case EntityType_Familiar: {
-			UpdateFamiliar(*simRegion, state, entity, input.dtFrame);
+			f32 minDistance = Squared(10.f);
+			V3 minDistanceEntityPos = {};
+			for (u32 otherEntityIndex = 0; otherEntityIndex < simRegion->entityCount; otherEntityIndex++) {
+				Entity* other = simRegion->entities + otherEntityIndex;
+				if (other->type == EntityType_Player) {
+					f32 distance = LengthSq(other->pos - entity->pos);
+					if (distance < minDistance) {
+						minDistance = distance;
+						minDistanceEntityPos = other->pos;
+					}
+				}
+			}
+			f32 speed = 50.0f;
+			static float t = 0.f;
+			if (minDistance > Squared(2.0f)) {
+				acceleration = speed * (minDistanceEntityPos - entity->pos) / SquareRoot(minDistance);
+			}
+			acceleration.Z = 10.0f * sinf(6 * t);
+			t += input.dtFrame;
+			acceleration -= 10.0f * entity->vel;
 			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 0.f, 0.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Monster: {
@@ -993,9 +984,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
 				MakeEntityNonSpatial(state, entity->storageIndex, *entity);
 			}
-			MoveEntity(*simRegion, state, world, *entity, V3{ 0.f, 0.f, 0.f }, input.dtFrame);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
+		}
+		if (IsFlagSet(*entity, EntityFlag_Movable) && !IsFlagSet(*entity, EntityFlag_NonSpatial)) {
+			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
 
 		for (u32 drawCallIndex = 0; drawCallIndex < drawCalls.count; drawCallIndex++) {
