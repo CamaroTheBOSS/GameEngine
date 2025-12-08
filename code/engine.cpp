@@ -579,20 +579,26 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 			V3 diff = other->pos - entity.pos;
 			V3 minCorner = diff - 0.5f * other->size - 0.5f * entity.size;
 			V3 maxCorner = diff + 0.5f * other->size + 0.5f * entity.size;
+
+			// TODO: Handle Z axis in collisions more properly
+			if (entity.pos.Z >= maxCorner.Z ||
+				entity.pos.Z < minCorner.Z) {
+				continue;
+			}
 			bool hit = false;
 			if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
 				int breakHere = 5;
 			}
 			if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
 				moveDelta.Y, &tMin)) {
-				// Left wall
+				// Right wall
 				wallNormal = { 1.f, 0.f, 0.f };
 				hitEntity = other;
 				hit = true;
 			}
 			if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
 				moveDelta.Y, &tMin)) {
-				// Right wall
+				// Left wall
 				wallNormal = { -1.f, 0.f, 0.f };
 				hitEntity = other;
 				hit = true;
