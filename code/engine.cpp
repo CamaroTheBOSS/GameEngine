@@ -277,8 +277,9 @@ u32 AddStairs(World& world, u32 absX, u32 absY, u32 absZ) {
 	storage.entity.size = V3{ 
 		world.tileSizeInMeters.X, 
 		world.tileSizeInMeters.Y * 2,
-		world.tileSizeInMeters.Z 
+		1.1f * world.tileSizeInMeters.Z 
 	};
+	storage.entity.stairsHeight = world.tileSizeInMeters.Z;
 	SetFlag(storage.entity, EntityFlag_Overlaps);
 	storage.entity.type = EntityType_Stairs;
 	return AddGroundedEntity(world, storage, absX, absY, absZ);
@@ -468,14 +469,27 @@ bool ShouldCollide(World& world, u32 firstStorageIndex, u32 secondStorageIndex) 
 	return true;
 }
 
+inline
+V3 GetEntityGroundLevel(Entity& entity) {
+	V3 result = entity.pos - V3{ 0, 0, 0.5f * entity.size.Z };
+	return result;
+}
+
+inline
+void SetEntityGroundLevel(Entity& entity, f32 newGroundLevel) {
+	entity.pos.Z = newGroundLevel + 0.5f * entity.size.Z;
+}
+
 internal
-void HandleOverlap(World& world, Entity& first, Entity& second) {
-	if (first.type == EntityType_Player && second.type == EntityType_Stairs) {
-		V3 normalizedPos = PointRelativeToRect(GetRectFromCenterDim(second.pos, second.size), first.pos);
-		f32 stairsUpperPosZ = second.pos.Z + second.size.Z / 2.f;
-		f32 stairsLowerPosZ = second.pos.Z - second.size.Z / 2.f;
-		first.pos.Z = stairsLowerPosZ + normalizedPos.Y * second.size.Z;
-		first.pos.Z = Clip(first.pos.Z, stairsLowerPosZ, stairsUpperPosZ);
+void HandleOverlap(World& world, Entity& mover, Entity& obstacle, f32* ground) {
+	if (mover.type == EntityType_Player && obstacle.type == EntityType_Stairs) {
+		Assert(obstacle.type == EntityType_Stairs);
+		V3 normalizedPos = PointRelativeToRect(GetRectFromCenterDim(obstacle.pos, obstacle.size), mover.pos);
+		f32 stairsLowerPosZ = GetEntityGroundLevel(obstacle).Z;
+		f32 stairsUpperPosZ = stairsLowerPosZ + obstacle.size.Z;
+		*ground = stairsLowerPosZ + normalizedPos.Y * obstacle.stairsHeight;
+		*ground = Clip(*ground, stairsLowerPosZ, stairsUpperPosZ);
+		SetEntityGroundLevel(mover, *ground);
 	}
 }
 
@@ -653,15 +667,15 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 	}
 
 	bool onStairs = false;
+	f32 ground = GetEntityGroundLevel(entity).Z;
 	for (u32 overlapEntityIdx = 0; overlapEntityIdx < overlapEntityCount; overlapEntityIdx++) {
 		Entity* other = simRegion.entities + overlapEntities[overlapEntityIdx];
-		HandleOverlap(world, entity, *other);
+		HandleOverlap(world, entity, *other, &ground);
 		if (other->type == EntityType_Stairs) {
 			onStairs = true;
 		}
 	}
-	// HERE GetEntityGroundLevel()
-	/*if (!onStairs && (entity.pos.Z - 0.5f * entity.size.Z) != simRegion.distanceToClosestGroundZ) {
+	/*if (!onStairs && ground != simRegion.distanceToClosestGroundZ) {
 		if (entity.type == EntityType_Player) {
 			int breakHere = 5;
 		}
@@ -967,7 +981,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			PushRect(drawCalls, entity->pos, entity->size, 1.f, 1.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Stairs: {
-			PushRect(drawCalls, entity->pos, entity->size, 0.f, 0.f, 0.f, 1.f, {});
+			PushRect(drawCalls, GetEntityGroundLevel(*entity), entity->size, 0.2f, 0.2f, 0.2f, 1.f, {});
+			PushRect(drawCalls, GetEntityGroundLevel(*entity) + V3{0, 0, entity->size.Z}, entity->size, 0.f, 0.f, 0.f, 1.f, {});
 		} break;
 		case EntityType_Familiar: {
 			f32 minDistance = Squared(10.f);
@@ -1011,9 +1026,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 		for (u32 drawCallIndex = 0; drawCallIndex < drawCalls.count; drawCallIndex++) {
 			DrawCall* call = drawCalls.drawCalls + drawCallIndex;
+			f32 zFudge = 0.1f * call->center.Z;
 			V3 groundLevel = call->center - 0.5f * V3{ 0, 0, call->rectSize.Z };
-			V2 center = { groundLevel.X * pixelsPerMeter + bitmap.width / 2.0f,
-						  scast(f32, bitmap.height) - groundLevel.Y * pixelsPerMeter - bitmap.height / 2.0f - groundLevel.Z * pixelsPerMeter};
+			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + bitmap.width / 2.0f,
+						  scast(f32, bitmap.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - bitmap.height / 2.0f - groundLevel.Z * pixelsPerMeter};
 			if (entity->type == EntityType_Player) {
 				int breakHere = 5;
 			}

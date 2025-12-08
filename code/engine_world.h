@@ -65,8 +65,12 @@ struct Entity {
 	u32 highEntityIndex;
 	HitPoints hitPoints;
 	u32 flags;
+	// Only Hero
 	Entity* sword;
+	// Only Sword (or throwable)
 	f32 distanceRemaining;
+	// Only stairs
+	f32 stairsHeight;
 };
 
 struct EntityStorage {
