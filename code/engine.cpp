@@ -1032,8 +1032,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 		for (u32 drawCallIndex = 0; drawCallIndex < drawCalls.count; drawCallIndex++) {
 			DrawCall* call = drawCalls.drawCalls + drawCallIndex;
-			f32 zFudge = 0.1f * call->center.Z;
 			V3 groundLevel = call->center - 0.5f * V3{ 0, 0, call->rectSize.Z };
+			f32 zFudge = 0.1f * groundLevel.Z;
 			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + bitmap.width / 2.0f,
 						  scast(f32, bitmap.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - bitmap.height / 2.0f - groundLevel.Z * pixelsPerMeter};
 			if (entity->type == EntityType_Player) {
