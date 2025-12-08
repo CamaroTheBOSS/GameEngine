@@ -97,6 +97,9 @@ SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 					for (u32 index = 0; index < entities->entityCount; index++) {
 						u32 storageEntityIndex = entities->entityIndexes[index];
 						EntityStorage* storage = GetEntityStorage(world, storageEntityIndex);
+						if (storage->entity.type == EntityType_Player) {
+							int breakHere = 2;
+						}
 						TryAddEntityToSim(*simRegion, world, storageEntityIndex, storage->entity);
 					}
 				}
@@ -110,6 +113,9 @@ internal
 void EndSimulation(MemoryArena& simArena, SimRegion& simRegion, World& world) {
 	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 		Entity* entity = simRegion.entities + entityIndex;
+		if (entity->type == EntityType_Player) {
+			int breakHere = 0;
+		}
 		EntityStorage* storage = GetEntityStorage(world, entity->storageIndex);
 		Assert(storage && entity);
 		if (storage && entity) {

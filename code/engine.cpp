@@ -28,7 +28,7 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 }
 
 static u32 randomNumbers[] = {
-	1706220,	2998326,	7324911,	977285,		7614172,
+	1706220, 2,	2998326,	7324911,	977285,		7614172,
 	5372439,	3343239,	9405090,	493102,		4704943,
 	6369811,	4549511,	8835557,	34415,		7580540,
 	3802045,	2436711,	3890579,	9233612,	2624780,
@@ -51,7 +51,7 @@ static u32 randomNumbers[] = {
 };
 
 inline 
-void PushDrawCall(DrawCallGroup& group, LoadedBitmap* bitmap, V2 center, V2 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
+void PushDrawCall(DrawCallGroup& group, LoadedBitmap* bitmap, V3 center, V3 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
 	Assert(group.count < ArrayCount(group.drawCalls));
 	DrawCall* call = &group.drawCalls[group.count++];
 	call->bitmap = bitmap;
@@ -65,21 +65,22 @@ void PushDrawCall(DrawCallGroup& group, LoadedBitmap* bitmap, V2 center, V2 rect
 }
 
 inline
-void PushBitmap(DrawCallGroup& group, LoadedBitmap* bitmap, V2 center, f32 A, V2 offset) {
+void PushBitmap(DrawCallGroup& group, LoadedBitmap* bitmap, V3 center, f32 A, V2 offset) {
 	PushDrawCall(group, bitmap, center, {}, 0, 0, 0, A, offset);
 }
 
 inline
-void PushRect(DrawCallGroup& group, V2 center, V2 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
+void PushRect(DrawCallGroup& group, V3 center, V3 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
 	PushDrawCall(group, 0, center, rectSize, R, G, B, A, offset);
 }
 
 internal
-void RenderHitPoints(DrawCallGroup& group, Entity& entity, V2 center, V2 offset, f32 distBetween, f32 pointSize) {
+void RenderHitPoints(DrawCallGroup& group, Entity& entity, V3 center, V2 offset, f32 distBetween, f32 pointSize) {
 	V2 realOffset = (offset + V2{ -scast(f32, entity.hitPoints.count - 1) * scast(f32, distBetween + pointSize) / 2.f , 0.f });
-	V2 pointSizeVec = V2{ pointSize, pointSize };
+	V3 pointSizeVec = V3{ pointSize, pointSize, 0.f };
 	for (u32 hitPointIndex = 0; hitPointIndex < entity.hitPoints.count; hitPointIndex++) {
-		PushRect(group, center + realOffset, pointSizeVec, 1.f, 0.f, 0.f, 1.f, {});
+		V3 rectCenter = center + V3{ realOffset.X, realOffset.Y, 0.f };
+		PushRect(group, rectCenter, pointSizeVec, 1.f, 0.f, 0.f, 1.f, {});
 		realOffset.X += (distBetween + pointSize);
 	}
 }
@@ -250,25 +251,29 @@ void InitializeHitPoints(Entity& entity, u32 nHitPoints, u32 amount, u32 max) {
 	entity.hitPoints.count = nHitPoints;
 }
 
+internal
+u32 AddGroundedEntity(World& world, EntityStorage& storage, u32 absX, u32 absY, u32 absZ) {
+	V3 offset = V3{ 0, 0, 0.5f * storage.entity.size.Z };
+	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ, offset);
+	return AddEntity(world, storage);
+}
+
 
 internal
 u32 AddWall(World& world, u32 absX, u32 absY, u32 absZ) {
 	// TODO: Instead of changing world position into chunk position for all the objects just
 	// call AddEntity() which will do it for ourselves
 	EntityStorage storage = {};
-	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
 	storage.entity.size = world.tileSizeInMeters;
 	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
 	storage.entity.type = EntityType_Wall;
-	return AddEntity(world, storage);
+	return AddGroundedEntity(world, storage, absX, absY, absZ);
 }
 
 
 internal
 u32 AddStairs(World& world, u32 absX, u32 absY, u32 absZ) {
 	EntityStorage storage = {};
-	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ, V3{0.f, 0.f, world.tileSizeInMeters.Z / 2.f});
-	// TODO this Z size should be EXACTLY tileSizeInMeters.Z, need to change that!!!
 	storage.entity.size = V3{ 
 		world.tileSizeInMeters.X, 
 		world.tileSizeInMeters.Y * 2,
@@ -276,7 +281,7 @@ u32 AddStairs(World& world, u32 absX, u32 absY, u32 absZ) {
 	};
 	SetFlag(storage.entity, EntityFlag_Overlaps);
 	storage.entity.type = EntityType_Stairs;
-	return AddEntity(world, storage);
+	return AddGroundedEntity(world, storage, absX, absY, absZ);
 }
 
 internal
@@ -302,18 +307,16 @@ u32 AddSword(World& world) {
 internal
 u32 AddMonster(World& world, u32 absX, u32 absY, u32 absZ) {
 	EntityStorage storage = {};
-	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
 	storage.entity.size = V3{ 1.0f, 1.25f, 0.25f };
 	SetFlag(storage.entity, EntityFlag_StopsOnCollide | EntityFlag_Movable);
 	storage.entity.type = EntityType_Monster;
 	InitializeHitPoints(storage.entity, 3, 1, 1);
-	return AddEntity(world, storage);
+	return AddGroundedEntity(world, storage, absX, absY, absZ);
 }
 
 internal
 u32 InitializePlayer(ProgramState* state) {
 	EntityStorage storage = {};
-	storage.entity.worldPos = GetChunkPositionFromWorldPosition(state->world, 8, 5, 0);
 	storage.entity.faceDir = 0;
 	storage.entity.type = EntityType_Player;
 	storage.entity.size = { state->world.tileSizeInMeters.X * 0.7f,
@@ -326,7 +329,7 @@ u32 InitializePlayer(ProgramState* state) {
 	swordStorage->entity.storageIndex = swIndex;
 	storage.entity.sword = &swordStorage->entity;
 	Assert(storage.entity.sword);
-	u32 index = AddEntity(state->world, storage);
+	u32 index = AddGroundedEntity(state->world, storage, 8, 5, 0);
 	Assert(index);
 	if (!state->cameraEntityIndex) {
 		state->cameraEntityIndex = index;
@@ -657,13 +660,14 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 			onStairs = true;
 		}
 	}
-	if (!onStairs && entity.pos.Z != simRegion.distanceToClosestGroundZ) {
+	// HERE GetEntityGroundLevel()
+	/*if (!onStairs && (entity.pos.Z - 0.5f * entity.size.Z) != simRegion.distanceToClosestGroundZ) {
 		if (entity.type == EntityType_Player) {
 			int breakHere = 5;
 		}
 		entity.pos.Z = -simRegion.distanceToClosestGroundZ;
 		entity.vel.Z = 0.f;
-	}
+	}*/
 
 	WorldPosition newEntityPos = OffsetWorldPosition(world, state->cameraPos, entity.pos);
 	// TODO: change location of ChangeEntityChunkLocation, it can be potentially problem in the future
@@ -955,21 +959,15 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 			Assert(playerControls);
 			acceleration = playerControls->acceleration;
-			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 0.f, 1.f, 1.f, 1.f, {});
-			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], entity->pos.XY, 1.f, entity->size.XY / 2.f);
-			RenderHitPoints(drawCalls, *entity, entity->pos.XY, V2{0.f, -0.5f}, 0.1f, 0.2f);
+			PushRect(drawCalls, entity->pos, entity->size, 0.f, 1.f, 1.f, 1.f, {});
+			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], entity->pos, 1.f, entity->size.XY / 2.f);
+			RenderHitPoints(drawCalls, *entity, entity->pos, V2{0.f, -0.6f}, 0.1f, 0.2f);
 		} break;
 		case EntityType_Wall: {
-			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 1.f, 1.f, 1.f, 1.f, {});
+			PushRect(drawCalls, entity->pos, entity->size, 1.f, 1.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Stairs: {
-			// TODO: This is extremaly janky, cause stairs are at height in the middle between
-			// two levels of ground, so collision handling is not in sync with render.
-			// Because of that, it seems like player is not colliding properly
-			// with the stairs, but drawing stairs without handling Z solves the problem
-			// Also it can be a problem with other entities which are not having Z coord
-			// equal to camera Z!
-			PushRect(drawCalls, V2{ entity->pos.X, entity->pos.Y - entity->pos.Z }, entity->size.XY, 0.f, 0.f, 0.f, 1.f, {});
+			PushRect(drawCalls, entity->pos, entity->size, 0.f, 0.f, 0.f, 1.f, {});
 		} break;
 		case EntityType_Familiar: {
 			f32 minDistance = Squared(10.f);
@@ -992,14 +990,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			acceleration.Z = 10.0f * sinf(6 * t);
 			t += input.dtFrame;
 			acceleration -= 10.0f * entity->vel;
-			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 0.f, 0.f, 1.f, 1.f, {});
+			PushRect(drawCalls, entity->pos, entity->size, 0.f, 0.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Monster: {
-			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 1.f, 0.5f, 0.f, 1.f, {});
-			RenderHitPoints(drawCalls, *entity, entity->pos.XY, V2{ 0.f, -0.8f }, 0.1f, 0.2f);
+			PushRect(drawCalls, entity->pos, entity->size, 1.f, 0.5f, 0.f, 1.f, {});
+			RenderHitPoints(drawCalls, *entity, entity->pos, V2{ 0.f, -0.9f }, 0.1f, 0.2f);
 		} break;
 		case EntityType_Sword: {
-			PushRect(drawCalls, entity->pos.XY, entity->size.XY, 0.f, 0.f, 0.f, 1.f, {});
+			PushRect(drawCalls, entity->pos, entity->size, 0.f, 0.f, 0.f, 1.f, {});
 			if (entity->distanceRemaining <= 0.f) {
 				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
 				MakeEntityNonSpatial(state, entity->storageIndex, *entity);
@@ -1013,8 +1011,12 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 		for (u32 drawCallIndex = 0; drawCallIndex < drawCalls.count; drawCallIndex++) {
 			DrawCall* call = drawCalls.drawCalls + drawCallIndex;
-			V2 center = { call->center.X * pixelsPerMeter + bitmap.width / 2.0f,
-						  scast(f32, bitmap.height) - call->center.Y * pixelsPerMeter - bitmap.height / 2.0f - entity->pos.Z * pixelsPerMeter};
+			V3 groundLevel = call->center - 0.5f * V3{ 0, 0, call->rectSize.Z };
+			V2 center = { groundLevel.X * pixelsPerMeter + bitmap.width / 2.0f,
+						  scast(f32, bitmap.height) - groundLevel.Y * pixelsPerMeter - bitmap.height / 2.0f - groundLevel.Z * pixelsPerMeter};
+			if (entity->type == EntityType_Player) {
+				int breakHere = 5;
+			}
 			if (call->bitmap) {
 				V2 offset = {
 					center.X - call->offset.X * pixelsPerMeter,
@@ -1023,8 +1025,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				RenderBitmap(bitmap, *call->bitmap, offset);
 			}
 			else {
-				V2 min = center - call->rectSize / 2.f * pixelsPerMeter;
-				V2 max = min + call->rectSize * pixelsPerMeter;
+				V2 min = center - call->rectSize.XY / 2.f * pixelsPerMeter;
+				V2 max = min + call->rectSize.XY * pixelsPerMeter;
 				RenderRectangle(bitmap, min, max, call->R, call->G, call->B);
 			}
 		}
