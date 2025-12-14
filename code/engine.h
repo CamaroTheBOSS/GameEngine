@@ -120,7 +120,13 @@ struct ProgramState {
 	PlayerControls playerControls[MAX_CONTROLLERS];
 	u32 cameraEntityIndex;
 	LoadedBitmap playerMoveAnim[4];
-	
+
+	CollisionVolumeGroup* wallCollision;
+	CollisionVolumeGroup* playerCollision;
+	CollisionVolumeGroup* monsterCollision;
+	CollisionVolumeGroup* familiarCollision;
+	CollisionVolumeGroup* swordCollision;
+	CollisionVolumeGroup* stairsCollision;
 	bool isInitialized;
 };
 

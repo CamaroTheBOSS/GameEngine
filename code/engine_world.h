@@ -54,13 +54,24 @@ struct HitPoints {
 	HP hitPoints[16];
 };
 
+struct CollisionVolume {
+	V3 offsetPos;
+	V3 size;
+};
+
+struct CollisionVolumeGroup {
+	CollisionVolume totalVolume; // Bounding box volume
+	u32 volumeCount;
+	CollisionVolume* volumes;
+};
+
 struct Entity {
 	u32 storageIndex;
 	V3 pos;
 	V3 vel;
 	EntityType type;
 	WorldPosition worldPos;
-	V3 size;
+	CollisionVolumeGroup* collision;
 	u32 faceDir;
 	u32 highEntityIndex;
 	HitPoints hitPoints;
@@ -70,7 +81,7 @@ struct Entity {
 	// Only Sword (or throwable)
 	f32 distanceRemaining;
 	// Only stairs
-	f32 stairsHeight;
+	V3 walkableDim;
 };
 
 struct EntityStorage {

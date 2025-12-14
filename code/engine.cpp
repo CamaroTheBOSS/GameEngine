@@ -252,67 +252,66 @@ void InitializeHitPoints(Entity& entity, u32 nHitPoints, u32 amount, u32 max) {
 }
 
 internal
-u32 AddGroundedEntity(World& world, EntityStorage& storage, u32 absX, u32 absY, u32 absZ) {
-	V3 offset = V3{ 0, 0, 0.5f * storage.entity.size.Z };
+u32 AddGroundedEntity(World& world, EntityStorage& storage, u32 absX, u32 absY, u32 absZ,
+	CollisionVolumeGroup* collision) {
+	V3 offset = V3{ 0, 0, 0.5f * collision->totalVolume.size.Z };
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ, offset);
+	storage.entity.collision = collision;
 	return AddEntity(world, storage);
 }
 
 
 internal
-u32 AddWall(World& world, u32 absX, u32 absY, u32 absZ) {
+u32 AddWall(ProgramState* state, World& world, u32 absX, u32 absY, u32 absZ) {
 	// TODO: Instead of changing world position into chunk position for all the objects just
 	// call AddEntity() which will do it for ourselves
 	EntityStorage storage = {};
-	storage.entity.size = world.tileSizeInMeters;
 	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
 	storage.entity.type = EntityType_Wall;
-	return AddGroundedEntity(world, storage, absX, absY, absZ);
+	return AddGroundedEntity(world, storage, absX, absY, absZ, state->wallCollision);
 }
 
 
 internal
-u32 AddStairs(World& world, u32 absX, u32 absY, u32 absZ) {
+u32 AddStairs(ProgramState* state, World& world, u32 absX, u32 absY, u32 absZ) {
 	EntityStorage storage = {};
-	storage.entity.size = V3{ 
-		world.tileSizeInMeters.X, 
-		world.tileSizeInMeters.Y * 2,
-		1.1f * world.tileSizeInMeters.Z 
+	storage.entity.walkableDim = V3{
+		state->stairsCollision->totalVolume.size.X,
+		state->stairsCollision->totalVolume.size.Y,
+		world.tileSizeInMeters.Z
 	};
-	storage.entity.stairsHeight = world.tileSizeInMeters.Z;
 	SetFlag(storage.entity, EntityFlag_Overlaps);
 	storage.entity.type = EntityType_Stairs;
-	return AddGroundedEntity(world, storage, absX, absY, absZ);
+	return AddGroundedEntity(world, storage, absX, absY, absZ, state->stairsCollision);
 }
 
 internal
-u32 AddFamiliar(World& world, u32 absX, u32 absY, u32 absZ) {
+u32 AddFamiliar(ProgramState* state, World& world, u32 absX, u32 absY, u32 absZ) {
 	EntityStorage storage = {};
 	storage.entity.worldPos = GetChunkPositionFromWorldPosition(world, absX, absY, absZ);
-	storage.entity.size = V3{ 1.0f, 1.25f, 0.25f };
 	storage.entity.type = EntityType_Familiar;
+	storage.entity.collision = state->familiarCollision;
 	SetFlag(storage.entity, EntityFlag_Movable);
 	return AddEntity(world, storage);
 }
 
 internal
-u32 AddSword(World& world) {
+u32 AddSword(ProgramState* state, World& world) {
 	EntityStorage storage = {};
 	storage.entity.worldPos = NullPosition();
-	storage.entity.size = V3{ 0.5f, 0.5f, 0.25f };
+	storage.entity.collision = state->swordCollision;
 	storage.entity.type = EntityType_Sword;
 	SetFlag(storage.entity, EntityFlag_Movable);
 	return AddEntity(world, storage);
 }
 
 internal
-u32 AddMonster(World& world, u32 absX, u32 absY, u32 absZ) {
+u32 AddMonster(ProgramState* state, World& world, u32 absX, u32 absY, u32 absZ) {
 	EntityStorage storage = {};
-	storage.entity.size = V3{ 1.0f, 1.25f, 0.25f };
 	SetFlag(storage.entity, EntityFlag_StopsOnCollide | EntityFlag_Movable);
 	storage.entity.type = EntityType_Monster;
 	InitializeHitPoints(storage.entity, 3, 1, 1);
-	return AddGroundedEntity(world, storage, absX, absY, absZ);
+	return AddGroundedEntity(world, storage, absX, absY, absZ, state->monsterCollision);
 }
 
 internal
@@ -320,17 +319,14 @@ u32 InitializePlayer(ProgramState* state) {
 	EntityStorage storage = {};
 	storage.entity.faceDir = 0;
 	storage.entity.type = EntityType_Player;
-	storage.entity.size = { state->world.tileSizeInMeters.X * 0.7f,
-							state->world.tileSizeInMeters.Y * 0.4f,
-							0.25f };
 	SetFlag(storage.entity, EntityFlag_StopsOnCollide | EntityFlag_Movable);
 	InitializeHitPoints(storage.entity, 4, 1, 1);
-	u32 swIndex = AddSword(state->world);
+	u32 swIndex = AddSword(state, state->world);
 	EntityStorage* swordStorage = GetEntityStorage(state->world, swIndex);
 	swordStorage->entity.storageIndex = swIndex;
 	storage.entity.sword = &swordStorage->entity;
 	Assert(storage.entity.sword);
-	u32 index = AddGroundedEntity(state->world, storage, 8, 5, 0);
+	u32 index = AddGroundedEntity(state->world, storage, 8, 5, 0, state->playerCollision);
 	Assert(index);
 	if (!state->cameraEntityIndex) {
 		state->cameraEntityIndex = index;
@@ -471,24 +467,27 @@ bool ShouldCollide(World& world, u32 firstStorageIndex, u32 secondStorageIndex) 
 
 inline
 V3 GetEntityGroundLevel(Entity& entity) {
-	V3 result = entity.pos - V3{ 0, 0, 0.5f * entity.size.Z };
+	V3 result = entity.pos - V3{ 0, 0, 0.5f * entity.collision->totalVolume.size.Z };
 	return result;
 }
 
 inline
 void SetEntityGroundLevel(Entity& entity, f32 newGroundLevel) {
-	entity.pos.Z = newGroundLevel + 0.5f * entity.size.Z;
+	entity.pos.Z = newGroundLevel + 0.5f * entity.collision->totalVolume.size.Z;
 }
 
 internal
 void HandleOverlap(World& world, Entity& mover, Entity& obstacle, f32* ground) {
 	if (mover.type == EntityType_Player && obstacle.type == EntityType_Stairs) {
 		Assert(obstacle.type == EntityType_Stairs);
-		V3 normalizedPos = PointRelativeToRect(GetRectFromCenterDim(obstacle.pos, obstacle.size), mover.pos);
+		V3 normalizedPos = PointRelativeToRect(
+			GetRectFromCenterDim(obstacle.pos, obstacle.walkableDim), 
+			mover.pos
+		);
 		f32 stairsLowerPosZ = GetEntityGroundLevel(obstacle).Z;
-		f32 stairsUpperPosZ = stairsLowerPosZ + obstacle.size.Z;
-		*ground = stairsLowerPosZ + normalizedPos.Y * obstacle.stairsHeight;
-		*ground = Clip(*ground, stairsLowerPosZ, stairsUpperPosZ);
+		f32 stairsUpperPosZ = stairsLowerPosZ + obstacle.walkableDim.Z;
+		*ground = stairsLowerPosZ + normalizedPos.Y * obstacle.walkableDim.Z;
+		//*ground = Clip(*ground, stairsLowerPosZ, stairsUpperPosZ);
 	}
 }
 
@@ -512,7 +511,8 @@ bool HandleCollision(World& world, Entity& mover, Entity& obstacle) {
 	}
 	if (mover.type == EntityType_Player && obstacle.type == EntityType_Stairs) {
 		V3 normMoverPos = PointRelativeToRect(
-			GetRectFromCenterDim(obstacle.pos, obstacle.size), mover.pos
+			GetRectFromCenterDim(obstacle.pos, obstacle.walkableDim), 
+			mover.pos
 		);
 		if (normMoverPos.Z < 0.5f && normMoverPos.Y < 0.1f ||
 			normMoverPos.Z >= 0.5f && normMoverPos.Y >= 0.9f) {
@@ -523,6 +523,15 @@ bool HandleCollision(World& world, Entity& mover, Entity& obstacle) {
 		}
 	}
 	return stopOnCollide;
+}
+
+CollisionVolumeGroup* MakeGroundedCollisionGroup(ProgramState* state, V3 size) {
+	CollisionVolumeGroup *group = ptrcast(CollisionVolumeGroup, PushStructSize(state->world.arena, CollisionVolumeGroup));
+	group->volumeCount = 1;
+	group->volumes = ptrcast(CollisionVolume, PushArray(state->world.arena, group->volumeCount, CollisionVolume));
+	group->volumes[0].size = size;
+	group->totalVolume = group->volumes[0];
+	return group;
 }
 
 //void QuickSortHitEntitiesByAscendingT(HitEntity* array, u32 low, u32 high) {
@@ -574,48 +583,53 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 			if (!other || IsFlagSet(*other, EntityFlag_NonSpatial) || other->storageIndex == entity.storageIndex) {
 				continue;
 			}
+			for (u32 entityVolumeIndex = 0; entityVolumeIndex < entity.collision->volumeCount; entityVolumeIndex++) {
+				CollisionVolume* entityVolume = entity.collision->volumes + entityVolumeIndex;
+				for (u32 obstacleVolumeIndex = 0; obstacleVolumeIndex < other->collision->volumeCount; obstacleVolumeIndex++) {
+					CollisionVolume* obstacleVolume = other->collision->volumes + obstacleVolumeIndex;
+					
+					V3 diff = other->pos + obstacleVolume->offsetPos - entity.pos - entityVolume->offsetPos;
+					V3 minCorner = diff - 0.5f * obstacleVolume->size - 0.5f * entityVolume->size;
+					V3 maxCorner = diff + 0.5f * obstacleVolume->size + 0.5f * entityVolume->size;
 
-			V3 diff = other->pos - entity.pos;
-			V3 minCorner = diff - 0.5f * other->size - 0.5f * entity.size;
-			V3 maxCorner = diff + 0.5f * other->size + 0.5f * entity.size;
+					// TODO: Handle Z axis in collisions more properly
+					if (entity.pos.Z + entityVolume->offsetPos.Z >= maxCorner.Z ||
+						entity.pos.Z + entityVolume->offsetPos.Z < minCorner.Z) {
+						continue;
+					}
+					if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
+						int breakHere = 5;
+					}
+					// TODO: When hit test is true for specific entity pair: 
+					// we can break from volume/volume O^2 loop as a optimization
+					if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
+						moveDelta.Y, &tMin)) {
+						// Right wall
+						wallNormal = { 1.f, 0.f, 0.f };
+						hitEntity = other;
+					}
+					if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
+						moveDelta.Y, &tMin)) {
+						// Left wall
+						wallNormal = { -1.f, 0.f, 0.f };
+						hitEntity = other;
+					}
+					if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
+						moveDelta.X, &tMin)) {
+						// Bottom wall
+						wallNormal = { 0.f, 1.f, 0.f };
+						hitEntity = other;
+					}
+					if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
+						moveDelta.X, &tMin)) {
+						// Top wall
+						wallNormal = { 0.f, -1.f, 0.f };
+						hitEntity = other;
+					}
+				}
+			}
 
-			// TODO: Handle Z axis in collisions more properly
-			if (entity.pos.Z >= maxCorner.Z ||
-				entity.pos.Z < minCorner.Z) {
-				continue;
-			}
-			bool hit = false;
-			if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
-				int breakHere = 5;
-			}
-			if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
-				moveDelta.Y, &tMin)) {
-				// Right wall
-				wallNormal = { 1.f, 0.f, 0.f };
-				hitEntity = other;
-				hit = true;
-			}
-			if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
-				moveDelta.Y, &tMin)) {
-				// Left wall
-				wallNormal = { -1.f, 0.f, 0.f };
-				hitEntity = other;
-				hit = true;
-			}
-			if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
-				moveDelta.X, &tMin)) {
-				// Bottom wall
-				wallNormal = { 0.f, 1.f, 0.f };
-				hitEntity = other;
-				hit = true;
-			}
-			if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
-				moveDelta.X, &tMin)) {
-				// Top wall
-				wallNormal = { 0.f, -1.f, 0.f };
-				hitEntity = other;
-				hit = true;
-			}
+			
 		}
 
 		entity.pos += moveDelta * tMin;
@@ -656,21 +670,27 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 	// TODO: (maybe it should be done more precisely for simulation with larger dt)
 	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 		Entity* other = simRegion.entities + entityIndex;
-		if (!other || IsFlagSet(*other, EntityFlag_NonSpatial) || 
+		if (!other || IsFlagSet(*other, EntityFlag_NonSpatial) ||
 			other->storageIndex == entity.storageIndex) {
 			continue;
 		}
-		if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
-			int breakHere = 5;
-		}
-		if (!EntityOverlapsWithRegion(entity.pos, entity.size, 
-			GetRectFromCenterDim(other->pos, other->size)
-		)) {
-			continue;
-		}
-		Assert(overlapEntityCount < ArrayCount(overlapEntities));
-		if (overlapEntityCount < ArrayCount(overlapEntities)) {
-			overlapEntities[overlapEntityCount++] = entityIndex;
+		for (u32 entityVolumeIndex = 0; entityVolumeIndex < entity.collision->volumeCount; entityVolumeIndex++) {
+			CollisionVolume* entityVolume = entity.collision->volumes + entityVolumeIndex;
+			for (u32 obstacleVolumeIndex = 0; obstacleVolumeIndex < other->collision->volumeCount; obstacleVolumeIndex++) {
+				CollisionVolume* obstacleVolume = other->collision->volumes + obstacleVolumeIndex;
+				if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
+					int breakHere = 5;
+				}
+				if (!EntityOverlapsWithRegion(entity.pos + entityVolume->offsetPos, entityVolume->size,
+					GetRectFromCenterDim(other->pos + obstacleVolume->offsetPos, obstacleVolume->size)
+				)) {
+					continue;
+				}
+				Assert(overlapEntityCount < ArrayCount(overlapEntities));
+				if (overlapEntityCount < ArrayCount(overlapEntities)) {
+					overlapEntities[overlapEntityCount++] = entityIndex;
+				}
+			}
 		}
 	}
 
@@ -737,6 +757,18 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		world.arena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
 		world.arena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
 		world.arena.used = 0;
+
+		state->wallCollision = MakeGroundedCollisionGroup(state, world.tileSizeInMeters);
+		state->playerCollision = MakeGroundedCollisionGroup(state, V3{1.0f, 0.55f, 0.25f});
+		state->monsterCollision = MakeGroundedCollisionGroup(state, V3{ 1.0f, 1.25f, 0.25f });
+		state->familiarCollision = MakeGroundedCollisionGroup(state, V3{ 1.0f, 1.25f, 0.25f });
+		state->swordCollision = MakeGroundedCollisionGroup(state, V3{ 0.5f, 0.5f, 0.25f });
+		state->stairsCollision = MakeGroundedCollisionGroup(
+			state,
+			V3{ world.tileSizeInMeters.X, 
+				2.0f * world.tileSizeInMeters.Y, 
+				1.1f * world.tileSizeInMeters.Z }
+		);
 
 		state->highFreqBoundDim = 30.f;
 		state->highFreqBoundHeight = 1.2f;
@@ -841,10 +873,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					}
 					// TODO: Chunk allocation on demand
 					if (tileValue == 2) {
-						AddWall(world, absTileX, absTileY, absTileZ);
+						AddWall(state, world, absTileX, absTileY, absTileZ);
 					}
 					if (putStairs) {
-						AddStairs(world, absTileX, absTileY, absTileZ);
+						AddStairs(state, world, absTileX, absTileY, absTileZ);
 					}
 					
 				}
@@ -868,8 +900,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				lvlJustChanged = false;
 			}
 		}
-		AddFamiliar(world, 17 / 2, 9 / 2, 0);
-		AddMonster(world, 17 / 2, 7, 0);
+		AddFamiliar(state, world, 17 / 2, 9 / 2, 0);
+		AddMonster(state, world, 17 / 2, 7, 0);
 		//AddWall(world, 3, 3, 14);
 
 		state->isInitialized = true;
@@ -922,16 +954,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (controller.isMouseLDown && IsFlagSet(*entity->sword, EntityFlag_NonSpatial)) {
 			entity->sword->distanceRemaining = 5.f;
 			V2 mousePos = MapScreenSpacePosIntoCameraSpace(controller.mouseX, controller.mouseY, bitmap.width, bitmap.height);
-			//mousePos -= entity->sword->size / 2.f;
-			
-#if 0
-			EntityStorage storage = {};
-			storage.entity.worldPos = OffsetWorldPosition(world, state->cameraPos, mousePos);
-			storage.entity.size = world.tileSizeInMeters;
-			SetFlag(storage.entity, EntityFlag_Collide);
-			storage.entity.type = EntityType_Wall;
-			AddEntity(world, storage);
-#endif
 			f32 mouseVecLength = Length(mousePos);
 			f32 projectileSpeed = 5.f;
 			if (mouseVecLength != 0.f) {
@@ -978,16 +1000,18 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 			Assert(playerControls);
 			acceleration = playerControls->acceleration;
-			PushRect(drawCalls, entity->pos, entity->size, 0.f, 1.f, 1.f, 1.f, {});
-			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], entity->pos, 1.f, entity->size.XY / 2.f);
+			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.f, 1.f, 1.f, 1.f, {});
+			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], entity->pos, 1.f, 
+				entity->collision->totalVolume.size.XY / 2.f);
 			RenderHitPoints(drawCalls, *entity, entity->pos, V2{0.f, -0.6f}, 0.1f, 0.2f);
 		} break;
 		case EntityType_Wall: {
-			PushRect(drawCalls, entity->pos, entity->size, 1.f, 1.f, 1.f, 1.f, {});
+			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 1.f, 1.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Stairs: {
-			PushRect(drawCalls, entity->pos, entity->size, 0.2f, 0.2f, 0.2f, 1.f, {});
-			PushRect(drawCalls, entity->pos + V3{ 0, 0, entity->size.Z }, entity->size, 0.f, 0.f, 0.f, 1.f, {});
+			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.2f, 0.2f, 0.2f, 1.f, {});
+			PushRect(drawCalls, entity->pos + V3{ 0, 0, entity->collision->totalVolume.size.Z }, 
+				entity->collision->totalVolume.size, 0.f, 0.f, 0.f, 1.f, {});
 		} break;
 		case EntityType_Familiar: {
 			f32 minDistance = Squared(10.f);
@@ -1010,14 +1034,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			acceleration.Z = 10.0f * sinf(6 * t);
 			t += input.dtFrame;
 			acceleration -= 10.0f * entity->vel;
-			PushRect(drawCalls, entity->pos, entity->size, 0.f, 0.f, 1.f, 1.f, {});
+			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.f, 0.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Monster: {
-			PushRect(drawCalls, entity->pos, entity->size, 1.f, 0.5f, 0.f, 1.f, {});
+			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 1.f, 0.5f, 0.f, 1.f, {});
 			RenderHitPoints(drawCalls, *entity, entity->pos, V2{ 0.f, -0.9f }, 0.1f, 0.2f);
 		} break;
 		case EntityType_Sword: {
-			PushRect(drawCalls, entity->pos, entity->size, 0.f, 0.f, 0.f, 1.f, {});
+			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.f, 0.f, 0.f, 1.f, {});
 			if (entity->distanceRemaining <= 0.f) {
 				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
 				MakeEntityNonSpatial(state, entity->storageIndex, *entity);
