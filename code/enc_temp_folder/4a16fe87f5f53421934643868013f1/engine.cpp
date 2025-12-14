@@ -986,8 +986,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			PushRect(drawCalls, entity->pos, entity->size, 1.f, 1.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Stairs: {
-			PushRect(drawCalls, entity->pos, entity->size, 0.2f, 0.2f, 0.2f, 1.f, {});
-			PushRect(drawCalls, entity->pos + V3{ 0, 0, entity->size.Z }, entity->size, 0.f, 0.f, 0.f, 1.f, {});
+			PushRect(drawCalls, GetEntityGroundLevel(*entity), entity->size, 0.2f, 0.2f, 0.2f, 1.f, {});
+			PushRect(drawCalls, GetEntityGroundLevel(*entity) + V3{ 0, 0, 0.5f * entity->size.Z }, entity->size, 0.1f, 0.1f, 0.1f, 1.f, {});
+			PushRect(drawCalls, GetEntityGroundLevel(*entity) + V3{ 0, 0, entity->size.Z }, entity->size, 0.f, 0.f, 0.f, 1.f, {});
 		} break;
 		case EntityType_Familiar: {
 			f32 minDistance = Squared(10.f);
@@ -1034,7 +1035,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			V3 groundLevel = call->center - 0.5f * V3{ 0, 0, call->rectSize.Z };
 			f32 zFudge = 0.1f * groundLevel.Z;
 			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + bitmap.width / 2.0f,
-						  scast(f32, bitmap.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - bitmap.height / 2.0f - groundLevel.Z * pixelsPerMeter };
+						  scast(f32, bitmap.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - bitmap.height / 2.0f /*- groundLevel.Z * pixelsPerMeter*/ };
 			if (entity->type == EntityType_Player) {
 				int breakHere = 5;
 			}
