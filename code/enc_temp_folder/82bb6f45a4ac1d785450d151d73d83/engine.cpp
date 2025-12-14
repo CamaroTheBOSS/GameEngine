@@ -118,13 +118,13 @@ void RenderRectangle(BitmapData& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B) 
 
 internal
 void RenderRectBorders(DrawCallGroup& group, V3 center, V3 size, f32 thickness) {
-	PushRect(group, center - V3{ 0.5f * size.X, 0, 0 },
+	PushRect(group, center - V3{ 0.5f * (size.X - thickness), 0, 0 },
 		V3{ thickness, size.Y, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
-	PushRect(group, center + V3{ 0.5f * size.X, 0, 0 },
+	PushRect(group, center + V3{ 0.5f * (size.X - thickness), 0, 0 },
 		V3{ thickness, size.Y, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
-	PushRect(group, center - V3{ 0, 0.5f * size.Y, 0 },
+	PushRect(group, center - V3{ 0, 0.5f * (size.Y - thickness), 0 },
 		V3{ size.X, thickness, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
-	PushRect(group, center + V3{ 0, 0.5f * size.Y, 0 },
+	PushRect(group, center + V3{ 0, 0.5f * (size.Y - thickness), 0 },
 		V3{ size.X, thickness, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
 }
 
@@ -1058,7 +1058,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		} break;
 		case EntityType_Space: {
-			RenderRectBorders(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.2f);
+			RenderRectBorders(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.1f);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
 		}
@@ -1072,8 +1072,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			f32 zFudge = 0.1f * groundLevel.Z;
 			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + bitmap.width / 2.0f,
 						  scast(f32, bitmap.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - bitmap.height / 2.0f - groundLevel.Z * pixelsPerMeter };
-			V2 size = { (1.f + zFudge) * call->rectSize.X,
-						(1.f + zFudge) * call->rectSize.Y };
 			if (entity->type == EntityType_Player) {
 				int breakHere = 5;
 			}
@@ -1085,8 +1083,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				RenderBitmap(bitmap, *call->bitmap, offset);
 			}
 			else {
-				V2 min = center - size / 2.f * pixelsPerMeter;
-				V2 max = min + size * pixelsPerMeter;
+				V2 min = center - call->rectSize.XY / 2.f * pixelsPerMeter;
+				V2 max = min + call->rectSize.XY * pixelsPerMeter;
 				RenderRectangle(bitmap, min, max, call->R, call->G, call->B);
 			}
 		}

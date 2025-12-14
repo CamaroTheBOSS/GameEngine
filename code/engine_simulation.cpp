@@ -16,8 +16,6 @@ u32 AddEntity(World& world, EntityStorage& storage) {
 internal
 EntityStorage* GetEntityStorage(World& world, u32 storageEntityIndex) {
 	EntityStorage* storage = 0;
-	// TODO: should I keep this assertion?
-	//Assert(storageEntityIndex > 0 && storageEntityIndex < state->storageEntityCount);
 	if (storageEntityIndex > 0 && storageEntityIndex < world.storageEntityCount) {
 		storage = &world.storageEntities[storageEntityIndex];
 	}

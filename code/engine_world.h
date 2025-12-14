@@ -35,6 +35,7 @@ enum EntityType {
 	EntityType_Monster,
 	EntityType_Sword,
 	EntityType_Stairs,
+	EntityType_Space,
 };
 
 enum EntityFlag : u32 {
@@ -42,6 +43,7 @@ enum EntityFlag : u32 {
 	EntityFlag_NonSpatial		= (1 << 1),
 	EntityFlag_Overlaps			= (1 << 2),
 	EntityFlag_Movable			= (1 << 3),
+	EntityFlag_Traversable		= (1 << 4),
 };
 
 struct HP {
