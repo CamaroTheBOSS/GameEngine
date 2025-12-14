@@ -159,7 +159,7 @@ f32 GetHeightFromTheClosestGroundLevel(World& world, WorldPosition& pos) {
 internal
 f32 GetDistanceToTheClosestGroundLevel(World& world, WorldPosition& pos) {
 	u32 heightRelToChunk = RoundF32ToU32(pos.offset.Z / world.tileSizeInMeters.Z);
-	return pos.offset.Z - heightRelToChunk * world.tileSizeInMeters.Z;
+	return heightRelToChunk * world.tileSizeInMeters.Z - pos.offset.Z;
 }
 
 internal

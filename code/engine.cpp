@@ -489,7 +489,6 @@ void HandleOverlap(World& world, Entity& mover, Entity& obstacle, f32* ground) {
 		f32 stairsUpperPosZ = stairsLowerPosZ + obstacle.size.Z;
 		*ground = stairsLowerPosZ + normalizedPos.Y * obstacle.stairsHeight;
 		*ground = Clip(*ground, stairsLowerPosZ, stairsUpperPosZ);
-		SetEntityGroundLevel(mover, *ground);
 	}
 }
 
@@ -672,22 +671,19 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 		}
 	}
 
-	bool onStairs = false;
-	f32 ground = GetEntityGroundLevel(entity).Z;
+	f32 ground = simRegion.distanceToClosestGroundZ;
 	for (u32 overlapEntityIdx = 0; overlapEntityIdx < overlapEntityCount; overlapEntityIdx++) {
 		Entity* other = simRegion.entities + overlapEntities[overlapEntityIdx];
 		HandleOverlap(world, entity, *other, &ground);
-		if (other->type == EntityType_Stairs) {
-			onStairs = true;
-		}
 	}
-	/*if (!onStairs && ground != simRegion.distanceToClosestGroundZ) {
+	f32 entityGroundLevel = GetEntityGroundLevel(entity).Z;
+	if (entityGroundLevel != ground) {
 		if (entity.type == EntityType_Player) {
 			int breakHere = 5;
 		}
-		entity.pos.Z = -simRegion.distanceToClosestGroundZ;
+		SetEntityGroundLevel(entity, ground);
 		entity.vel.Z = 0.f;
-	}*/
+	}
 
 	WorldPosition newEntityPos = OffsetWorldPosition(world, state->cameraPos, entity.pos);
 	// TODO: change location of ChangeEntityChunkLocation, it can be potentially problem in the future
