@@ -118,13 +118,13 @@ void RenderRectangle(BitmapData& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B) 
 
 internal
 void RenderRectBorders(DrawCallGroup& group, V3 center, V3 size, f32 thickness) {
-	PushRect(group, center - V3{ 0.5f * (size.X - thickness), 0, 0 },
+	PushRect(group, center - V3{ 0.5f * size.X, 0, 0 },
 		V3{ thickness, size.Y, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
-	PushRect(group, center + V3{ 0.5f * (size.X - thickness), 0, 0 },
+	PushRect(group, center + V3{ 0.5f * size.X, 0, 0 },
 		V3{ thickness, size.Y, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
-	PushRect(group, center - V3{ 0, 0.5f * (size.Y - thickness), 0 },
+	PushRect(group, center - V3{ 0, 0.5f * size.Y, 0 },
 		V3{ size.X, thickness, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
-	PushRect(group, center + V3{ 0, 0.5f * (size.Y - thickness), 0 },
+	PushRect(group, center + V3{ 0, 0.5f * size.Y, 0 },
 		V3{ size.X, thickness, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
 }
 
@@ -364,6 +364,22 @@ bool TestForCollision(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDe
 	return false;
 }
 
+bool TestForCollision2(f32 maxCornerX, f32 maxCornerY, f32 minCornerY, f32 moveDeltaX,
+	f32 moveDeltaY, f32* tMax) {
+	if (moveDeltaX != 0) {
+		f32 tEpsilon = 0.001f;
+		f32 tCollision = maxCornerX / moveDeltaX;
+		if (tCollision >= 0.f && tCollision < *tMax) {
+			f32 Y = moveDeltaY * tCollision;
+			if (Y >= minCornerY && Y < maxCornerY) {
+				*tMax = tCollision - tEpsilon;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 inline
 u32 GetCollisionHashValue(World& world, u32 hashEntry) {
 	Assert(hashEntry);
@@ -505,11 +521,35 @@ void HandleOverlap(World& world, Entity& mover, Entity& obstacle, f32* ground) {
 	}
 }
 
+internal 
+bool EntitiesOverlaps(Entity& entity, Entity& other) {
+	for (u32 entityVolumeIndex = 0;
+		entityVolumeIndex < entity.collision->volumeCount;
+		entityVolumeIndex++) {
+		CollisionVolume* entityVolume = entity.collision->volumes + entityVolumeIndex;
+		for (u32 obstacleVolumeIndex = 0;
+			obstacleVolumeIndex < other.collision->volumeCount;
+			obstacleVolumeIndex++) {
+			CollisionVolume* obstacleVolume = other.collision->volumes + obstacleVolumeIndex;
+			if (EntityOverlapsWithRegion(entity.pos + entityVolume->offsetPos, entityVolume->size,
+				GetRectFromCenterDim(other.pos + obstacleVolume->offsetPos, obstacleVolume->size)
+			)) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 internal
 bool HandleCollision(World& world, Entity& mover, Entity& obstacle) {
 	// TODO: Think of better approach of collision handling. This is prototype
-	bool stopOnCollide = (IsFlagSet(mover, EntityFlag_StopsOnCollide) && 
-		IsFlagSet(obstacle, EntityFlag_StopsOnCollide));
+	bool stopOnCollide = (
+		(IsFlagSet(mover, EntityFlag_StopsOnCollide) && 
+		IsFlagSet(obstacle, EntityFlag_StopsOnCollide)) ||
+		IsFlagSet(obstacle, EntityFlag_Traversable)
+	);
+
 	if (mover.type == EntityType_Familiar && obstacle.type == EntityType_Wall) {
 		stopOnCollide = true;
 	}
@@ -579,68 +619,144 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 	// TODO: G.J.K algorithm for other collision shapes like circles, elipses etc.
 	for (u32 iteration = 0; iteration < 4; iteration++) {
 		f32 tMin = 1.0f;
-		V3 wallNormal = {};
+		f32 tMax = 0.0f;
+		V3 wallNormalMin = {};
+		V3 wallNormalMax = {};
+		Entity* hitEntityMin = 0;
+		Entity* hitEntityMax = 0;
 		V3 desiredPosition = entity.pos + moveDelta;
-		Entity* hitEntity = 0;
-
 		for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 			Entity* other = simRegion.entities + entityIndex;
 			if (!other || IsFlagSet(*other, EntityFlag_NonSpatial) || other->storageIndex == entity.storageIndex) {
 				continue;
 			}
-			for (u32 entityVolumeIndex = 0; entityVolumeIndex < entity.collision->volumeCount; entityVolumeIndex++) {
-				CollisionVolume* entityVolume = entity.collision->volumes + entityVolumeIndex;
-				for (u32 obstacleVolumeIndex = 0; obstacleVolumeIndex < other->collision->volumeCount; obstacleVolumeIndex++) {
-					CollisionVolume* obstacleVolume = other->collision->volumes + obstacleVolumeIndex;
-					
-					V3 diff = other->pos + obstacleVolume->offsetPos - entity.pos - entityVolume->offsetPos;
-					V3 minCorner = diff - 0.5f * obstacleVolume->size - 0.5f * entityVolume->size;
-					V3 maxCorner = diff + 0.5f * obstacleVolume->size + 0.5f * entityVolume->size;
+#if 0
+			if (IsFlagSet(*other, EntityFlag_Traversable)) {
+				if (entity.type == EntityType_Player) {
+					int breakHere = 0;
+				}
+				if (!EntitiesOverlaps(entity, *other)) {
+					continue;
+				}
+				f32 tSearch = tMax;
+				for (u32 entityVolumeIndex = 0; entityVolumeIndex < entity.collision->volumeCount; entityVolumeIndex++) {
+					CollisionVolume* entityVolume = entity.collision->volumes + entityVolumeIndex;
+					for (u32 obstacleVolumeIndex = 0; obstacleVolumeIndex < other->collision->volumeCount; obstacleVolumeIndex++) {
+						CollisionVolume* obstacleVolume = other->collision->volumes + obstacleVolumeIndex;
 
-					// TODO: Handle Z axis in collisions more properly
-					if (entity.pos.Z + entityVolume->offsetPos.Z >= maxCorner.Z ||
-						entity.pos.Z + entityVolume->offsetPos.Z < minCorner.Z) {
-						continue;
-					}
-					if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
-						int breakHere = 5;
-					}
-					// TODO: When hit test is true for specific entity pair: 
-					// we can break from volume/volume O^2 loop as a optimization
-					if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
-						moveDelta.Y, &tMin)) {
-						// Right wall
-						wallNormal = { 1.f, 0.f, 0.f };
-						hitEntity = other;
-					}
-					if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
-						moveDelta.Y, &tMin)) {
-						// Left wall
-						wallNormal = { -1.f, 0.f, 0.f };
-						hitEntity = other;
-					}
-					if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
-						moveDelta.X, &tMin)) {
-						// Bottom wall
-						wallNormal = { 0.f, 1.f, 0.f };
-						hitEntity = other;
-					}
-					if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
-						moveDelta.X, &tMin)) {
-						// Top wall
-						wallNormal = { 0.f, -1.f, 0.f };
-						hitEntity = other;
+						V3 diff = other->pos + obstacleVolume->offsetPos - entity.pos - entityVolume->offsetPos;
+						V3 minCorner = diff - 0.5f * obstacleVolume->size - 0.5f * entityVolume->size;
+						V3 maxCorner = diff + 0.5f * obstacleVolume->size + 0.5f * entityVolume->size;
+						if (entity.type == EntityType_Player) {
+							int breakHere = 5;
+						}
+
+						// TODO: Handle Z axis in collisions more properly
+						if (entity.pos.Z + entityVolume->offsetPos.Z >= maxCorner.Z ||
+							entity.pos.Z + entityVolume->offsetPos.Z < minCorner.Z) {
+							continue;
+						}
+						// TODO: When hit test is true for specific entity pair: 
+						// we can break from volume/volume O^2 loop as a optimization
+						if (TestForCollision2(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
+							moveDelta.Y, &tSearch)) {
+							// Right wall
+							wallNormalMax = { -1.f, 0.f, 0.f };
+							hitEntityMax = other;
+						}
+						if (TestForCollision2(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
+							moveDelta.Y, &tSearch)) {
+							// Left wall
+							wallNormalMax = { 1.f, 0.f, 0.f };
+							hitEntityMax = other;
+						}
+						if (TestForCollision2(maxCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
+							moveDelta.X, &tSearch)) {
+							// Bottom wall
+							wallNormalMax = { 0.f, -1.f, 0.f };
+							hitEntityMax = other;
+						}
+						if (TestForCollision2(minCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
+							moveDelta.X, &tSearch)) {
+							// Top wall
+							wallNormalMax = { 0.f, 1.f, 0.f };
+							hitEntityMax = other;
+						}
 					}
 				}
+				if (tSearch > tMax) {
+					tMax = tSearch;
+				}
 			}
+			else {
+#endif
+				for (u32 entityVolumeIndex = 0; entityVolumeIndex < entity.collision->volumeCount; entityVolumeIndex++) {
+					CollisionVolume* entityVolume = entity.collision->volumes + entityVolumeIndex;
+					for (u32 obstacleVolumeIndex = 0; obstacleVolumeIndex < other->collision->volumeCount; obstacleVolumeIndex++) {
+						CollisionVolume* obstacleVolume = other->collision->volumes + obstacleVolumeIndex;
 
-			
+						V3 diff = other->pos + obstacleVolume->offsetPos - entity.pos - entityVolume->offsetPos;
+						V3 minCorner = diff - 0.5f * obstacleVolume->size - 0.5f * entityVolume->size;
+						V3 maxCorner = diff + 0.5f * obstacleVolume->size + 0.5f * entityVolume->size;
+
+						// TODO: Handle Z axis in collisions more properly
+						if (entity.pos.Z + entityVolume->offsetPos.Z >= maxCorner.Z ||
+							entity.pos.Z + entityVolume->offsetPos.Z < minCorner.Z) {
+							continue;
+						}
+						if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
+							int breakHere = 5;
+						}
+						// TODO: When hit test is true for specific entity pair: 
+						// we can break from volume/volume O^2 loop as a optimization
+						if (TestForCollision(maxCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
+							moveDelta.Y, &tMin)) {
+							// Right wall
+							wallNormalMin = { 1.f, 0.f, 0.f };
+							hitEntityMin = other;
+						}
+						if (TestForCollision(minCorner.X, maxCorner.Y, minCorner.Y, moveDelta.X,
+							moveDelta.Y, &tMin)) {
+							// Left wall
+							wallNormalMin = { -1.f, 0.f, 0.f };
+							hitEntityMin = other;
+						}
+						if (TestForCollision(maxCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
+							moveDelta.X, &tMin)) {
+							// Bottom wall
+							wallNormalMin = { 0.f, 1.f, 0.f };
+							hitEntityMin = other;
+						}
+						if (TestForCollision(minCorner.Y, maxCorner.X, minCorner.X, moveDelta.Y,
+							moveDelta.X, &tMin)) {
+							// Top wall
+							wallNormalMin = { 0.f, -1.f, 0.f };
+							hitEntityMin = other;
+						}
+					}
+				}
+			//}			
 		}
-
-		entity.pos += moveDelta * tMin;
+		if (entity.type == EntityType_Player) {
+			int breakHere = 5;
+		}
+		f32 tMove;
+		Entity* hitEntity;
+		V3 wallNormal;
+		//if (tMin < tMax) {
+			tMove = tMin;
+			hitEntity = hitEntityMin;
+			wallNormal = wallNormalMin;
+		//}
+		//else {
+		//	tMove = tMin;
+		//	hitEntity = hitEntityMax;
+		//	wallNormal = wallNormalMax;
+		//}		
+		entity.pos += moveDelta * tMove;
 		if (entity.distanceRemaining != 0.f) {
 			constexpr f32 dEpsilon = 0.01f;
-			entity.distanceRemaining -= Length(moveDelta * tMin);
+			entity.distanceRemaining -= Length(moveDelta * tMove);
 			if (entity.distanceRemaining < dEpsilon) {
 				entity.distanceRemaining = 0.f;
 			}
@@ -656,11 +772,11 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 				// TODO: Can it be done in a better, smarter way?
 				// TODO: distance should be updated here as well
 				moveDelta = desiredPosition - entity.pos;
-				entity.pos += moveDelta * (1.f - tMin);
+				entity.pos += moveDelta * (1.f - tMove);
 				break;
 			}
 		}
-		if (tMin == 1.0f) {
+		if (tMove == 1.0f) {
 			break;
 		}
 	}
@@ -679,22 +795,10 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 			other->storageIndex == entity.storageIndex) {
 			continue;
 		}
-		for (u32 entityVolumeIndex = 0; entityVolumeIndex < entity.collision->volumeCount; entityVolumeIndex++) {
-			CollisionVolume* entityVolume = entity.collision->volumes + entityVolumeIndex;
-			for (u32 obstacleVolumeIndex = 0; obstacleVolumeIndex < other->collision->volumeCount; obstacleVolumeIndex++) {
-				CollisionVolume* obstacleVolume = other->collision->volumes + obstacleVolumeIndex;
-				if (entity.type == EntityType_Player && other->type == EntityType_Stairs) {
-					int breakHere = 5;
-				}
-				if (!EntityOverlapsWithRegion(entity.pos + entityVolume->offsetPos, entityVolume->size,
-					GetRectFromCenterDim(other->pos + obstacleVolume->offsetPos, obstacleVolume->size)
-				)) {
-					continue;
-				}
-				Assert(overlapEntityCount < ArrayCount(overlapEntities));
-				if (overlapEntityCount < ArrayCount(overlapEntities)) {
-					overlapEntities[overlapEntityCount++] = entityIndex;
-				}
+		if (EntitiesOverlaps(entity, *other)) {
+			Assert(overlapEntityCount < ArrayCount(overlapEntities));
+			if (overlapEntityCount < ArrayCount(overlapEntities)) {
+				overlapEntities[overlapEntityCount++] = entityIndex;
 			}
 		}
 	}
@@ -884,7 +988,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					}
 					// TODO: Chunk allocation on demand
 					if (tileValue == 2) {
-						AddWall(state, world, absTileX, absTileY, absTileZ);
+						//AddWall(state, world, absTileX, absTileY, absTileZ);
 					}
 					if (putStairs) {
 						AddStairs(state, world, absTileX, absTileY, absTileZ);
@@ -1058,7 +1162,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		} break;
 		case EntityType_Space: {
-			RenderRectBorders(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.1f);
+			RenderRectBorders(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.2f);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
 		}
@@ -1072,6 +1176,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			f32 zFudge = 0.1f * groundLevel.Z;
 			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + bitmap.width / 2.0f,
 						  scast(f32, bitmap.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - bitmap.height / 2.0f - groundLevel.Z * pixelsPerMeter };
+			V2 size = { (1.f + zFudge) * call->rectSize.X,
+						(1.f + zFudge) * call->rectSize.Y };
 			if (entity->type == EntityType_Player) {
 				int breakHere = 5;
 			}
@@ -1083,8 +1189,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				RenderBitmap(bitmap, *call->bitmap, offset);
 			}
 			else {
-				V2 min = center - call->rectSize.XY / 2.f * pixelsPerMeter;
-				V2 max = min + call->rectSize.XY * pixelsPerMeter;
+				V2 min = center - size / 2.f * pixelsPerMeter;
+				V2 max = min + size * pixelsPerMeter;
 				RenderRectangle(bitmap, min, max, call->R, call->G, call->B);
 			}
 		}
