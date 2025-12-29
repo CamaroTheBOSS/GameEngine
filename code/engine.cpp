@@ -308,7 +308,7 @@ void RenderRectangle(BitmapData& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B) 
 	u32 color = (scast(u32, 255 * R) << 16) +
 				(scast(u32, 255 * G) << 8) +
 				(scast(u32, 255 * B) << 0);
-	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * bitmap.bytesPerPixel;
+	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* pixel = ptrcast(u32, row);
 		for (i32 X = minX; X < maxX; X++) {
@@ -331,7 +331,7 @@ void RenderRectBorders(DrawCallGroup& group, V3 center, V3 size, f32 thickness) 
 }
 
 internal
-void RenderBitmap(BitmapData& screenBitmap, LoadedBitmap& loadedBitmap, V2 position) {
+void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 position) {
 	i32 minX = RoundF32ToI32(position.X) - loadedBitmap.alignX;
 	i32 maxX = minX + loadedBitmap.width;
 	i32 minY = RoundF32ToI32(position.Y) - loadedBitmap.alignY;
@@ -352,9 +352,8 @@ void RenderBitmap(BitmapData& screenBitmap, LoadedBitmap& loadedBitmap, V2 posit
 	if (maxY > scast(i32, screenBitmap.height)) {
 		maxY = scast(i32, screenBitmap.height);
 	}
-	u32 loadedBitmapPitch = loadedBitmap.width * loadedBitmap.bytesPerPixel;
-	u8* dstRow = ptrcast(u8, screenBitmap.data) + minY * screenBitmap.pitch + minX * screenBitmap.bytesPerPixel;
-	u8* srcRow = ptrcast(u8, loadedBitmap.data + (loadedBitmap.height - 1 - offsetY) * (loadedBitmap.width) + offsetX);
+	u8* dstRow = ptrcast(u8, screenBitmap.data) + minY * screenBitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	u8* srcRow = ptrcast(u8, loadedBitmap.data) + offsetY * loadedBitmap.pitch + offsetX * BITMAP_BYTES_PER_PIXEL;
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, dstRow);
 		u32* srcPixel = ptrcast(u32, srcRow);
@@ -376,12 +375,12 @@ void RenderBitmap(BitmapData& screenBitmap, LoadedBitmap& loadedBitmap, V2 posit
 			srcPixel++;
 		}
 		dstRow += screenBitmap.pitch;
-		srcRow -= loadedBitmapPitch;
+		srcRow += loadedBitmap.pitch;
 	}
 }
 
 internal
-void RenderGround(ProgramState* state, BitmapData& bitmap) {
+void RenderGround(ProgramState* state, LoadedBitmap& dstBuffer) {
 	u32 randomNumberIndex = 0;
 	f32 range = f4(randomMax - randomMin);
 	f32 halfRange = range / 2.f;
@@ -401,9 +400,9 @@ void RenderGround(ProgramState* state, BitmapData& bitmap) {
 			u32 groundIndex = randomNumbers[randomNumberIndex++] % ArrayCount(state->groundBmps);
 			bmp = state->groundBmps + groundIndex;
 		}
-		position.X += (bitmap.width - bmp->width) / 2.f;
-		position.Y += (bitmap.height - bmp->height) / 2.f;
-		RenderBitmap(bitmap, *bmp, position);
+		position.X += (dstBuffer.width - bmp->width) / 2.f;
+		position.Y += (dstBuffer.height - bmp->height) / 2.f;
+		RenderBitmap(dstBuffer, *bmp, position);
 		if (randomNumberIndex >= ArrayCount(randomNumbers) - 4) {
 			randomNumberIndex = 0;
 		}
@@ -449,12 +448,14 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 	u32 alphaShift = LeastSignificantHighBit(header->alphaMask).index;
 
 	LoadedBitmap result = {};
-	result.data = ptrcast(u32, ptrcast(u8, bmpData.content) + header->bitmapOffset);
+	result.bufferStart = ptrcast(void, ptrcast(u8, bmpData.content) + header->bitmapOffset);
 	result.height = header->height;
 	result.width = header->width;
-	result.bytesPerPixel = header->bitsPerPixel / 8;
+	Assert(header->bitsPerPixel / 8 == BITMAP_BYTES_PER_PIXEL);
+	result.pitch = -result.width * BITMAP_BYTES_PER_PIXEL;
+	result.data = ptrcast(u32, ptrcast(u8, result.bufferStart) + (result.height - 1) * result.width * BITMAP_BYTES_PER_PIXEL);
 
-	u32* pixels = result.data;
+	u32* pixels = ptrcast(u32, result.bufferStart);
 	for (u32 Y = 0; Y < header->height; Y++) {
 		for (u32 X = 0; X < header->width; X++) {
 			u32 A = (*pixels >> alphaShift) & 0xFF;
@@ -1308,9 +1309,13 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		playerControls.acceleration -= 10.0f * entity->vel;
 	}
-
+	LoadedBitmap screenBitmap = {};
+	screenBitmap.height = bitmap.height;
+	screenBitmap.width = bitmap.width;
+	screenBitmap.data = ptrcast(u32, bitmap.data);
+	screenBitmap.pitch = bitmap.pitch;
 	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 0.5f, 0.5f, 0.5f);
-	RenderGround(state, bitmap);
+	RenderGround(state, screenBitmap);
 	for (u32 entityIndex = 0; entityIndex < simRegion->entityCount; entityIndex++) {
 		Entity* entity = simRegion->entities + entityIndex;
 		if (!entity) {
@@ -1403,7 +1408,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					center.X - call->offset.X * pixelsPerMeter,
 					center.Y + call->offset.Y * pixelsPerMeter
 				};
-				RenderBitmap(bitmap, *call->bitmap, offset);
+				RenderBitmap(screenBitmap, *call->bitmap, offset);
 			}
 			else {
 				V2 min = center - size / 2.f * pixelsPerMeter;

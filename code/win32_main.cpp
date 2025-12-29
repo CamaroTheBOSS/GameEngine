@@ -436,8 +436,7 @@ internal
 void Win32ResizeBitmapMemory(BitmapData& bitmap, int newWidth, int newHeight) {
 	bitmap.width = newWidth;
 	bitmap.height = newHeight;
-	bitmap.bytesPerPixel = 4;
-	bitmap.pitch = bitmap.bytesPerPixel * bitmap.width;
+	bitmap.pitch = BITMAP_BYTES_PER_PIXEL * bitmap.width;
 
 	if (bitmap.data) {
 		VirtualFree(bitmap.data, 0, MEM_RELEASE);

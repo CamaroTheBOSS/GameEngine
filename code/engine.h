@@ -2,13 +2,13 @@
 #include "engine_world.h"
 #include "engine_simulation.h"
 
+#define BITMAP_BYTES_PER_PIXEL 4
 struct BitmapData {
 	// Platform independent buffer to render graphics
 	void* data;
 	u32 width;
 	u32 height;
 	u32 pitch;
-	u32 bytesPerPixel;
 };
 
 struct SoundData {
@@ -84,10 +84,11 @@ struct ProgramMemory {
 };
 
 struct LoadedBitmap {
+	void* bufferStart;
 	u32* data;
-	u32 height;
-	u32 width;
-	u32 bytesPerPixel;
+	i32 height;
+	i32 width;
+	i32 pitch;
 	u32 alignX;
 	u32 alignY;
 };
