@@ -358,6 +358,7 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 		u32* dstPixel = ptrcast(u32, dstRow);
 		u32* srcPixel = ptrcast(u32, srcRow);
 		for (i32 X = minX; X < maxX; X++) {
+			f32 dA = scast(f32, (*dstPixel >> 24) & 0xFF) / 255.f;
 			f32 dR = scast(f32, (*dstPixel >> 16) & 0xFF);
 			f32 dG = scast(f32, (*dstPixel >> 8) & 0xFF);
 			f32 dB = scast(f32, (*dstPixel >> 0) & 0xFF);
@@ -367,11 +368,12 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 			f32 sG = scast(f32, (*srcPixel >> 8) & 0xFF);
 			f32 sB = scast(f32, (*srcPixel >> 0) & 0xFF);
 
+			u8 a = scast(u8, 255.f * (sA * sA + (1 - sA) * dA));
 			u8 r = scast(u8, sA * sR + (1 - sA) * dR);
 			u8 g = scast(u8, sA * sG + (1 - sA) * dG);
 			u8 b = scast(u8, sA * sB + (1 - sA) * dB);
 
-			*dstPixel++ = (r << 16) | (g << 8) | (b << 0);
+			*dstPixel++ = (a << 24) | (r << 16) | (g << 8) | (b << 0);
 			srcPixel++;
 		}
 		dstRow += screenBitmap.pitch;
@@ -451,7 +453,7 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 	result.bufferStart = ptrcast(void, ptrcast(u8, bmpData.content) + header->bitmapOffset);
 	result.height = header->height;
 	result.width = header->width;
-	Assert(header->bitsPerPixel / 8 == BITMAP_BYTES_PER_PIXEL);
+	Assert((header->bitsPerPixel / 8) == BITMAP_BYTES_PER_PIXEL);
 	result.pitch = -result.width * BITMAP_BYTES_PER_PIXEL;
 	result.data = ptrcast(u32, ptrcast(u8, result.bufferStart) + (result.height - 1) * result.width * BITMAP_BYTES_PER_PIXEL);
 
@@ -1038,6 +1040,17 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 }
 
 internal
+LoadedBitmap MakeEmptyBuffer(MemoryArena& arena, u32 width, u32 height) {
+	LoadedBitmap bmp = {};
+	bmp.bufferStart = PushArray(arena, width * height, u32);
+	bmp.data = ptrcast(u32, bmp.bufferStart);
+	bmp.height = height;
+	bmp.width = width;
+	bmp.pitch = width * BITMAP_BYTES_PER_PIXEL;
+	return bmp;
+}
+
+internal
 void SetCamera(ProgramState* state) {
 	EntityStorage* cameraEntityStorage = GetEntityStorage(state->world, state->cameraEntityIndex);
 	if (cameraEntityStorage) {
@@ -1101,6 +1114,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->groundBmps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/ground1.bmp");
 		state->grassBmps[0] = LoadBmpFile(memory.debugReadEntireFile, "test/grass0.bmp");
 		state->grassBmps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/grass1.bmp");
+		state->cachedGround = MakeEmptyBuffer(world.arena, 512, 512);
+		RenderGround(state, state->cachedGround);
 
 		state->playerMoveAnim[0] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-right.bmp");
 		state->playerMoveAnim[0].alignX = 0;
@@ -1315,7 +1330,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	screenBitmap.data = ptrcast(u32, bitmap.data);
 	screenBitmap.pitch = bitmap.pitch;
 	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 0.5f, 0.5f, 0.5f);
-	RenderGround(state, screenBitmap);
+	RenderBitmap(screenBitmap, state->cachedGround, V2{0, 0});
 	for (u32 entityIndex = 0; entityIndex < simRegion->entityCount; entityIndex++) {
 		Entity* entity = simRegion->entities + entityIndex;
 		if (!entity) {

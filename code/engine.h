@@ -123,6 +123,7 @@ struct ProgramState {
 	LoadedBitmap playerMoveAnim[4];
 	LoadedBitmap groundBmps[2];
 	LoadedBitmap grassBmps[2];
+	LoadedBitmap cachedGround;
 
 	CollisionVolumeGroup* wallCollision;
 	CollisionVolumeGroup* playerCollision;
@@ -133,7 +134,6 @@ struct ProgramState {
 	bool isInitialized;
 };
 
-#include <stdlib.h>
 /* Functionalities served by the program layer for platform layer */
 #define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, InputData& input)
 typedef GAME_MAIN_LOOP_FRAME(game_main_loop_frame);
