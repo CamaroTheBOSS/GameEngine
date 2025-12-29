@@ -43,6 +43,9 @@
 	#define Assert(expression) if (!(expression)) { __builtin_trap(); }
 #endif
 #define scast(type, expression) static_cast<type>(expression)
+#define f4(expression) static_cast<f32>(expression)
+#define u4(expression) static_cast<u32>(expression)
+#define i4(expression) static_cast<i32>(expression)
 #define ptrcast(type, expression) reinterpret_cast<type*>(expression)
 #define ArrayCount(arr) (sizeof(arr) / sizeof(arr[0]))
 #define Minimum(a, b) ((a) > (b) ? (b) : (a))

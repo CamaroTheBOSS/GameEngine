@@ -394,8 +394,8 @@ void RenderGround(ProgramState* state, BitmapData& bitmap) {
 	u32 randomNumberIndex = 0;
 	f32 range = f4(randomMax - randomMin);
 	f32 halfRange = range / 2.f;
-	f32 apperanceRadiusMeters = 5.f * pixelsPerMeter;
-	for (u32 bmpIndex = 0; bmpIndex < 300; bmpIndex++) {
+	f32 apperanceRadiusMeters = 2.f * pixelsPerMeter;
+	for (u32 bmpIndex = 0; bmpIndex < 200; bmpIndex++) {
 		V2 position = V2{
 			(randomNumbers[randomNumberIndex++] - randomMin) / f4(randomMax) * 2 * apperanceRadiusMeters - apperanceRadiusMeters,
 			(randomNumbers[randomNumberIndex++] - randomMin) / f4(randomMax) * 2 * apperanceRadiusMeters - apperanceRadiusMeters
