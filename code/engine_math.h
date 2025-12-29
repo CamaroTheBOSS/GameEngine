@@ -460,4 +460,11 @@ bool RectanglesOverlapsWithEachOther(Rect3 A, Rect3 B) {
 					  B.min.Z > A.max.Z;
 	return !notOverlap;
 }
+
+inline
+f32 Lerp(f32 min, f32 unilateral, f32 max) {
+	Assert(min < max);
+	f32 result = min + unilateral * (max - min);
+	return result;
+}
 #pragma warning(pop)
