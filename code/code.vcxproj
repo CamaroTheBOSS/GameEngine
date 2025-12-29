@@ -137,6 +137,7 @@
   <ItemGroup>
     <ClCompile Include="engine_intrinsics.h" />
     <ClCompile Include="engine_math.h" />
+    <ClCompile Include="engine_rand.cpp" />
     <ClCompile Include="engine_simulation.cpp" />
     <ClCompile Include="engine_world.cpp" />
     <ClCompile Include="engine.cpp" />
