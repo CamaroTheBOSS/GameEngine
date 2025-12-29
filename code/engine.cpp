@@ -27,6 +27,8 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 	}
 }
 
+constexpr u32 randomMin = 2;
+constexpr u32 randomMax = 99968008;
 u32 randomNumbers[] = {
 	1706220, 2,	2998326,	7324911,	977285,		7614172,
 	5372439,	3343239,	9405090,	493102,		4704943,
@@ -380,17 +382,6 @@ void RenderBitmap(BitmapData& screenBitmap, LoadedBitmap& loadedBitmap, V2 posit
 
 internal
 void RenderGround(ProgramState* state, BitmapData& bitmap) {
-	u32 randomMin = 0xFFFFFFFF;
-	u32 randomMax = 0;
-	for (u32 random = 0; random < ArrayCount(randomNumbers); random++) {
-		u32 randomNumber = randomNumbers[random];
-		if (randomNumber < randomMin) {
-			randomMin = randomNumber;
-		}
-		if (randomNumber > randomMax) {
-			randomMax = randomNumber;
-		}
-	}
 	u32 randomNumberIndex = 0;
 	f32 range = f4(randomMax - randomMin);
 	f32 halfRange = range / 2.f;
