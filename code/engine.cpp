@@ -144,10 +144,10 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 			f32 sG = scast(f32, (*srcPixel >> 8) & 0xFF);
 			f32 sB = scast(f32, (*srcPixel >> 0) & 0xFF);
 
-			u8 a = scast(u8, 255.f * (sA * sA + (1 - sA) * dA));
-			u8 r = scast(u8, sA * sR + (1 - sA) * dR);
-			u8 g = scast(u8, sA * sG + (1 - sA) * dG);
-			u8 b = scast(u8, sA * sB + (1 - sA) * dB);
+			u8 a = scast(u8, 255.f * (sA + dA - sA * dA));
+			u8 r = scast(u8, sR + (1 - sA) * dR);
+			u8 g = scast(u8, sG + (1 - sA) * dG);
+			u8 b = scast(u8, sB + (1 - sA) * dB);
 
 			*dstPixel++ = (a << 24) | (r << 16) | (g << 8) | (b << 0);
 			srcPixel++;
@@ -232,9 +232,10 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 	for (u32 Y = 0; Y < header->height; Y++) {
 		for (u32 X = 0; X < header->width; X++) {
 			u32 A = (*pixels >> alphaShift) & 0xFF;
-			u32 R = (*pixels >> redShift) & 0xFF;
-			u32 G = (*pixels >> greenShift) & 0xFF;
-			u32 B = (*pixels >> blueShift) & 0xFF;
+			f32 alphaF32 = A / 255.f;
+			u32 R = u4(alphaF32 * ((*pixels >> redShift) & 0xFF));
+			u32 G = u4(alphaF32 * ((*pixels >> greenShift) & 0xFF));
+			u32 B = u4(alphaF32 * ((*pixels >> blueShift) & 0xFF));
 			*pixels++ = (A << 24) + (R << 16) + (G << 8) + (B << 0);
 		}
 	}
