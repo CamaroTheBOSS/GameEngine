@@ -108,7 +108,7 @@ SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 }
 
 internal
-void EndSimulation(MemoryArena& simArena, SimRegion& simRegion, World& world) {
+void EndSimulation(TemporaryMemory& simMemory, SimRegion& simRegion, World& world) {
 	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 		Entity* entity = simRegion.entities + entityIndex;
 		if (entity->type == EntityType_Player) {
@@ -120,5 +120,6 @@ void EndSimulation(MemoryArena& simArena, SimRegion& simRegion, World& world) {
 			storage->entity = *entity;
 		}
 	}
-	ZeroMemory(simArena);
+	// TODO: Should this memory be zeroed here?
+	ZeroMemory(simMemory);
 }

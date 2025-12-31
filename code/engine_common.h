@@ -51,6 +51,7 @@
 #define Minimum(a, b) ((a) > (b) ? (b) : (a))
 #define Maximum(a, b) ((a) > (b) ? (a) : (b))
 #define MY_MAX_PATH 255
+#define F32_MAX f4(u4(0xFFFFFFFF));
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -98,6 +99,7 @@ TemporaryMemory BeginTempMemory(MemoryArena& arena) {
 inline
 void EndTempMemory(TemporaryMemory& memory) {
 	Assert(memory.arena->used >= memory.usedFingerprint);
+	Assert(memory.arena->tempCount > 0);
 	memory.arena->used = memory.usedFingerprint;
 	memory.arena->tempCount--;
 }
@@ -114,8 +116,24 @@ inline
 void ZeroMemory(MemoryArena& arena) {
 	// TODO: check for performance
 	u8* data = arena.data;
-	while (arena.used--) {
+	while (arena.used) {
+		if (arena.used < 10) {
+			int breakHere = 5;
+		}
 		*data++ = 0;
+		arena.used--;
+	}
+}
+
+inline
+void ZeroMemory(TemporaryMemory& tempMemory) {
+	// TODO: check for performance
+	Assert(tempMemory.arena->used >= tempMemory.usedFingerprint);
+	u8* data = tempMemory.arena->data + tempMemory.usedFingerprint;
+	u64 size = tempMemory.arena->used - tempMemory.usedFingerprint;
+	while (size) {
+		*data++ = 0;
+		size--;
 	}
 }
 

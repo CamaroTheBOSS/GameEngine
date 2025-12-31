@@ -230,6 +230,13 @@ struct RandomSeries {
 };
 
 inline
+RandomSeries RandomSeed(u32 seed) {
+	RandomSeries result = {};
+	result.index = seed % ArrayCount(randomNumbers);
+	return result;
+}
+
+inline
 u32 NextRandom(RandomSeries& series) {
 	u32 result = randomNumbers[series.index++];
 	if (series.index >= ArrayCount(randomNumbers)) {

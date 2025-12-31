@@ -123,7 +123,6 @@ struct ProgramState {
 	LoadedBitmap playerMoveAnim[4];
 	LoadedBitmap groundBmps[2];
 	LoadedBitmap grassBmps[2];
-	LoadedBitmap cachedGround;
 
 	CollisionVolumeGroup* wallCollision;
 	CollisionVolumeGroup* playerCollision;
@@ -136,12 +135,13 @@ struct ProgramState {
 
 struct GroundBuffer {
 	void* memory;
+	WorldPosition pos;
 };
 
 struct TransientState {
 	MemoryArena arena;
 	LoadedBitmap groundBufferTemplate;
-	GroundBuffer groundBuffers[16];
+	GroundBuffer groundBuffers[32];
 	bool isInitialized;
 };
 

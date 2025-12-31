@@ -4,6 +4,7 @@
 #include "engine_rand.cpp"
 
 constexpr f32 pixelsPerMeter = 42.85714f;
+constexpr f32 metersPerPixel = 1.f / pixelsPerMeter;
 
 internal
 void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
@@ -190,13 +191,13 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 }
 
 internal
-void RenderGround(ProgramState* state, LoadedBitmap& dstBuffer) {
-	f32 apperanceRadiusMeters = 5.f * pixelsPerMeter;
-	RandomSeries series = {};
-	for (u32 bmpIndex = 0; bmpIndex < 300; bmpIndex++) {
+void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos, LoadedBitmap& groundBufferTemplate) {
+	u32 seed = 313 * chunkPos.chunkX + 217 * chunkPos.chunkY + 177 * chunkPos.chunkZ;
+	RandomSeries series = RandomSeed(seed);
+	for (u32 bmpIndex = 0; bmpIndex < 100; bmpIndex++) {
 		V2 position = V2{
-			RandomInRange(series, -apperanceRadiusMeters, apperanceRadiusMeters),
-			RandomInRange(series, -apperanceRadiusMeters, apperanceRadiusMeters),
+			RandomUnilateral(series) * groundBufferTemplate.width,
+			RandomUnilateral(series) * groundBufferTemplate.height,
 		};
 		bool grass = RandomUnilateral(series) > 0.5f;
 		LoadedBitmap* bmp = 0;
@@ -208,10 +209,12 @@ void RenderGround(ProgramState* state, LoadedBitmap& dstBuffer) {
 			u32 groundIndex = NextRandom(series) % ArrayCount(state->groundBmps);
 			bmp = state->groundBmps + groundIndex;
 		}
-		position.X += (dstBuffer.width - bmp->width) / 2.f;
-		position.Y += (dstBuffer.height - bmp->height) / 2.f;
-		RenderBitmap(dstBuffer, *bmp, position);
+		position.X -= bmp->width / 2.f;
+		position.Y -= bmp->height / 2.f;
+		groundBufferTemplate.data = ptrcast(u32, dstBuffer.memory);
+		RenderBitmap(groundBufferTemplate, *bmp, position);
 	}
+	dstBuffer.pos = chunkPos;
 }
 
 internal
@@ -919,8 +922,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->groundBmps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/ground1.bmp");
 		state->grassBmps[0] = LoadBmpFile(memory.debugReadEntireFile, "test/grass0.bmp");
 		state->grassBmps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/grass1.bmp");
-		state->cachedGround = MakeEmptyBuffer(world.arena, 512, 512);
-		RenderGround(state, state->cachedGround);
 
 		state->playerMoveAnim[0] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-right.bmp");
 		state->playerMoveAnim[0].alignX = 0;
@@ -1064,6 +1065,15 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			ptrcast(u8, memory.transientMemory) + sizeof(TransientState),
 			memory.transientMemorySize - sizeof(TransientState)
 		);
+
+		V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
+		for (u32 groundBufferIndex = 0; groundBufferIndex < ArrayCount(tranState->groundBuffers); groundBufferIndex++) {
+			GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
+			tranState->groundBufferTemplate = MakeEmptyBuffer(tranState->arena, u4(chunkSizePix.X), u4(chunkSizePix.Y));
+			groundBuffer->memory = ptrcast(void, tranState->groundBufferTemplate.data);
+			groundBuffer->pos = NullPosition();
+		}
+
 		tranState->isInitialized = true;
 	}
 	SetCamera(state);
@@ -1076,7 +1086,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	Rect3 cameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, cameraBoundsDims);
 	SimRegion* simRegion = BeginSimulation(*simMemory.arena, world, state->cameraPos, cameraBounds);
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
-		Controller& controller = input.controllers[playerIdx];
+		Controller& controller = input.controllers[playerIdx]; 
 		PlayerControls& playerControls = state->playerControls[playerIdx];
 		u32 playerLowEntityIndex = state->playerEntityIndexes[playerIdx];
 		if (controller.isSpaceDown && playerLowEntityIndex == 0) {
@@ -1142,17 +1152,58 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	screenBitmap.data = ptrcast(u32, bitmap.data);
 	screenBitmap.pitch = bitmap.pitch;
 	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 0.5f, 0.5f, 0.5f);
-	RenderBitmap(screenBitmap, state->cachedGround, V2{0, 0});
-	WorldChunk* cameraChunk = GetWorldChunk(world, state->cameraPos);
-	Assert(cameraChunk);
-	if (cameraChunk) {
-		V2 screenCenter = 0.5f * V2{ f4(bitmap.width), f4(bitmap.height) };
-		V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
-		V2 chunkCenterPix = {
-			screenCenter.X - state->cameraPos.offset.X * pixelsPerMeter,
-			screenCenter.Y + state->cameraPos.offset.Y * pixelsPerMeter,
-		};
-		RenderRectBorders(bitmap, chunkCenterPix, chunkSizePix, V3{1, 0, 0}, 10.f);
+	
+	V2 screenCenter = 0.5f * V2{ f4(bitmap.width), f4(bitmap.height) };
+	V3 screenSizeInMeters = V3{ f4(bitmap.width), f4(bitmap.height), 0.f } * metersPerPixel;
+	V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
+	Rect3 realCameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, screenSizeInMeters);
+	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(realCameraBounds));
+	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(realCameraBounds));
+	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
+		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
+			i32 chunkZ = state->cameraPos.chunkZ;
+
+			GroundBuffer* furthestBuffer = 0;
+			f32 furthestDistanceSq = 0;
+			GroundBuffer* drawBuffer = 0;
+			for (u32 groundBufferIndex = 0; groundBufferIndex < ArrayCount(tranState->groundBuffers); groundBufferIndex++) {
+				GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
+				
+				if (groundBuffer->pos.chunkX == chunkX && 
+					groundBuffer->pos.chunkY == chunkY &&
+					groundBuffer->pos.chunkZ == chunkZ) 
+				{
+					drawBuffer = groundBuffer;
+					break;
+				}
+				else if (IsValid(groundBuffer->pos)) {
+					V3 diff = Subtract(world, groundBuffer->pos, state->cameraPos);
+					f32 distance = LengthSq(diff);
+					if (distance > furthestDistanceSq) {
+						furthestDistanceSq = distance;
+						furthestBuffer = groundBuffer;
+					}
+				}
+				else {
+					furthestDistanceSq = F32_MAX;
+					furthestBuffer = groundBuffer;
+				}
+			}
+			if (!drawBuffer && furthestBuffer) {
+				WorldPosition chunkPos = CenteredWorldPosition(chunkX, chunkY, chunkZ);
+				FillGroundBuffer(state, *furthestBuffer, chunkPos, tranState->groundBufferTemplate);
+				drawBuffer = furthestBuffer;
+			}
+			tranState->groundBufferTemplate.data = ptrcast(u32, drawBuffer->memory);
+			V3 diff = Subtract(world, drawBuffer->pos, state->cameraPos);
+			V2 chunkCenterPix = {
+				screenCenter.X + diff.X * pixelsPerMeter,
+				screenCenter.Y - diff.Y * pixelsPerMeter
+			};
+			V2 chunkLeftUpPix = chunkCenterPix - 0.5f * chunkSizePix;
+			RenderBitmap(screenBitmap, tranState->groundBufferTemplate, chunkLeftUpPix);
+			//RenderRectBorders(bitmap, chunkCenterPix, chunkSizePix, V3{ 1, 0, 0 }, 10.f);
+		}
 	}
 
 	for (u32 entityIndex = 0; entityIndex < simRegion->entityCount; entityIndex++) {
@@ -1256,7 +1307,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		}
 	}
-	EndSimulation(*simMemory.arena, *simRegion, world);
+	EndSimulation(simMemory, *simRegion, world);
 	EndTempMemory(simMemory);
 	CheckArena(tranState->arena);
 	CheckArena(world.arena);

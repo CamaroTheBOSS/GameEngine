@@ -15,14 +15,20 @@ WorldPosition NullPosition() {
 inline
 bool operator==(const WorldPosition& first, const WorldPosition& other) {
 	return first.chunkX == other.chunkX &&
-		   first.chunkY == other.chunkY &&
-		   first.chunkZ == other.chunkZ &&
-		   first.offset == other.offset;
+		first.chunkY == other.chunkY &&
+		first.chunkZ == other.chunkZ &&
+		first.offset == other.offset;
 }
 
 inline
 bool operator!=(const WorldPosition& first, const WorldPosition& other) {
 	return !(first == other);
+}
+
+inline
+bool IsValid(WorldPosition& pos) {
+	bool result = (pos != NullPosition());
+	return result;
 }
 
 inline
@@ -110,12 +116,12 @@ WorldChunk* GetWorldChunk(World& world, WorldPosition& pos, MemoryArena* arena) 
 	return result;
 }
 
-internal // TODO: delete this function, it is ackward
-WorldPosition CenteredWorldPosition(i32 absX, i32 absY, i32 absZ) {
+internal
+WorldPosition CenteredWorldPosition(i32 chunkX, i32 chunkY, i32 chunkZ) {
 	WorldPosition pos = {};
-	pos.chunkX = absX;
-	pos.chunkY = absY;
-	pos.chunkZ = absZ;
+	pos.chunkX = chunkX;
+	pos.chunkY = chunkY;
+	pos.chunkZ = chunkZ;
 	return pos;
 }
 
@@ -130,6 +136,10 @@ bool AreOnTheSameChunk(WorldPosition& first, WorldPosition& second) {
 
 internal
 void FixWorldPosition(World& world, WorldPosition& position) {
+	// TODO: IMPORTANT fix bug when below divisions = 0.5 it causes constant
+	// jumping between 0.5 and then -0.5. It turns out that chunk offset is inclusive
+	// on the both sides <-0.5, 0.5> while it should be inclusive on the left and
+	// exclusive on the right <-0.5, 0.5)
 	i32 offsetX = RoundF32ToI32(position.offset.X / world.chunkSizeInMeters.X);
 	i32 offsetY = RoundF32ToI32(position.offset.Y / world.chunkSizeInMeters.Y);
 	i32 offsetZ = FloorF32ToI32(position.offset.Z / world.chunkSizeInMeters.Z);
@@ -227,7 +237,7 @@ void ChangeEntityChunkLocationRaw(World& world, MemoryArena& arena, u32 lowEntit
 			}
 		}
 	}
-	if (newPos != NullPosition()) {
+	if (IsValid(newPos)) {
 		WorldChunk* chunk = GetWorldChunk(world, newPos.chunkX, newPos.chunkY, newPos.chunkZ, &arena);
 		LowEntityBlock* firstBlock = chunk->entities;
 		if (!firstBlock) {
@@ -254,11 +264,12 @@ void ChangeEntityChunkLocationRaw(World& world, MemoryArena& arena, u32 lowEntit
 	}
 }
 
+internal
 void ChangeEntityChunkLocation(World& world, MemoryArena& arena, u32 lowEntityIndex, Entity& entity,
 	WorldPosition* oldPos, WorldPosition& newPos)
 {
 	ChangeEntityChunkLocationRaw(world, arena, lowEntityIndex, oldPos, newPos);
-	if (newPos == NullPosition()) {
+	if (!IsValid(newPos)) {
 		SetFlag(entity, EntityFlag_NonSpatial);
 	}
 	else {
