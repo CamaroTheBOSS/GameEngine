@@ -141,7 +141,7 @@ struct GroundBuffer {
 struct TransientState {
 	MemoryArena arena;
 	LoadedBitmap groundBufferTemplate;
-	GroundBuffer groundBuffers[32];
+	GroundBuffer groundBuffers[64];
 	bool isInitialized;
 };
 

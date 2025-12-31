@@ -192,27 +192,34 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 
 internal
 void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos, LoadedBitmap& groundBufferTemplate) {
-	u32 seed = 313 * chunkPos.chunkX + 217 * chunkPos.chunkY + 177 * chunkPos.chunkZ;
-	RandomSeries series = RandomSeed(seed);
-	for (u32 bmpIndex = 0; bmpIndex < 100; bmpIndex++) {
-		V2 position = V2{
-			RandomUnilateral(series) * groundBufferTemplate.width,
-			RandomUnilateral(series) * groundBufferTemplate.height,
-		};
-		bool grass = RandomUnilateral(series) > 0.5f;
-		LoadedBitmap* bmp = 0;
-		if (grass) {
-			u32 grassIndex = NextRandom(series) % ArrayCount(state->grassBmps);
-			bmp = state->grassBmps + grassIndex;
+	for (i32 chunkOffsetY = -1; chunkOffsetY <= 1; chunkOffsetY++) {
+		for (i32 chunkOffsetX = -1; chunkOffsetX <= 1; chunkOffsetX++) {
+			i32 chunkX = chunkPos.chunkX + chunkOffsetX;
+			i32 chunkY = chunkPos.chunkY + chunkOffsetY;
+			i32 chunkZ = chunkPos.chunkZ;
+			u32 seed = 313 * chunkX + 217 * chunkY + 177 * chunkZ;
+			RandomSeries series = RandomSeed(seed);
+			for (u32 bmpIndex = 0; bmpIndex < 100; bmpIndex++) {
+				V2 position = V2{
+					RandomUnilateral(series) * groundBufferTemplate.width,
+					RandomUnilateral(series) * groundBufferTemplate.height,
+				};
+				bool grass = RandomUnilateral(series) > 0.5f;
+				LoadedBitmap* bmp = 0;
+				if (grass) {
+					u32 grassIndex = NextRandom(series) % ArrayCount(state->grassBmps);
+					bmp = state->grassBmps + grassIndex;
+				}
+				else {
+					u32 groundIndex = NextRandom(series) % ArrayCount(state->groundBmps);
+					bmp = state->groundBmps + groundIndex;
+				}
+				position.X += chunkOffsetX * groundBufferTemplate.width - bmp->width / 2.f;
+				position.Y += -chunkOffsetY * groundBufferTemplate.height - bmp->height / 2.f;
+				groundBufferTemplate.data = ptrcast(u32, dstBuffer.memory);
+				RenderBitmap(groundBufferTemplate, *bmp, position);
+			}
 		}
-		else {
-			u32 groundIndex = NextRandom(series) % ArrayCount(state->groundBmps);
-			bmp = state->groundBmps + groundIndex;
-		}
-		position.X -= bmp->width / 2.f;
-		position.Y -= bmp->height / 2.f;
-		groundBufferTemplate.data = ptrcast(u32, dstBuffer.memory);
-		RenderBitmap(groundBufferTemplate, *bmp, position);
 	}
 	dstBuffer.pos = chunkPos;
 }
@@ -1069,7 +1076,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
 		for (u32 groundBufferIndex = 0; groundBufferIndex < ArrayCount(tranState->groundBuffers); groundBufferIndex++) {
 			GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
-			tranState->groundBufferTemplate = MakeEmptyBuffer(tranState->arena, u4(chunkSizePix.X), u4(chunkSizePix.Y));
+			tranState->groundBufferTemplate = MakeEmptyBuffer(tranState->arena, RoundF32ToU32(chunkSizePix.X), RoundF32ToU32(chunkSizePix.Y));
 			groundBuffer->memory = ptrcast(void, tranState->groundBufferTemplate.data);
 			groundBuffer->pos = NullPosition();
 		}
@@ -1159,6 +1166,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	Rect3 realCameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, screenSizeInMeters);
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(realCameraBounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(realCameraBounds));
+	
+	
 	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
 		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
 			i32 chunkZ = state->cameraPos.chunkZ;
@@ -1202,7 +1211,19 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			};
 			V2 chunkLeftUpPix = chunkCenterPix - 0.5f * chunkSizePix;
 			RenderBitmap(screenBitmap, tranState->groundBufferTemplate, chunkLeftUpPix);
-			//RenderRectBorders(bitmap, chunkCenterPix, chunkSizePix, V3{ 1, 0, 0 }, 10.f);
+		}
+	}
+
+	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
+		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
+			i32 chunkZ = state->cameraPos.chunkZ;
+			WorldPosition chunkPos = CenteredWorldPosition(chunkX, chunkY, chunkZ);
+			V3 diff = Subtract(world, chunkPos, state->cameraPos);
+			V2 chunkCenterPix = {
+				screenCenter.X + diff.X * pixelsPerMeter,
+				screenCenter.Y - diff.Y * pixelsPerMeter
+			};
+			RenderRectBorders(bitmap, chunkCenterPix, chunkSizePix, V3{ 1, 0, 0 }, 1.f);
 		}
 	}
 
