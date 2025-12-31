@@ -33,6 +33,7 @@ struct Win32GameCode {
 	HMODULE dll = nullptr;
 	u64 lastWriteTimestamp = 0;
 	bool isValid = false;
+	bool reloaded = false;
 
 	game_main_loop_frame* GameMainLoopFrame = GameMainLoopFrameStub;
 };
@@ -133,10 +134,12 @@ u64 Win32GetLastWriteTime(const char* filename) {
 internal
 bool Win32ReloadGameCode(Win32GameCode& gameCode) {
 	u64 lastWriteTime = Win32GetLastWriteTime(gameCode.pathToDll);
+	gameCode.reloaded = false;
 	if (lastWriteTime != gameCode.lastWriteTimestamp) {
 		Win32UnloadGameCode(gameCode);
 		if (Win32LoadGameCode(gameCode)) {
 			gameCode.lastWriteTimestamp = lastWriteTime;
+			gameCode.reloaded = true;
 		}
 	}
 	return true;
@@ -854,6 +857,7 @@ int CALLBACK WinMain(
 			Win32DebugReplayInput(globalWin32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
 		}
 		inputData.dtFrame = targetFrameRefreshSeconds;
+		inputData.executableReloaded = gameCode.reloaded;
 		
 
 		// PART: Preparing SoundData structure for game main loop

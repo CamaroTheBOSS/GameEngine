@@ -1083,6 +1083,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 		tranState->isInitialized = true;
 	}
+
+	if (input.executableReloaded) {
+		for (u32 groundBufferIndex = 0; groundBufferIndex < ArrayCount(tranState->groundBuffers); groundBufferIndex++) {
+			GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
+			groundBuffer->pos = NullPosition();
+		}
+	}
+
 	SetCamera(state);
 	TemporaryMemory simMemory = BeginTempMemory(tranState->arena);
 	V3 cameraBoundsDims = {

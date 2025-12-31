@@ -52,6 +52,7 @@ struct Controller {
 struct InputData {
 	Controller controllers[MAX_CONTROLLERS];
 	f32 dtFrame;
+	bool executableReloaded;
 };
 
 struct FileData {
