@@ -95,7 +95,39 @@ void RenderRectangle(BitmapData& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B) 
 }
 
 internal
-void RenderRectBorders(DrawCallGroup& group, V3 center, V3 size, f32 thickness) {
+void RenderRectBorders(BitmapData& bitmap, V2 center, V2 size, V3 color, f32 thickness) {
+	V2 leftUpWallStart = {
+		center.X - 0.5f * (size.X + thickness),
+		center.Y - 0.5f * (size.X + thickness),
+	};
+	V2 leftWallEnd = {
+		center.X - 0.5f * (size.X - thickness),
+		center.Y + 0.5f * (size.X + thickness),
+	};
+	V2 upWallEnd = {
+		center.X + 0.5f * (size.X + thickness),
+		center.Y - 0.5f * (size.X - thickness),
+	};
+	V2 rightWallStart = {
+		center.X + 0.5f * (size.X - thickness),
+		center.Y - 0.5f * (size.X - thickness),
+	};
+	V2 bottomWallStart = {
+		center.X - 0.5f * (size.X + thickness),
+		center.Y + 0.5f * (size.X - thickness),
+	};
+	V2 rightBottomWallEnd = {
+		center.X + 0.5f * (size.X + thickness),
+		center.Y + 0.5f * (size.X + thickness),
+	};
+	RenderRectangle(bitmap, leftUpWallStart, leftWallEnd, color.R, color.G, color.B);
+	RenderRectangle(bitmap, leftUpWallStart, upWallEnd, color.R, color.G, color.B);
+	RenderRectangle(bitmap, rightWallStart, rightBottomWallEnd, color.R, color.G, color.B);
+	RenderRectangle(bitmap, bottomWallStart, rightBottomWallEnd, color.R, color.G, color.B);
+}
+
+internal
+void PushRectBorders(DrawCallGroup& group, V3 center, V3 size, f32 thickness) {
 	PushRect(group, center - V3{ 0.5f * size.X, 0, 0 },
 		V3{ thickness, size.Y, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
 	PushRect(group, center + V3{ 0.5f * size.X, 0, 0 },
@@ -1102,6 +1134,18 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	screenBitmap.pitch = bitmap.pitch;
 	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 0.5f, 0.5f, 0.5f);
 	RenderBitmap(screenBitmap, state->cachedGround, V2{0, 0});
+	WorldChunk* cameraChunk = GetWorldChunk(world, state->cameraPos);
+	Assert(cameraChunk);
+	if (cameraChunk) {
+		V2 screenCenter = 0.5f * V2{ f4(bitmap.width), f4(bitmap.height) };
+		V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
+		V2 chunkCenterPix = {
+			screenCenter.X - state->cameraPos.offset.X * pixelsPerMeter,
+			screenCenter.Y + state->cameraPos.offset.Y * pixelsPerMeter,
+		};
+		RenderRectBorders(bitmap, chunkCenterPix, chunkSizePix, V3{1, 0, 0}, 10.f);
+	}
+
 	for (u32 entityIndex = 0; entityIndex < simRegion->entityCount; entityIndex++) {
 		Entity* entity = simRegion->entities + entityIndex;
 		if (!entity) {
@@ -1170,7 +1214,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		} break;
 		case EntityType_Space: {
-			RenderRectBorders(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.2f);
+			PushRectBorders(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.2f);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
 		}

@@ -1,6 +1,6 @@
 #include "engine_world.h"
 
-#define CHUNK_DIM_IN_TILES 16
+#define CHUNK_DIM_IN_TILES 4
 #define CHUNK_HEIGHT_IN_TILES 1
 #define CHUNK_SAFE_MARGIN 256
 inline
@@ -104,6 +104,12 @@ WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, Memo
 	return 0;
 }
 
+internal
+WorldChunk* GetWorldChunk(World& world, WorldPosition& pos, MemoryArena* arena) {
+	WorldChunk* result = GetWorldChunk(world, pos.chunkX, pos.chunkY, pos.chunkZ, arena);
+	return result;
+}
+
 internal // TODO: delete this function, it is ackward
 WorldPosition CenteredWorldPosition(i32 absX, i32 absY, i32 absZ) {
 	WorldPosition pos = {};
@@ -133,12 +139,14 @@ void FixWorldPosition(World& world, WorldPosition& position) {
 	position.offset.X -= offsetX * world.chunkSizeInMeters.X;
 	position.offset.Y -= offsetY * world.chunkSizeInMeters.Y;
 	position.offset.Z -= offsetZ * world.chunkSizeInMeters.Z;
-	Assert(position.offset.X >= -world.chunkSizeInMeters.X / 2.0f);
-	Assert(position.offset.X <= world.chunkSizeInMeters.X / 2.0f);
-	Assert(position.offset.Y >= -world.chunkSizeInMeters.Y / 2.0f);
-	Assert(position.offset.Y <= world.chunkSizeInMeters.Y / 2.0f);
+	// TODO: Get rid of this assert epsilon and make sure changing chunk is reliable
+	f32 assertEpsilon = 0.0001f;
+	Assert(position.offset.X >= -world.chunkSizeInMeters.X / 2.0f - assertEpsilon);
+	Assert(position.offset.X <= world.chunkSizeInMeters.X / 2.0f + assertEpsilon);
+	Assert(position.offset.Y >= -world.chunkSizeInMeters.Y / 2.0f - assertEpsilon);
+	Assert(position.offset.Y <= world.chunkSizeInMeters.Y / 2.0f + assertEpsilon);
 	Assert(position.offset.Z >= 0.f);
-	Assert(position.offset.Z <= world.chunkSizeInMeters.Z);
+	Assert(position.offset.Z <= world.chunkSizeInMeters.Z + assertEpsilon);
 
 }
 

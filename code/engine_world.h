@@ -115,6 +115,7 @@ struct World {
 
 // Function declaration to help Intellisense got some sense :)
 internal WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, MemoryArena* arena = 0);
+internal WorldChunk* GetWorldChunk(World& world, WorldPosition& pos, MemoryArena* arena = 0);
 internal f32 GetHeightFromTheClosestGroundLevel(World& world, WorldPosition& position);
 internal f32 GetDistanceToTheClosestGroundLevel(World& world, WorldPosition& pos);
 internal WorldPosition OffsetWorldPosition(World& world, WorldPosition& position, V3 offset);

@@ -118,6 +118,9 @@ union V3 {
 		f32 _X;
 		V2 YZ;
 	};
+	struct {
+		f32 R, G, B;
+	};
 	f32 E[3];
 };
 
