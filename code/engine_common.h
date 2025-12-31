@@ -69,7 +69,38 @@ struct MemoryArena {
 	u8* data;
 	u64 capacity;
 	u64 used;
+
+	u32 tempCount;
 };
+
+struct TemporaryMemory {
+	MemoryArena* arena;
+	u64 usedFingerprint;
+};
+
+inline 
+void InitializeArena(MemoryArena& arena, void* data, u64 capacity) {
+	arena.data = ptrcast(u8, data);
+	arena.capacity = capacity;
+	arena.used = 0;
+	arena.tempCount = 0;
+}
+
+inline
+TemporaryMemory BeginTempMemory(MemoryArena& arena) {
+	TemporaryMemory tempMemory = {};
+	tempMemory.arena = &arena;
+	tempMemory.usedFingerprint = arena.used;
+	arena.tempCount++;
+	return tempMemory;
+}
+
+inline
+void EndTempMemory(TemporaryMemory& memory) {
+	Assert(memory.arena->used >= memory.usedFingerprint);
+	memory.arena->used = memory.usedFingerprint;
+	memory.arena->tempCount--;
+}
 
 inline
 void* PushSize_(MemoryArena & arena, u64 size) {
@@ -86,6 +117,11 @@ void ZeroMemory(MemoryArena& arena) {
 	while (arena.used--) {
 		*data++ = 0;
 	}
+}
+
+inline
+void CheckArena(MemoryArena& arena) {
+	Assert(arena.tempCount == 0);
 }
 
 #define PushStructSize(arena, type) PushSize_(arena, sizeof(type))

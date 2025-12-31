@@ -886,15 +886,16 @@ V2 MapScreenSpacePosIntoCameraSpace(f32 screenPosX, f32 screenPosY, u32 screenWi
 	return pos;
 }
 
-
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	World& world = state->world;
 	if (!state->isInitialized) {
 		InitializeWorld(world);
-		world.arena.data = ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState);
-		world.arena.capacity = memory.permanentMemorySize - sizeof(ProgramState);
-		world.arena.used = 0;
+		InitializeArena(
+			world.arena,
+			ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState),
+			memory.permanentMemorySize - sizeof(ProgramState)
+		);
 
 		state->wallCollision = MakeGroundedCollisionGroup(state, world.tileSizeInMeters);
 		state->playerCollision = MakeGroundedCollisionGroup(state, V3{1.0f, 0.55f, 0.25f});
@@ -1055,17 +1056,25 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 		state->isInitialized = true;
 	}
+	
+	TransientState* tranState = ptrcast(TransientState, memory.transientMemory);
+	if (!tranState->isInitialized) {
+		InitializeArena(
+			tranState->arena,
+			ptrcast(u8, memory.transientMemory) + sizeof(TransientState),
+			memory.transientMemorySize - sizeof(TransientState)
+		);
+		tranState->isInitialized = true;
+	}
 	SetCamera(state);
-	MemoryArena simArena = {};
-	simArena.data = ptrcast(u8, memory.transientMemory);
-	simArena.capacity = memory.transientMemorySize;
+	TemporaryMemory simMemory = BeginTempMemory(tranState->arena);
 	V3 cameraBoundsDims = {
 		state->highFreqBoundDim * state->world.tileSizeInMeters.X,
 		state->highFreqBoundDim * state->world.tileSizeInMeters.Y,
 		state->highFreqBoundHeight * state->world.tileSizeInMeters.Z
 	};
 	Rect3 cameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, cameraBoundsDims);
-	SimRegion* simRegion = BeginSimulation(simArena, world, state->cameraPos, cameraBounds);
+	SimRegion* simRegion = BeginSimulation(*simMemory.arena, world, state->cameraPos, cameraBounds);
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
 		Controller& controller = input.controllers[playerIdx];
 		PlayerControls& playerControls = state->playerControls[playerIdx];
@@ -1247,6 +1256,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		}
 	}
-
-	EndSimulation(simArena, *simRegion, world);
+	EndSimulation(*simMemory.arena, *simRegion, world);
+	EndTempMemory(simMemory);
+	CheckArena(tranState->arena);
+	CheckArena(world.arena);
 }

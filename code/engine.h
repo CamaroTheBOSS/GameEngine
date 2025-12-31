@@ -134,6 +134,17 @@ struct ProgramState {
 	bool isInitialized;
 };
 
+struct GroundBuffer {
+	void* memory;
+};
+
+struct TransientState {
+	MemoryArena arena;
+	LoadedBitmap groundBufferTemplate;
+	GroundBuffer groundBuffers[16];
+	bool isInitialized;
+};
+
 /* Functionalities served by the program layer for platform layer */
 #define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, InputData& input)
 typedef GAME_MAIN_LOOP_FRAME(game_main_loop_frame);
