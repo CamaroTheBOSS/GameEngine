@@ -1,6 +1,7 @@
 #include "engine_common.h"
 #include "engine_world.h"
 #include "engine_simulation.h"
+#include "engine_render.h"
 
 #define BITMAP_BYTES_PER_PIXEL 4
 struct BitmapData {
@@ -84,29 +85,6 @@ struct ProgramMemory {
 	debug_free_file* debugFreeFile;
 };
 
-struct LoadedBitmap {
-	void* bufferStart;
-	u32* data;
-	i32 height;
-	i32 width;
-	i32 pitch;
-	u32 alignX;
-	u32 alignY;
-};
-
-struct DrawCall {
-	LoadedBitmap* bitmap;
-	V3 center;
-	V3 rectSize;
-	f32 R, G, B, A;
-	V2 offset;
-};
-
-struct DrawCallGroup {
-	u32 count;
-	DrawCall drawCalls[8];
-};
-
 struct PlayerControls {
 	V3 acceleration;
 };
@@ -135,13 +113,12 @@ struct ProgramState {
 };
 
 struct GroundBuffer {
-	void* memory;
+	LoadedBitmap buffer;
 	WorldPosition pos;
 };
 
 struct TransientState {
 	MemoryArena arena;
-	LoadedBitmap groundBufferTemplate;
 	GroundBuffer groundBuffers[64];
 	bool isInitialized;
 };

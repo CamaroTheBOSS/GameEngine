@@ -2,6 +2,7 @@
 #include "engine_world.cpp"
 #include "engine_simulation.cpp"
 #include "engine_rand.cpp"
+#include "engine_render.cpp"
 
 constexpr f32 pixelsPerMeter = 42.85714f;
 constexpr f32 metersPerPixel = 1.f / pixelsPerMeter;
@@ -29,32 +30,8 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 	}
 }
 
-inline 
-void PushDrawCall(DrawCallGroup& group, LoadedBitmap* bitmap, V3 center, V3 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
-	Assert(group.count < ArrayCount(group.drawCalls));
-	DrawCall* call = &group.drawCalls[group.count++];
-	call->bitmap = bitmap;
-	call->center = center;
-	call->rectSize = rectSize;
-	call->R = R;
-	call->G = G;
-	call->B = B;
-	call->A = A;
-	call->offset = offset;
-}
-
-inline
-void PushBitmap(DrawCallGroup& group, LoadedBitmap* bitmap, V3 center, f32 A, V2 offset) {
-	PushDrawCall(group, bitmap, center, {}, 0, 0, 0, A, offset);
-}
-
-inline
-void PushRect(DrawCallGroup& group, V3 center, V3 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
-	PushDrawCall(group, 0, center, rectSize, R, G, B, A, offset);
-}
-
 internal
-void RenderHitPoints(DrawCallGroup& group, Entity& entity, V3 center, V2 offset, f32 distBetween, f32 pointSize) {
+void RenderHitPoints(RenderGroup& group, Entity& entity, V3 center, V2 offset, f32 distBetween, f32 pointSize) {
 	V2 realOffset = (offset + V2{ -scast(f32, entity.hitPoints.count - 1) * scast(f32, distBetween + pointSize) / 2.f , 0.f });
 	V3 pointSizeVec = V3{ pointSize, pointSize, 0.f };
 	for (u32 hitPointIndex = 0; hitPointIndex < entity.hitPoints.count; hitPointIndex++) {
@@ -128,7 +105,7 @@ void RenderRectBorders(BitmapData& bitmap, V2 center, V2 size, V3 color, f32 thi
 }
 
 internal
-void PushRectBorders(DrawCallGroup& group, V3 center, V3 size, f32 thickness) {
+void PushRectBorders(RenderGroup& group, V3 center, V3 size, f32 thickness) {
 	PushRect(group, center - V3{ 0.5f * size.X, 0, 0 },
 		V3{ thickness, size.Y, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
 	PushRect(group, center + V3{ 0.5f * size.X, 0, 0 },
@@ -191,7 +168,7 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 }
 
 internal
-void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos, LoadedBitmap& groundBufferTemplate) {
+void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos) {
 	for (i32 chunkOffsetY = -1; chunkOffsetY <= 1; chunkOffsetY++) {
 		for (i32 chunkOffsetX = -1; chunkOffsetX <= 1; chunkOffsetX++) {
 			i32 chunkX = chunkPos.chunkX + chunkOffsetX;
@@ -201,8 +178,8 @@ void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPositio
 			RandomSeries series = RandomSeed(seed);
 			for (u32 bmpIndex = 0; bmpIndex < 100; bmpIndex++) {
 				V2 position = V2{
-					RandomUnilateral(series) * groundBufferTemplate.width,
-					RandomUnilateral(series) * groundBufferTemplate.height,
+					RandomUnilateral(series) * dstBuffer.buffer.width,
+					RandomUnilateral(series) * dstBuffer.buffer.height,
 				};
 				bool grass = RandomUnilateral(series) > 0.5f;
 				LoadedBitmap* bmp = 0;
@@ -214,10 +191,9 @@ void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPositio
 					u32 groundIndex = NextRandom(series) % ArrayCount(state->groundBmps);
 					bmp = state->groundBmps + groundIndex;
 				}
-				position.X += chunkOffsetX * groundBufferTemplate.width - bmp->width / 2.f;
-				position.Y += -chunkOffsetY * groundBufferTemplate.height - bmp->height / 2.f;
-				groundBufferTemplate.data = ptrcast(u32, dstBuffer.memory);
-				RenderBitmap(groundBufferTemplate, *bmp, position);
+				position.X += chunkOffsetX * dstBuffer.buffer.width - bmp->width / 2.f;
+				position.Y += -chunkOffsetY * dstBuffer.buffer.height - bmp->height / 2.f;
+				RenderBitmap(dstBuffer.buffer, *bmp, position);
 			}
 		}
 	}
@@ -1076,8 +1052,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
 		for (u32 groundBufferIndex = 0; groundBufferIndex < ArrayCount(tranState->groundBuffers); groundBufferIndex++) {
 			GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
-			tranState->groundBufferTemplate = MakeEmptyBuffer(tranState->arena, RoundF32ToU32(chunkSizePix.X), RoundF32ToU32(chunkSizePix.Y));
-			groundBuffer->memory = ptrcast(void, tranState->groundBufferTemplate.data);
+			groundBuffer->buffer = MakeEmptyBuffer(tranState->arena, RoundF32ToU32(chunkSizePix.X), RoundF32ToU32(chunkSizePix.Y));
 			groundBuffer->pos = NullPosition();
 		}
 
@@ -1161,21 +1136,20 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		playerControls.acceleration -= 10.0f * entity->vel;
 	}
+	RenderGroup renderGroup = {};
+	V2 screenCenter = 0.5f * V2{ f4(bitmap.width), f4(bitmap.height) };
+	V3 screenSizeInMeters = V3{ f4(bitmap.width), f4(bitmap.height), 0.f } *metersPerPixel;
 	LoadedBitmap screenBitmap = {};
 	screenBitmap.height = bitmap.height;
 	screenBitmap.width = bitmap.width;
 	screenBitmap.data = ptrcast(u32, bitmap.data);
 	screenBitmap.pitch = bitmap.pitch;
-	RenderRectangle(bitmap, V2{ 0, 0 }, V2{ scast(f32, bitmap.width), scast(f32, bitmap.height) }, 0.5f, 0.5f, 0.5f);
+	PushRect(renderGroup, V3{0, 0, 0}, screenSizeInMeters, 0.5f, 0.5f, 0.5f, 1.f, {});
 	
-	V2 screenCenter = 0.5f * V2{ f4(bitmap.width), f4(bitmap.height) };
-	V3 screenSizeInMeters = V3{ f4(bitmap.width), f4(bitmap.height), 0.f } * metersPerPixel;
 	V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
 	Rect3 realCameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, screenSizeInMeters);
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(realCameraBounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(realCameraBounds));
-	
-	
 	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
 		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
 			i32 chunkZ = state->cameraPos.chunkZ;
@@ -1208,39 +1182,37 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 			if (!drawBuffer && furthestBuffer) {
 				WorldPosition chunkPos = CenteredWorldPosition(chunkX, chunkY, chunkZ);
-				FillGroundBuffer(state, *furthestBuffer, chunkPos, tranState->groundBufferTemplate);
+				FillGroundBuffer(state, *furthestBuffer, chunkPos);
 				drawBuffer = furthestBuffer;
 			}
-			tranState->groundBufferTemplate.data = ptrcast(u32, drawBuffer->memory);
 			V3 diff = Subtract(world, drawBuffer->pos, state->cameraPos);
-			V2 chunkCenterPix = {
-				screenCenter.X + diff.X * pixelsPerMeter,
-				screenCenter.Y - diff.Y * pixelsPerMeter
+			V3 chunkLeftUp = {
+				diff.X - 0.5f * world.chunkSizeInMeters.X,
+				diff.Y + 0.5f * world.chunkSizeInMeters.Y,
+				0
 			};
-			V2 chunkLeftUpPix = chunkCenterPix - 0.5f * chunkSizePix;
-			RenderBitmap(screenBitmap, tranState->groundBufferTemplate, chunkLeftUpPix);
+			PushBitmap(renderGroup, &drawBuffer->buffer, chunkLeftUp, 1.f, V2{0, 0});
 		}
 	}
-
 	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
 		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
 			i32 chunkZ = state->cameraPos.chunkZ;
 			WorldPosition chunkPos = CenteredWorldPosition(chunkX, chunkY, chunkZ);
 			V3 diff = Subtract(world, chunkPos, state->cameraPos);
-			V2 chunkCenterPix = {
-				screenCenter.X + diff.X * pixelsPerMeter,
-				screenCenter.Y - diff.Y * pixelsPerMeter
+			diff.Z = 0;
+			V3 size = {
+				state->world.chunkSizeInMeters.X,
+				state->world.chunkSizeInMeters.Y,
+				0
 			};
-			RenderRectBorders(bitmap, chunkCenterPix, chunkSizePix, V3{ 1, 0, 0 }, 1.f);
+			PushRectBorders(renderGroup, diff, size, 0.05f);
 		}
 	}
-
 	for (u32 entityIndex = 0; entityIndex < simRegion->entityCount; entityIndex++) {
 		Entity* entity = simRegion->entities + entityIndex;
 		if (!entity) {
 			continue;
 		}
-		DrawCallGroup drawCalls = {};
 		V3 acceleration = V3{ 0, 0, 0 };
 
 		switch(entity->type) {
@@ -1255,17 +1227,17 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 			Assert(playerControls);
 			acceleration = playerControls->acceleration;
-			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.f, 1.f, 1.f, 1.f, {});
-			PushBitmap(drawCalls, &state->playerMoveAnim[entity->faceDir], entity->pos, 1.f, 
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.f, 1.f, 1.f, 1.f, {});
+			PushBitmap(renderGroup, &state->playerMoveAnim[entity->faceDir], entity->pos, 1.f,
 				entity->collision->totalVolume.size.XY / 2.f);
-			RenderHitPoints(drawCalls, *entity, entity->pos, V2{0.f, -0.6f}, 0.1f, 0.2f);
+			RenderHitPoints(renderGroup, *entity, entity->pos, V2{0.f, -0.6f}, 0.1f, 0.2f);
 		} break;
 		case EntityType_Wall: {
-			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 1.f, 1.f, 1.f, 1.f, {});
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 1.f, 1.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Stairs: {
-			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.2f, 0.2f, 0.2f, 1.f, {});
-			PushRect(drawCalls, entity->pos + V3{ 0, 0, entity->collision->totalVolume.size.Z }, 
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.2f, 0.2f, 0.2f, 1.f, {});
+			PushRect(renderGroup, entity->pos + V3{ 0, 0, entity->collision->totalVolume.size.Z },
 				entity->collision->totalVolume.size, 0.f, 0.f, 0.f, 1.f, {});
 		} break;
 		case EntityType_Familiar: {
@@ -1289,53 +1261,51 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			acceleration.Z = 10.0f * sinf(6 * t);
 			t += input.dtFrame;
 			acceleration -= 10.0f * entity->vel;
-			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.f, 0.f, 1.f, 1.f, {});
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.f, 0.f, 1.f, 1.f, {});
 		} break;
 		case EntityType_Monster: {
-			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 1.f, 0.5f, 0.f, 1.f, {});
-			RenderHitPoints(drawCalls, *entity, entity->pos, V2{ 0.f, -0.9f }, 0.1f, 0.2f);
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 1.f, 0.5f, 0.f, 1.f, {});
+			RenderHitPoints(renderGroup, *entity, entity->pos, V2{ 0.f, -0.9f }, 0.1f, 0.2f);
 		} break;
 		case EntityType_Sword: {
-			PushRect(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.f, 0.f, 0.f, 1.f, {});
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.f, 0.f, 0.f, 1.f, {});
 			if (entity->distanceRemaining <= 0.f) {
 				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
 				MakeEntityNonSpatial(state, entity->storageIndex, *entity);
 			}
 		} break;
 		case EntityType_Space: {
-			PushRectBorders(drawCalls, entity->pos, entity->collision->totalVolume.size, 0.2f);
+			PushRectBorders(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.2f);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
 		}
 		if (IsFlagSet(*entity, EntityFlag_Movable) && !IsFlagSet(*entity, EntityFlag_NonSpatial)) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
+	}
 
-		for (u32 drawCallIndex = 0; drawCallIndex < drawCalls.count; drawCallIndex++) {
-			DrawCall* call = drawCalls.drawCalls + drawCallIndex;
-			V3 groundLevel = call->center - 0.5f * V3{ 0, 0, call->rectSize.Z };
-			f32 zFudge = 0.1f * groundLevel.Z;
-			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + bitmap.width / 2.0f,
-						  scast(f32, bitmap.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - bitmap.height / 2.0f - groundLevel.Z * pixelsPerMeter };
-			V2 size = { (1.f + zFudge) * call->rectSize.X,
-						(1.f + zFudge) * call->rectSize.Y };
-			if (entity->type == EntityType_Player) {
-				int breakHere = 5;
-			}
-			if (call->bitmap) {
-				V2 offset = {
-					center.X - call->offset.X * pixelsPerMeter,
-					center.Y + call->offset.Y * pixelsPerMeter
-				};
-				RenderBitmap(screenBitmap, *call->bitmap, offset);
-			}
-			else {
-				V2 min = center - size / 2.f * pixelsPerMeter;
-				V2 max = min + size * pixelsPerMeter;
-				RenderRectangle(bitmap, min, max, call->R, call->G, call->B);
-			}
+	for (u32 drawCallIndex = 0; drawCallIndex < renderGroup.count; drawCallIndex++) {
+		DrawCall* call = renderGroup.drawCalls + drawCallIndex;
+		V3 groundLevel = call->center - 0.5f * V3{ 0, 0, call->rectSize.Z };
+		f32 zFudge = 0.1f * groundLevel.Z;
+		V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + bitmap.width / 2.0f,
+					  scast(f32, bitmap.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - bitmap.height / 2.0f - groundLevel.Z * pixelsPerMeter };
+		V2 size = { (1.f + zFudge) * call->rectSize.X,
+					(1.f + zFudge) * call->rectSize.Y };
+		if (call->bitmap) {
+			V2 offset = {
+				center.X - call->offset.X * pixelsPerMeter,
+				center.Y + call->offset.Y * pixelsPerMeter
+			};
+			RenderBitmap(screenBitmap, *call->bitmap, offset);
+		}
+		else {
+			V2 min = center - size / 2.f * pixelsPerMeter;
+			V2 max = min + size * pixelsPerMeter;
+			RenderRectangle(bitmap, min, max, call->R, call->G, call->B);
 		}
 	}
+
 	EndSimulation(*simRegion, world);
 	EndTempMemory(simMemory);
 	CheckArena(tranState->arena);
