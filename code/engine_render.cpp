@@ -172,6 +172,15 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 }
 
 internal
+V2 CalculateRenderingObjectCenter() {
+	/*V3 groundLevel = call->center - 0.5f * V3{ 0, 0, call->rectSize.Z };
+	f32 zFudge = 0.1f * groundLevel.Z;
+	V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
+				  scast(f32, dstBuffer.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - dstBuffer.height / 2.0f - groundLevel.Z * pixelsPerMeter };*/
+	return V2{ 0, 0 };
+}
+
+internal
 void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 	u32 relativeRenderAddress = 0;
 	while (relativeRenderAddress < group.pushBufferSize) {
@@ -190,7 +199,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		} break;
 		case RenderCallType::RenderCallRectangle: {
 			RenderCallRectangle* call = ptrcast(RenderCallRectangle, header);
-			V3 groundLevel = call->center - 0.5f * V3{ 0, 0, call->rectSize.Z };
+			V3 groundLevel = call->center -0.5f * V3{ 0, 0, call->rectSize.Z };
 			f32 zFudge = 0.1f * groundLevel.Z;
 			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
 						  scast(f32, dstBuffer.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - dstBuffer.height / 2.0f - groundLevel.Z * pixelsPerMeter };
@@ -203,6 +212,9 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			relativeRenderAddress += sizeof(RenderCallRectangle);
 		} break;
 		case RenderCallType::RenderCallBitmap: {
+			// TODO: RenderCallBitmap and RenderCallRectangle have different approaches to calculate center
+			// It should be unified (check groundLevel) which is different from RenderCallRectangle,
+			// also, size is properly changed in RenderCallRectangle and not in RenderCallBitmap
 			RenderCallBitmap* call = ptrcast(RenderCallBitmap, header);
 			V3 groundLevel = call->center; // - 0.5f* V3{ 0, 0, call->rectSize.Z };
 			f32 zFudge = 0.1f * groundLevel.Z;
