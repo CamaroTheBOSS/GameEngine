@@ -76,7 +76,7 @@ internal
 SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 	WorldPosition& origin, Rect3 bounds)
 {
-	SimRegion* simRegion = ptrcast(SimRegion, PushStructSize(simArena, SimRegion));
+	SimRegion* simRegion = PushStructSize(simArena, SimRegion);
 	simRegion->entityCount = 0;
 	simRegion->maxEntityCount = ArrayCount(simRegion->entities);
 	simRegion->origin = origin;

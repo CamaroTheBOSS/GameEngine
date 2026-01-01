@@ -19,6 +19,7 @@ struct DrawCall {
 };
 
 struct RenderGroup {
-	u32 count;
-	DrawCall drawCalls[4096];
+	u8* pushBuffer;
+	u32 pushBufferSize;
+	u32 maxPushBufferSize;
 };

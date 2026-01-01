@@ -262,9 +262,9 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 }
 
 CollisionVolumeGroup* MakeGroundedCollisionGroup(ProgramState* state, V3 size) {
-	CollisionVolumeGroup* group = ptrcast(CollisionVolumeGroup, PushStructSize(state->world.arena, CollisionVolumeGroup));
+	CollisionVolumeGroup* group = PushStructSize(state->world.arena, CollisionVolumeGroup);
 	group->volumeCount = 1;
-	group->volumes = ptrcast(CollisionVolume, PushArray(state->world.arena, group->volumeCount, CollisionVolume));
+	group->volumes = PushArray(state->world.arena, group->volumeCount, CollisionVolume);
 	group->volumes[0].size = size;
 	group->totalVolume = group->volumes[0];
 	return group;
@@ -433,7 +433,7 @@ void AddCollisionRule(World& world, MemoryArena& arena, u32 firstStorageIndex, u
 		world.freeCollisionsList = world.freeCollisionsList->next;
 	}
 	else {
-		newPair = ptrcast(PairwiseCollision, PushStructSize(arena, PairwiseCollision));
+		newPair = PushStructSize(arena, PairwiseCollision);
 	}
 	newPair->storageIndex1 = firstStorageIndex;
 	newPair->storageIndex2 = secondStorageIndex;
@@ -832,8 +832,8 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 internal
 LoadedBitmap MakeEmptyBuffer(MemoryArena& arena, u32 width, u32 height) {
 	LoadedBitmap bmp = {};
-	bmp.bufferStart = PushArray(arena, width * height, u32);
-	bmp.data = ptrcast(u32, bmp.bufferStart);
+	bmp.data = PushArray(arena, width * height, u32);
+	bmp.bufferStart = ptrcast(void, bmp.data);
 	bmp.height = height;
 	bmp.width = width;
 	bmp.pitch = width * BITMAP_BYTES_PER_PIXEL;
@@ -1136,14 +1136,17 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		playerControls.acceleration -= 10.0f * entity->vel;
 	}
-	RenderGroup renderGroup = {};
-	V2 screenCenter = 0.5f * V2{ f4(bitmap.width), f4(bitmap.height) };
-	V3 screenSizeInMeters = V3{ f4(bitmap.width), f4(bitmap.height), 0.f } *metersPerPixel;
+	// TODO: Think about size of the main render group
+	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
+	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, MB(4));
+	
 	LoadedBitmap screenBitmap = {};
 	screenBitmap.height = bitmap.height;
 	screenBitmap.width = bitmap.width;
 	screenBitmap.data = ptrcast(u32, bitmap.data);
 	screenBitmap.pitch = bitmap.pitch;
+
+	V3 screenSizeInMeters = V3{ f4(bitmap.width), f4(bitmap.height), 0.f } *metersPerPixel;
 	PushRect(renderGroup, V3{0, 0, 0}, screenSizeInMeters, 0.5f, 0.5f, 0.5f, 1.f, {});
 	
 	V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
@@ -1283,9 +1286,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
 	}
-
-	for (u32 drawCallIndex = 0; drawCallIndex < renderGroup.count; drawCallIndex++) {
-		DrawCall* call = renderGroup.drawCalls + drawCallIndex;
+	u32 relativeRenderAddress = 0;
+	while (relativeRenderAddress < renderGroup.pushBufferSize) {
+		DrawCall* call = ptrcast(DrawCall, renderGroup.pushBuffer + relativeRenderAddress);
+		relativeRenderAddress += sizeof(DrawCall);
 		V3 groundLevel = call->center - 0.5f * V3{ 0, 0, call->rectSize.Z };
 		f32 zFudge = 0.1f * groundLevel.Z;
 		V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + bitmap.width / 2.0f,
@@ -1307,6 +1311,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 
 	EndSimulation(*simRegion, world);
+	EndTempMemory(renderMemory);
 	EndTempMemory(simMemory);
 	CheckArena(tranState->arena);
 	CheckArena(world.arena);

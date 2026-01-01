@@ -83,7 +83,7 @@ WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, Memo
 	WorldChunk* chunk = world.hashWorldChunks[hashValue];
 	if (!chunk && arena) {
 		// Add chunk at the beginning of the linked list
-		chunk = ptrcast(WorldChunk, PushStructSize(*arena, WorldChunk));
+		chunk = PushStructSize(*arena, WorldChunk);
 		chunk->chunkX = chunkX;
 		chunk->chunkY = chunkY;
 		chunk->chunkZ = chunkZ;
@@ -99,7 +99,7 @@ WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, Memo
 		}
 		if (!chunk->next && arena) {
 			// Add chunk at the end of the linked list
-			chunk->next = ptrcast(WorldChunk, PushStructSize(*arena, WorldChunk));
+			chunk->next = PushStructSize(*arena, WorldChunk);
 			chunk->next->chunkX = chunkX;
 			chunk->next->chunkY = chunkY;
 			chunk->next->chunkZ = chunkZ;
@@ -241,7 +241,7 @@ void ChangeEntityChunkLocationRaw(World& world, MemoryArena& arena, u32 lowEntit
 		WorldChunk* chunk = GetWorldChunk(world, newPos.chunkX, newPos.chunkY, newPos.chunkZ, &arena);
 		LowEntityBlock* firstBlock = chunk->entities;
 		if (!firstBlock) {
-			chunk->entities = ptrcast(LowEntityBlock, PushStructSize(arena, LowEntityBlock));
+			chunk->entities = PushStructSize(arena, LowEntityBlock);
 			firstBlock = chunk->entities;
 		}
 		if (firstBlock->entityCount == ArrayCount(firstBlock->entityIndexes)) {
@@ -255,7 +255,7 @@ void ChangeEntityChunkLocationRaw(World& world, MemoryArena& arena, u32 lowEntit
 			}
 			else {
 				LowEntityBlock* block = chunk->entities;
-				chunk->entities = ptrcast(LowEntityBlock, PushStructSize(arena, LowEntityBlock));
+				chunk->entities = PushStructSize(arena, LowEntityBlock);
 				chunk->entities->next = block;
 				firstBlock = chunk->entities;
 			}
