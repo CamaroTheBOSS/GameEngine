@@ -82,6 +82,8 @@ SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 	simRegion->origin = origin;
 	simRegion->bounds = bounds;
 	simRegion->distanceToClosestGroundZ = GetDistanceToTheClosestGroundLevel(world, origin);
+	ZeroStruct(simRegion->entityHash);
+
 	WorldPosition minChunk = OffsetWorldPosition(world, origin, GetMinCorner(bounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, origin, GetMaxCorner(bounds));
 	for (i32 chunkZ = minChunk.chunkZ; chunkZ <= maxChunk.chunkZ; chunkZ++) {
@@ -108,7 +110,7 @@ SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 }
 
 internal
-void EndSimulation(TemporaryMemory& simMemory, SimRegion& simRegion, World& world) {
+void EndSimulation(SimRegion& simRegion, World& world) {
 	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 		Entity* entity = simRegion.entities + entityIndex;
 		if (entity->type == EntityType_Player) {
@@ -121,5 +123,4 @@ void EndSimulation(TemporaryMemory& simMemory, SimRegion& simRegion, World& worl
 		}
 	}
 	// TODO: Should this memory be zeroed here?
-	ZeroMemory(simMemory);
 }

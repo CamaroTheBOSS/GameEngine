@@ -1336,7 +1336,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		}
 	}
-	EndSimulation(simMemory, *simRegion, world);
+	EndSimulation(*simRegion, world);
 	EndTempMemory(simMemory);
 	CheckArena(tranState->arena);
 	CheckArena(world.arena);

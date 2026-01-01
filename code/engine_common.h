@@ -112,28 +112,10 @@ void* PushSize_(MemoryArena & arena, u64 size) {
 	return ptr;
 }
 
-inline 
-void ZeroMemory(MemoryArena& arena) {
-	// TODO: check for performance
-	u8* data = arena.data;
-	while (arena.used) {
-		if (arena.used < 10) {
-			int breakHere = 5;
-		}
-		*data++ = 0;
-		arena.used--;
-	}
-}
-
 inline
-void ZeroMemory(TemporaryMemory& tempMemory) {
-	// TODO: check for performance
-	Assert(tempMemory.arena->used >= tempMemory.usedFingerprint);
-	u8* data = tempMemory.arena->data + tempMemory.usedFingerprint;
-	u64 size = tempMemory.arena->used - tempMemory.usedFingerprint;
-	while (size) {
-		*data++ = 0;
-		size--;
+void ZeroSize_(u8* ptr, u64 size) {
+	while (size--) {
+		*ptr++ = 0;
 	}
 }
 
@@ -142,5 +124,6 @@ void CheckArena(MemoryArena& arena) {
 	Assert(arena.tempCount == 0);
 }
 
+#define ZeroStruct(obj) ZeroSize_(ptrcast(u8, &obj), sizeof(obj))
 #define PushStructSize(arena, type) PushSize_(arena, sizeof(type))
 #define PushArray(arena, length, type) PushSize_(arena, (length) * sizeof(type))
