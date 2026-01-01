@@ -1,5 +1,9 @@
 #pragma once
 
+constexpr f32 pixelsPerMeter = 42.85714f;
+constexpr f32 metersPerPixel = 1.f / pixelsPerMeter;
+
+#define BITMAP_BYTES_PER_PIXEL 4
 struct LoadedBitmap {
 	void* bufferStart;
 	u32* data;
@@ -10,11 +14,34 @@ struct LoadedBitmap {
 	u32 alignY;
 };
 
-struct DrawCall {
-	LoadedBitmap* bitmap;
+enum class RenderCallType {
+	RenderCallClear,
+	RenderCallRectangle,
+	RenderCallBitmap,
+};
+
+struct RenderCallHeader {
+	RenderCallType type;
+};
+
+struct RenderCallClear {
+	RenderCallHeader header;
+	f32 R, G, B, A;
+};
+
+struct RenderCallRectangle {
+	RenderCallHeader header;
 	V3 center;
 	V3 rectSize;
 	f32 R, G, B, A;
+	V2 offset;
+};
+
+struct RenderCallBitmap {
+	RenderCallHeader header;
+	LoadedBitmap* bitmap;
+	V3 center;
+	f32 alpha;
 	V2 offset;
 };
 

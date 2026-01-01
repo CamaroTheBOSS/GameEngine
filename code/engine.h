@@ -3,7 +3,7 @@
 #include "engine_simulation.h"
 #include "engine_render.h"
 
-#define BITMAP_BYTES_PER_PIXEL 4
+// BitmapData has to have 4 bytes per pixel which is defined by BITMAP_BYTES_PER_PIXEL = 4 in engine_render.h
 struct BitmapData {
 	// Platform independent buffer to render graphics
 	void* data;

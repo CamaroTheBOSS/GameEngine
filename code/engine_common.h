@@ -42,6 +42,7 @@
 #else
 	#define Assert(expression) if (!(expression)) { __builtin_trap(); }
 #endif
+#define InvalidDefaultCase default: { Assert(0) } break
 #define scast(type, expression) static_cast<type>(expression)
 #define f4(expression) static_cast<f32>(expression)
 #define u4(expression) static_cast<u32>(expression)

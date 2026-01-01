@@ -11,6 +11,11 @@ union V2 {
 	f32 E[2];
 };
 
+V2 V2i(i32 X, i32 Y) {
+	V2 result = V2{ f4(X), f4(Y) };
+	return result;
+}
+
 inline
 V2 operator+(V2 A, V2 B) {
 	return V2{

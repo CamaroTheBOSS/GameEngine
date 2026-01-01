@@ -1,21 +1,40 @@
 #include "engine_common.h"
 #include "engine_render.h"
 
+#define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType::##type))
 inline 
-void* PushRenderEntry_(RenderGroup& group, u32 size) {
+RenderCallHeader* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
 	Assert(group.pushBufferSize + size <= group.maxPushBufferSize);
 	if (group.pushBufferSize + size > group.maxPushBufferSize) {
 		return 0;
 	}
-	void* result = ptrcast(void, group.pushBuffer + group.pushBufferSize);
+	RenderCallHeader* result = ptrcast(RenderCallHeader, group.pushBuffer + group.pushBufferSize);
+	result->type = type;
 	group.pushBufferSize += size;
 	return result;
 }
 
 inline
-void PushDrawCall(RenderGroup& group, LoadedBitmap* bitmap, V3 center, V3 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
-	DrawCall* call = ptrcast(DrawCall, PushRenderEntry_(group, sizeof(DrawCall)));
+void PushClearCall(RenderGroup& group, f32 R, f32 G, f32 B, f32 A) {
+	RenderCallClear* call = PushRenderEntry(group, RenderCallClear);
+	call->R = R;
+	call->G = G;
+	call->B = B;
+	call->A = A;
+}
+
+inline
+void PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 A, V2 offset) {
+	RenderCallBitmap* call = PushRenderEntry(group, RenderCallBitmap);
 	call->bitmap = bitmap;
+	call->center = center;
+	call->offset = offset;
+	call->alpha = A;
+}
+
+inline
+void PushRect(RenderGroup& group, V3 center, V3 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
+	RenderCallRectangle* call = PushRenderEntry(group, RenderCallRectangle);
 	call->center = center;
 	call->rectSize = rectSize;
 	call->R = R;
@@ -25,14 +44,184 @@ void PushDrawCall(RenderGroup& group, LoadedBitmap* bitmap, V3 center, V3 rectSi
 	call->offset = offset;
 }
 
-inline
-void PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 A, V2 offset) {
-	PushDrawCall(group, bitmap, center, {}, 0, 0, 0, A, offset);
+internal
+void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B) {
+	i32 minX = RoundF32ToI32(start.X);
+	i32 maxX = RoundF32ToI32(end.X);
+	i32 minY = RoundF32ToI32(start.Y);
+	i32 maxY = RoundF32ToI32(end.Y);
+	if (minX < 0) {
+		minX = 0;
+	}
+	if (minY < 0) {
+		minY = 0;
+	}
+	if (maxX > scast(i32, bitmap.width)) {
+		maxX = scast(i32, bitmap.width);
+	}
+	if (maxY > scast(i32, bitmap.height)) {
+		maxY = scast(i32, bitmap.height);
+	}
+	u32 color = (scast(u32, 255 * R) << 16) +
+		(scast(u32, 255 * G) << 8) +
+		(scast(u32, 255 * B) << 0);
+	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	for (i32 Y = minY; Y < maxY; Y++) {
+		u32* pixel = ptrcast(u32, row);
+		for (i32 X = minX; X < maxX; X++) {
+			*pixel++ = color;
+		}
+		row += bitmap.pitch;
+	}
 }
 
-inline
-void PushRect(RenderGroup& group, V3 center, V3 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
-	PushDrawCall(group, 0, center, rectSize, R, G, B, A, offset);
+internal
+void RenderRectBorders(LoadedBitmap& bitmap, V2 center, V2 size, V3 color, f32 thickness) {
+	V2 leftUpWallStart = {
+		center.X - 0.5f * (size.X + thickness),
+		center.Y - 0.5f * (size.X + thickness),
+	};
+	V2 leftWallEnd = {
+		center.X - 0.5f * (size.X - thickness),
+		center.Y + 0.5f * (size.X + thickness),
+	};
+	V2 upWallEnd = {
+		center.X + 0.5f * (size.X + thickness),
+		center.Y - 0.5f * (size.X - thickness),
+	};
+	V2 rightWallStart = {
+		center.X + 0.5f * (size.X - thickness),
+		center.Y - 0.5f * (size.X - thickness),
+	};
+	V2 bottomWallStart = {
+		center.X - 0.5f * (size.X + thickness),
+		center.Y + 0.5f * (size.X - thickness),
+	};
+	V2 rightBottomWallEnd = {
+		center.X + 0.5f * (size.X + thickness),
+		center.Y + 0.5f * (size.X + thickness),
+	};
+	RenderRectangle(bitmap, leftUpWallStart, leftWallEnd, color.R, color.G, color.B);
+	RenderRectangle(bitmap, leftUpWallStart, upWallEnd, color.R, color.G, color.B);
+	RenderRectangle(bitmap, rightWallStart, rightBottomWallEnd, color.R, color.G, color.B);
+	RenderRectangle(bitmap, bottomWallStart, rightBottomWallEnd, color.R, color.G, color.B);
+}
+
+// TODO: compress this function to only RenderRectBorders()
+internal
+void PushRectBorders(RenderGroup& group, V3 center, V3 size, f32 thickness) {
+	PushRect(group, center - V3{ 0.5f * size.X, 0, 0 },
+		V3{ thickness, size.Y, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
+	PushRect(group, center + V3{ 0.5f * size.X, 0, 0 },
+		V3{ thickness, size.Y, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
+	PushRect(group, center - V3{ 0, 0.5f * size.Y, 0 },
+		V3{ size.X, thickness, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
+	PushRect(group, center + V3{ 0, 0.5f * size.Y, 0 },
+		V3{ size.X, thickness, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
+}
+
+internal
+void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 position) {
+	i32 minX = RoundF32ToI32(position.X) - loadedBitmap.alignX;
+	i32 maxX = minX + loadedBitmap.width;
+	i32 minY = RoundF32ToI32(position.Y) - loadedBitmap.alignY;
+	i32 maxY = minY + loadedBitmap.height;
+	i32 offsetX = 0;
+	i32 offsetY = 0;
+	if (minX < 0) {
+		offsetX = -minX;
+		minX = 0;
+	}
+	if (minY < 0) {
+		offsetY = -minY;
+		minY = 0;
+	}
+	if (maxX > scast(i32, screenBitmap.width)) {
+		maxX = scast(i32, screenBitmap.width);
+	}
+	if (maxY > scast(i32, screenBitmap.height)) {
+		maxY = scast(i32, screenBitmap.height);
+	}
+	u8* dstRow = ptrcast(u8, screenBitmap.data) + minY * screenBitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	u8* srcRow = ptrcast(u8, loadedBitmap.data) + offsetY * loadedBitmap.pitch + offsetX * BITMAP_BYTES_PER_PIXEL;
+	for (i32 Y = minY; Y < maxY; Y++) {
+		u32* dstPixel = ptrcast(u32, dstRow);
+		u32* srcPixel = ptrcast(u32, srcRow);
+		for (i32 X = minX; X < maxX; X++) {
+			f32 dA = scast(f32, (*dstPixel >> 24) & 0xFF) / 255.f;
+			f32 dR = scast(f32, (*dstPixel >> 16) & 0xFF);
+			f32 dG = scast(f32, (*dstPixel >> 8) & 0xFF);
+			f32 dB = scast(f32, (*dstPixel >> 0) & 0xFF);
+
+			f32 sA = scast(f32, (*srcPixel >> 24) & 0xFF) / 255.f;
+			f32 sR = scast(f32, (*srcPixel >> 16) & 0xFF);
+			f32 sG = scast(f32, (*srcPixel >> 8) & 0xFF);
+			f32 sB = scast(f32, (*srcPixel >> 0) & 0xFF);
+
+			u8 a = scast(u8, 255.f * (sA + dA - sA * dA));
+			u8 r = scast(u8, sR + (1 - sA) * dR);
+			u8 g = scast(u8, sG + (1 - sA) * dG);
+			u8 b = scast(u8, sB + (1 - sA) * dB);
+
+			*dstPixel++ = (a << 24) | (r << 16) | (g << 8) | (b << 0);
+			srcPixel++;
+		}
+		dstRow += screenBitmap.pitch;
+		srcRow += loadedBitmap.pitch;
+	}
+}
+
+internal
+void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
+	u32 relativeRenderAddress = 0;
+	while (relativeRenderAddress < group.pushBufferSize) {
+		u32 relativeAddressBeforeSwitchCase = relativeRenderAddress;
+		RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + relativeRenderAddress);
+		switch (header->type) {
+		case RenderCallType::RenderCallClear: {
+			RenderCallClear* call = ptrcast(RenderCallClear, header);
+			RenderRectangle(
+				dstBuffer, 
+				V2{ 0, 0 }, 
+				V2i(dstBuffer.width, dstBuffer.height), 
+				call->R, call->G, call->B
+			);
+			relativeRenderAddress += sizeof(RenderCallClear);
+		} break;
+		case RenderCallType::RenderCallRectangle: {
+			RenderCallRectangle* call = ptrcast(RenderCallRectangle, header);
+			V3 groundLevel = call->center - 0.5f * V3{ 0, 0, call->rectSize.Z };
+			f32 zFudge = 0.1f * groundLevel.Z;
+			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
+						  scast(f32, dstBuffer.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - dstBuffer.height / 2.0f - groundLevel.Z * pixelsPerMeter };
+			V2 size = { (1.f + zFudge) * call->rectSize.X,
+						(1.f + zFudge) * call->rectSize.Y };
+
+			V2 min = center - size / 2.f * pixelsPerMeter;
+			V2 max = min + size * pixelsPerMeter;
+			RenderRectangle(dstBuffer, min, max, call->R, call->G, call->B);
+			relativeRenderAddress += sizeof(RenderCallRectangle);
+		} break;
+		case RenderCallType::RenderCallBitmap: {
+			RenderCallBitmap* call = ptrcast(RenderCallBitmap, header);
+			V3 groundLevel = call->center; // - 0.5f* V3{ 0, 0, call->rectSize.Z };
+			f32 zFudge = 0.1f * groundLevel.Z;
+			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
+						  scast(f32, dstBuffer.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - dstBuffer.height / 2.0f - groundLevel.Z * pixelsPerMeter };
+			/*V2 size = { (1.f + zFudge) * call->rectSize.X,
+						(1.f + zFudge) * call->rectSize.Y };*/
+
+			V2 offset = {
+					center.X - call->offset.X * pixelsPerMeter,
+					center.Y + call->offset.Y * pixelsPerMeter
+			};
+			RenderBitmap(dstBuffer, *call->bitmap, offset);
+			relativeRenderAddress += sizeof(RenderCallBitmap);
+		} break;
+		InvalidDefaultCase;
+		}
+		Assert(relativeAddressBeforeSwitchCase < relativeRenderAddress);
+	}
 }
 
 inline
