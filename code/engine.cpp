@@ -170,8 +170,6 @@ u32 AddGroundedEntity(World& world, EntityStorage& storage, u32 absX, u32 absY, 
 
 internal
 u32 AddWall(ProgramState* state, World& world, u32 absX, u32 absY, u32 absZ) {
-	// TODO: Instead of changing world position into chunk position for all the objects just
-	// call AddEntity() which will do it for ourselves
 	EntityStorage storage = {};
 	SetFlag(storage.entity, EntityFlag_StopsOnCollide);
 	storage.entity.type = EntityType_Wall;
@@ -698,13 +696,6 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 		SetEntityGroundLevel(entity, ground);
 		entity.vel.Z = 0.f;
 	}
-
-	WorldPosition newEntityPos = OffsetWorldPosition(world, state->cameraPos, entity.pos);
-	// TODO: change location of ChangeEntityChunkLocation, it can be potentially problem in the future
-	// cause this changes location of low entity which is not updated by EndSimulation(), so it looks
-	// like it has been moved by until EndSimulation() is not called its data is not in sync with chunk
-	// location
-	ChangeEntityChunkLocation(world, world.arena, entity.storageIndex, entity, &entity.worldPos, newEntityPos);
 }
 
 internal
@@ -730,15 +721,11 @@ internal
 void MakeEntitySpatial(SimRegion& simRegion, World& world, u32 storageEntityIndex, Entity& entity, WorldPosition& newPos) {
 	Assert(IsFlagSet(entity, EntityFlag_NonSpatial));
 	ChangeEntityChunkLocation(world, world.arena, storageEntityIndex, entity, 0, newPos);
-	TryAddEntityToSim(simRegion, world, storageEntityIndex, entity);
-	ClearFlag(entity, EntityFlag_NonSpatial);
 }
 
 internal
 void MakeEntityNonSpatial(ProgramState* state, u32 storageEntityIndex, Entity& entity) {
 	Assert(!IsFlagSet(entity, EntityFlag_NonSpatial));
-	WorldPosition nullPosition = NullPosition();
-	ChangeEntityChunkLocation(state->world, state->world.arena, storageEntityIndex, entity, &entity.worldPos, nullPosition);
 	SetFlag(entity, EntityFlag_NonSpatial);
 }
 
@@ -885,7 +872,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					else if (lvlJustChanged && absTileZ == 1 && tileX == 2 && tileY == 2) {
 						//tileValue = 4; // Ladder down
 					}
-					// TODO: Chunk allocation on demand
+
 					if (tileValue == 2) {
 						AddWall(state, world, absTileX, absTileY, absTileZ);
 					}
@@ -990,6 +977,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		if (controller.isMouseLDown && IsFlagSet(*entity->sword, EntityFlag_NonSpatial)) {
 			entity->sword->distanceRemaining = 5.f;
+			entity->sword->timeRemaining = 4.f;
 			V2 mousePos = MapScreenSpacePosIntoCameraSpace(controller.mouseX, controller.mouseY, bitmap.width, bitmap.height);
 			f32 mouseVecLength = Length(mousePos);
 			f32 projectileSpeed = 5.f;
@@ -1153,7 +1141,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		} break;
 		case EntityType_Sword: {
 			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.f, 0.f, 0.f, 1.f, {});
-			if (entity->distanceRemaining <= 0.f) {
+			entity->timeRemaining -= input.dtFrame;
+			if (entity->distanceRemaining <= 0.f || entity->timeRemaining <= 0.f) {
 				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
 				MakeEntityNonSpatial(state, entity->storageIndex, *entity);
 			}

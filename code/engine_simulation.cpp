@@ -49,8 +49,8 @@ Entity* GetEntityByStorageIndex(SimRegion& simRegion, u32 storageEntityIndex) {
 
 inline
 void TryAddEntityToSim(SimRegion& simRegion, World& world, u32 storageEntityIndex, Entity& entity) {
-	V3 diff = Subtract(world, entity.worldPos, simRegion.origin);
-	if (!IsInRectangle(simRegion.bounds, diff)) {
+	V3 simSpacePos = Subtract(world, entity.worldPos, simRegion.origin);
+	if (!IsInRectangle(simRegion.bounds, simSpacePos)) {
 		return;
 	}
 	Assert(simRegion.entityCount < simRegion.maxEntityCount);
@@ -64,7 +64,7 @@ void TryAddEntityToSim(SimRegion& simRegion, World& world, u32 storageEntityInde
 	Entity* simEntity = &simRegion.entities[simRegion.entityCount];
 	*simEntity = entity;
 	simEntity->storageIndex = storageEntityIndex;
-	simEntity->pos = diff;
+	simEntity->pos = simSpacePos;
 
 	entityHash->index = storageEntityIndex;
 	entityHash->ptr = simEntity;
@@ -97,9 +97,6 @@ SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 					for (u32 index = 0; index < entities->entityCount; index++) {
 						u32 storageEntityIndex = entities->entityIndexes[index];
 						EntityStorage* storage = GetEntityStorage(world, storageEntityIndex);
-						if (storage->entity.type == EntityType_Player) {
-							int breakHere = 2;
-						}
 						TryAddEntityToSim(*simRegion, world, storageEntityIndex, storage->entity);
 					}
 				}
@@ -113,14 +110,21 @@ internal
 void EndSimulation(SimRegion& simRegion, World& world) {
 	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 		Entity* entity = simRegion.entities + entityIndex;
-		if (entity->type == EntityType_Player) {
-			int breakHere = 0;
-		}
 		EntityStorage* storage = GetEntityStorage(world, entity->storageIndex);
 		Assert(storage && entity);
 		if (storage && entity) {
+			WorldPosition newEntityPos;
+			if (IsFlagSet(*entity, EntityFlag_NonSpatial)) {
+				newEntityPos = NullPosition();
+			}
+			else {
+				newEntityPos = OffsetWorldPosition(world, simRegion.origin, entity->pos);
+			}
+			ChangeEntityChunkLocation(world, world.arena, entity->storageIndex, 
+				*entity, &entity->worldPos, newEntityPos);
 			storage->entity = *entity;
 		}
+
 	}
 	// TODO: Should this memory be zeroed here?
 }

@@ -82,6 +82,7 @@ struct Entity {
 	Entity* sword;
 	// Only Sword (or throwable)
 	f32 distanceRemaining;
+	f32 timeRemaining;
 	// Only stairs
 	V3 walkableDim;
 };
