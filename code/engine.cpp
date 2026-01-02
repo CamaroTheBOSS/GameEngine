@@ -776,7 +776,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->groundBmps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/ground1.bmp");
 		state->grassBmps[0] = LoadBmpFile(memory.debugReadEntireFile, "test/grass0.bmp");
 		state->grassBmps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/grass1.bmp");
-		state->treeBmp = LoadBmpFile(memory.debugReadEntireFile, "test/tree.bmp");
+		state->treeBmp = LoadBmpFile(memory.debugReadEntireFile, "test/tree2.bmp");
 
 		state->playerMoveAnim[0] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-right.bmp");
 		state->playerMoveAnim[0].alignX = 0;
@@ -1164,8 +1164,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	time += input.dtFrame;
 	f32 angle = time;
 	V2 screenCenter = 0.5f * V2i(bitmap.width, bitmap.height);
-	V2 origin = screenCenter;
-	V2 xAxis = 100.f * V2{ Cos(angle), Sin(angle)};
+	V2 origin = screenCenter + V2{ 10.f * Sin(0.5f * angle), 0.f };
+	V2 xAxis = 200.f * V2{ 1.f, 0.f };
 #if 1
 	V2 yAxis = Perp(xAxis);
 #else
@@ -1173,7 +1173,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #endif
 
 	V4 color = V4{ 1.f, 1.f, 0.f, 1.f };
-	PushCoordinateSystem(renderGroup, origin, xAxis, yAxis, color);
+	PushCoordinateSystem(renderGroup, origin - 0.5f*(xAxis + yAxis), xAxis, yAxis, color, &state->treeBmp);
 
 	RenderGroupToBuffer(renderGroup, screenBitmap);
 

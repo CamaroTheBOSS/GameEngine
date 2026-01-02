@@ -38,6 +38,13 @@ f32 Cos(f32 angle) {
 }
 
 inline
+i32 Sign(f32 v) {
+	// TODO: It is really correct for all the platforms? In IEEE 754 standard
+	// this should work, but where it won't work?
+	return i4(v) >> 31;
+}
+
+inline
 i32 Abs(i32 value) {
 	if (value < 0) {
 		return -value;

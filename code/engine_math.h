@@ -618,9 +618,38 @@ bool RectanglesOverlapsWithEachOther(Rect3 A, Rect3 B) {
 }
 
 inline
-f32 Lerp(f32 min, f32 unilateral, f32 max) {
-	Assert(min < max);
-	f32 result = min + unilateral * (max - min);
+f32 Lerp(f32 A, f32 unilateral, f32 B) {
+	f32 result = A + unilateral * (B - A);
+	return result;
+}
+
+inline
+V2 Lerp(V2 A, f32 unilateral, V2 B) {
+	V2 result = {
+		Lerp(A.X, unilateral, B.X),
+		Lerp(A.Y, unilateral, B.Y),
+	};
+	return result;
+}
+
+inline
+V3 Lerp(V3 A, f32 unilateral, V3 B) {
+	V3 result = {
+		Lerp(A.X, unilateral, B.X),
+		Lerp(A.Y, unilateral, B.Y),
+		Lerp(A.Z, unilateral, B.Z),
+	};
+	return result;
+}
+
+inline
+V4 Lerp(V4 A, f32 unilateral, V4 B) {
+	V4 result = {
+		Lerp(A.X, unilateral, B.X),
+		Lerp(A.Y, unilateral, B.Y),
+		Lerp(A.Z, unilateral, B.Z),
+		Lerp(A.W, unilateral, B.W),
+	};
 	return result;
 }
 

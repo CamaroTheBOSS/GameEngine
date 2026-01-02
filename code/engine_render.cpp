@@ -48,12 +48,13 @@ RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V3 rectSize, f32 R,
 }
 
 inline
-RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color) {
+RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color, LoadedBitmap* bitmap) {
 	RenderCallCoordinateSystem* call = PushRenderEntry(group, RenderCallCoordinateSystem);
 	call->origin = origin;
 	call->xAxis = xAxis;
 	call->yAxis = yAxis;
 	call->color = color;
+	call->bitmap = bitmap;
 	return call;
 }
 
@@ -90,7 +91,7 @@ void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B
 
 
 internal
-void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color) {
+void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color, LoadedBitmap& texture) {
 	u32 colorU32 =  (scast(u32, 255 * color.A) << 24) +
 					(scast(u32, 255 * color.R) << 16) +
 					(scast(u32, 255 * color.G) << 8) +
@@ -120,7 +121,7 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 	
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
 	for (i32 Y = minY; Y < maxY; Y++) {
-		u32* pixel = ptrcast(u32, row);
+		u32* dstPixel = ptrcast(u32, row);
 		for (i32 X = minX; X < maxX; X++) {
 #if 1
 			if (Y == (minY + maxY) / 2 &&
@@ -137,12 +138,91 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 				edge1 < 0 &&
 				edge2 < 0 &&
 				edge3 < 0) {
-				*pixel = colorU32;
+
+				f32 u = Inner(d, xAxis) / (LengthSq(xAxis));
+				f32 v = Inner(d, yAxis) / (LengthSq(yAxis));
+				// TODO: U and V values should be clipped 
+				Assert(u >= 0 && u <= 1.0012f);
+				Assert(v >= 0 && v <= 1.0012f);
+				// TODO: What with last row and last column?
+				V2 texelVec = V2{
+					 1.f + u * (texture.width - 3),
+					 1.f + v * (texture.height - 3)
+				};
+				i32 texelX = u4(texelVec.X);
+				i32 texelY = u4(texelVec.Y);
+				V2 texelFracHalf = V2{
+					texelVec.X - texelX,
+					texelVec.Y - texelY
+				};
+				i32 neighbourX = CeilF32ToU32(texelFracHalf.X * 2.f - 1.f);
+
+				i32 texelByteIndex00 = texelY * texture.pitch + texelX * BITMAP_BYTES_PER_PIXEL;
+				i32 texelByteIndex01 = texelY * texture.pitch + (texelX + 1) * BITMAP_BYTES_PER_PIXEL;
+				i32 texelByteIndex10 = (texelY + 1) * texture.pitch + texelX * BITMAP_BYTES_PER_PIXEL;
+				i32 texelByteIndex11 = (texelY + 1) * texture.pitch + (texelX + 1) * BITMAP_BYTES_PER_PIXEL;
+
+				u32* texel00 = ptrcast(u32, ptrcast(u8, texture.data) + texelByteIndex00);
+				u32* texel01 = ptrcast(u32, ptrcast(u8, texture.data) + texelByteIndex01);
+				u32* texel10 = ptrcast(u32, ptrcast(u8, texture.data) + texelByteIndex10);
+				u32* texel11 = ptrcast(u32, ptrcast(u8, texture.data) + texelByteIndex11);
+
+				// RGBA
+				V4 texelColor00 = {
+					f4((*texel00 >> 16) & 0xFF),
+					f4((*texel00 >> 8) & 0xFF),
+					f4((*texel00 >> 0) & 0xFF),
+					f4((*texel00 >> 24) & 0xFF)
+				};
+				V4 texelColor01 = {
+					f4((*texel01 >> 16) & 0xFF),
+					f4((*texel01 >> 8) & 0xFF),
+					f4((*texel01 >> 0) & 0xFF),
+					f4((*texel01 >> 24) & 0xFF)
+				};
+				V4 texelColor10 = {
+					f4((*texel10 >> 16) & 0xFF),
+					f4((*texel10 >> 8) & 0xFF),
+					f4((*texel10 >> 0) & 0xFF),
+					f4((*texel10 >> 24) & 0xFF)
+				};
+				V4 texelColor11 = {
+					f4((*texel11 >> 16) & 0xFF),
+					f4((*texel11 >> 8) & 0xFF),
+					f4((*texel11 >> 0) & 0xFF),
+					f4((*texel11 >> 24) & 0xFF)
+				};
+#if 1
+				V4 finalTexel = Lerp(
+					Lerp(texelColor00, texelFracHalf.X, texelColor01),
+					texelFracHalf.Y,
+					Lerp(texelColor10, texelFracHalf.X, texelColor11)
+				);
+#else
+				V4 finalTexel = texelColor00;
+#endif
+
+				f32 sA = finalTexel.A / 255.f;
+				f32 sR = finalTexel.R;
+				f32 sG = finalTexel.G;
+				f32 sB = finalTexel.B;
+
+				f32 dA = scast(f32, (*dstPixel >> 24) & 0xFF) / 255.f;
+				f32 dR = scast(f32, (*dstPixel >> 16) & 0xFF);
+				f32 dG = scast(f32, (*dstPixel >> 8) & 0xFF);
+				f32 dB = scast(f32, (*dstPixel >> 0) & 0xFF);
+
+				u8 a = scast(u8, 255.f * (sA + dA - sA * dA));
+				u8 r = scast(u8, sR + (1 - sA) * dR);
+				u8 g = scast(u8, sG + (1 - sA) * dG);
+				u8 b = scast(u8, sB + (1 - sA) * dB);
+
+				*dstPixel = (a << 24) | (r << 16) | (g << 8) | (b << 0);
 			}
 #else
-			*pixel = colorU32;
+			*dstPixel = colorU32;
 #endif
-			pixel++;
+			dstPixel++;
 		}
 		row += bitmap.pitch;
 	}
@@ -305,7 +385,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		} break;
 		case RenderCallType::RenderCallCoordinateSystem: {
 			RenderCallCoordinateSystem* call = ptrcast(RenderCallCoordinateSystem, header);
-			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis, call->color);
+			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis, call->color, *call->bitmap);
 			
 			RenderRectangle(dstBuffer, call->origin, call->origin + V2{5.f, 5.f}, 1.f, 0.f, 0.f);
 			RenderRectangle(dstBuffer, call->origin + call->xAxis, call->origin + call->xAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);
