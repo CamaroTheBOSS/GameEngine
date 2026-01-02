@@ -317,22 +317,35 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 		u32* dstPixel = ptrcast(u32, dstRow);
 		u32* srcPixel = ptrcast(u32, srcRow);
 		for (i32 X = minX; X < maxX; X++) {
-			f32 dA = scast(f32, (*dstPixel >> 24) & 0xFF) / 255.f;
-			f32 dR = scast(f32, (*dstPixel >> 16) & 0xFF);
-			f32 dG = scast(f32, (*dstPixel >> 8) & 0xFF);
-			f32 dB = scast(f32, (*dstPixel >> 0) & 0xFF);
+			V4 dest = {
+					f4((*dstPixel >> 16) & 0xFF),
+					f4((*dstPixel >> 8) & 0xFF),
+					f4((*dstPixel >> 0) & 0xFF),
+					f4((*dstPixel >> 24) & 0xFF)
+			};
+			dest = SRGB255ToLinear1(dest);
 
-			f32 sA = scast(f32, (*srcPixel >> 24) & 0xFF) / 255.f;
-			f32 sR = scast(f32, (*srcPixel >> 16) & 0xFF);
-			f32 sG = scast(f32, (*srcPixel >> 8) & 0xFF);
-			f32 sB = scast(f32, (*srcPixel >> 0) & 0xFF);
+			V4 texel = {
+					f4((*srcPixel >> 16) & 0xFF),
+					f4((*srcPixel >> 8) & 0xFF),
+					f4((*srcPixel >> 0) & 0xFF),
+					f4((*srcPixel >> 24) & 0xFF)
+			};
+			texel = SRGB255ToLinear1(texel);
 
-			u8 a = scast(u8, 255.f * (sA + dA - sA * dA));
-			u8 r = scast(u8, sR + (1 - sA) * dR);
-			u8 g = scast(u8, sG + (1 - sA) * dG);
-			u8 b = scast(u8, sB + (1 - sA) * dB);
+			V4 output = {
+					texel.R + (1 - texel.A) * dest.R,
+					texel.G + (1 - texel.A) * dest.G,
+					texel.B + (1 - texel.A) * dest.B,
+					texel.A + dest.A - texel.A * dest.A
+			};
+			output = Linear1ToSRGB255(output);
+			*dstPixel = (u4(output.A + 0.5f) << 24) |
+						(u4(output.R + 0.5f) << 16) |
+						(u4(output.G + 0.5f) << 8) |
+						(u4(output.B + 0.5f) << 0);
 
-			*dstPixel++ = (a << 24) | (r << 16) | (g << 8) | (b << 0);
+			dstPixel++;
 			srcPixel++;
 		}
 		dstRow += screenBitmap.pitch;

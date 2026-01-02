@@ -120,12 +120,19 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 	u32* pixels = ptrcast(u32, result.bufferStart);
 	for (u32 Y = 0; Y < header->height; Y++) {
 		for (u32 X = 0; X < header->width; X++) {
-			u32 A = (*pixels >> alphaShift) & 0xFF;
-			f32 alphaF32 = A / 255.f;
-			u32 R = u4(alphaF32 * ((*pixels >> redShift) & 0xFF));
-			u32 G = u4(alphaF32 * ((*pixels >> greenShift) & 0xFF));
-			u32 B = u4(alphaF32 * ((*pixels >> blueShift) & 0xFF));
-			*pixels++ = (A << 24) + (R << 16) + (G << 8) + (B << 0);
+			V4 texel = {
+				f4((*pixels >> redShift) & 0xFF),
+				f4((*pixels >> greenShift) & 0xFF),
+				f4((*pixels >> blueShift) & 0xFF),
+				f4((*pixels >> alphaShift) & 0xFF),
+			};
+			texel = SRGB255ToLinear1(texel);
+			texel.RGB *= texel.A;
+			texel = Linear1ToSRGB255(texel);
+			*pixels++ = (u4(texel.A + 0.5f) << 24) + 
+						(u4(texel.R + 0.5f) << 16) +
+						(u4(texel.G + 0.5f) << 8) +
+						(u4(texel.B + 0.5f) << 0);
 		}
 	}
 	
