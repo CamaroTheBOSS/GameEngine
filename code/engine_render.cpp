@@ -247,39 +247,6 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 }
 
 internal
-void RenderRectBorders(LoadedBitmap& bitmap, V2 center, V2 size, V3 color, f32 thickness) {
-	V2 leftUpWallStart = {
-		center.X - 0.5f * (size.X + thickness),
-		center.Y - 0.5f * (size.X + thickness),
-	};
-	V2 leftWallEnd = {
-		center.X - 0.5f * (size.X - thickness),
-		center.Y + 0.5f * (size.X + thickness),
-	};
-	V2 upWallEnd = {
-		center.X + 0.5f * (size.X + thickness),
-		center.Y - 0.5f * (size.X - thickness),
-	};
-	V2 rightWallStart = {
-		center.X + 0.5f * (size.X - thickness),
-		center.Y - 0.5f * (size.X - thickness),
-	};
-	V2 bottomWallStart = {
-		center.X - 0.5f * (size.X + thickness),
-		center.Y + 0.5f * (size.X - thickness),
-	};
-	V2 rightBottomWallEnd = {
-		center.X + 0.5f * (size.X + thickness),
-		center.Y + 0.5f * (size.X + thickness),
-	};
-	RenderRectangle(bitmap, leftUpWallStart, leftWallEnd, color.R, color.G, color.B);
-	RenderRectangle(bitmap, leftUpWallStart, upWallEnd, color.R, color.G, color.B);
-	RenderRectangle(bitmap, rightWallStart, rightBottomWallEnd, color.R, color.G, color.B);
-	RenderRectangle(bitmap, bottomWallStart, rightBottomWallEnd, color.R, color.G, color.B);
-}
-
-// TODO: compress this function to only RenderRectBorders()
-internal
 void PushRectBorders(RenderGroup& group, V3 center, V3 size, f32 thickness) {
 	PushRect(group, center - V3{ 0.5f * size.X, 0, 0 },
 		V3{ thickness, size.Y, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
