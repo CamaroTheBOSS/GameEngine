@@ -1,6 +1,27 @@
 #include "engine_common.h"
 #include "engine_render.h"
 
+inline
+V4 SRGB255ToLinear1(V4 input) {
+	V4 result = {};
+	f32 inv255 = 1.f / 255.f;
+	result.R = Squared(inv255 * input.R);
+	result.G = Squared(inv255 * input.G);
+	result.B = Squared(inv255 * input.B);
+	result.A = inv255 * input.A;
+	return result;
+}
+
+inline
+V4 Linear1ToSRGB255(V4 input) {
+	V4 result = {};
+	result.R = 255.f * SquareRoot(input.R);
+	result.G = 255.f * SquareRoot(input.G);
+	result.B = 255.f * SquareRoot(input.B);
+	result.A = 255.f * input.A;
+	return result;
+}
+
 #define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType::##type))
 inline 
 RenderCallHeader* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
@@ -123,11 +144,6 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
 		for (i32 X = minX; X < maxX; X++) {
-#if 1
-			if (Y == (minY + maxY) / 2 &&
-				X == (minX + maxY) / 2) {
-				int breakHere = 5;
-			}
 			V2 point = V2i(X, Y) + V2{ 0.5f, 0.5f };
 			V2 d = point - origin;
 			f32 edge0 = Inner(d, Perp(yAxis));
@@ -155,7 +171,6 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 					texelVec.X - texelX,
 					texelVec.Y - texelY
 				};
-				i32 neighbourX = CeilF32ToU32(texelFracHalf.X * 2.f - 1.f);
 
 				i32 texelByteIndex00 = texelY * texture.pitch + texelX * BITMAP_BYTES_PER_PIXEL;
 				i32 texelByteIndex01 = texelY * texture.pitch + (texelX + 1) * BITMAP_BYTES_PER_PIXEL;
@@ -192,36 +207,37 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 					f4((*texel11 >> 0) & 0xFF),
 					f4((*texel11 >> 24) & 0xFF)
 				};
-#if 1
-				V4 finalTexel = Lerp(
+
+				texelColor00 = SRGB255ToLinear1(texelColor00);
+				texelColor01 = SRGB255ToLinear1(texelColor01);
+				texelColor10 = SRGB255ToLinear1(texelColor10);
+				texelColor11 = SRGB255ToLinear1(texelColor11);
+				V4 texel = Lerp(
 					Lerp(texelColor00, texelFracHalf.X, texelColor01),
 					texelFracHalf.Y,
 					Lerp(texelColor10, texelFracHalf.X, texelColor11)
 				);
-#else
-				V4 finalTexel = texelColor00;
-#endif
 
-				f32 sA = finalTexel.A / 255.f;
-				f32 sR = finalTexel.R;
-				f32 sG = finalTexel.G;
-				f32 sB = finalTexel.B;
+				V4 dest = {
+					f4((*dstPixel >> 16) & 0xFF),
+					f4((*dstPixel >> 8) & 0xFF),
+					f4((*dstPixel >> 0) & 0xFF),
+					f4((*dstPixel >> 24) & 0xFF)
+				};
+				dest = SRGB255ToLinear1(dest);
 
-				f32 dA = scast(f32, (*dstPixel >> 24) & 0xFF) / 255.f;
-				f32 dR = scast(f32, (*dstPixel >> 16) & 0xFF);
-				f32 dG = scast(f32, (*dstPixel >> 8) & 0xFF);
-				f32 dB = scast(f32, (*dstPixel >> 0) & 0xFF);
-
-				u8 a = scast(u8, 255.f * (sA + dA - sA * dA));
-				u8 r = scast(u8, sR + (1 - sA) * dR);
-				u8 g = scast(u8, sG + (1 - sA) * dG);
-				u8 b = scast(u8, sB + (1 - sA) * dB);
-
-				*dstPixel = (a << 24) | (r << 16) | (g << 8) | (b << 0);
+				V4 output = {
+					texel.R + (1 - texel.A) * dest.R,
+					texel.G + (1 - texel.A) * dest.G,
+					texel.B + (1 - texel.A) * dest.B,
+					texel.A + dest.A - texel.A * dest.A
+				};
+				output = Linear1ToSRGB255(output);
+				*dstPixel = (u4(output.A + 0.5f) << 24) | 
+							(u4(output.R + 0.5f) << 16) | 
+							(u4(output.G + 0.5f) << 8) | 
+							(u4(output.B + 0.5f) << 0);
 			}
-#else
-			*dstPixel = colorU32;
-#endif
 			dstPixel++;
 		}
 		row += bitmap.pitch;
