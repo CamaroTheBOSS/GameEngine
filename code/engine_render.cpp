@@ -24,13 +24,15 @@ V4 Linear1ToSRGB255(V4 input) {
 
 #define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType::##type))
 inline 
-RenderCallHeader* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
+void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
+	size += sizeof(RenderCallHeader);
 	Assert(group.pushBufferSize + size <= group.maxPushBufferSize);
 	if (group.pushBufferSize + size > group.maxPushBufferSize) {
 		return 0;
 	}
-	RenderCallHeader* result = ptrcast(RenderCallHeader, group.pushBuffer + group.pushBufferSize);
-	result->type = type;
+	RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + group.pushBufferSize);
+	header->type = type;
+	void* result = (header + 1);
 	group.pushBufferSize += size;
 	return result;
 }
@@ -366,11 +368,12 @@ internal
 void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 	u32 relativeRenderAddress = 0;
 	while (relativeRenderAddress < group.pushBufferSize) {
-		u32 relativeAddressBeforeSwitchCase = relativeRenderAddress;
 		RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + relativeRenderAddress);
+		relativeRenderAddress += sizeof(RenderCallHeader);
+		u32 relativeAddressBeforeSwitchCase = relativeRenderAddress;
 		switch (header->type) {
 		case RenderCallType::RenderCallClear: {
-			RenderCallClear* call = ptrcast(RenderCallClear, header);
+			RenderCallClear* call = ptrcast(RenderCallClear, group.pushBuffer + relativeRenderAddress);
 			RenderRectangle(
 				dstBuffer, 
 				V2{ 0, 0 }, 
@@ -380,7 +383,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			relativeRenderAddress += sizeof(RenderCallClear);
 		} break;
 		case RenderCallType::RenderCallRectangle: {
-			RenderCallRectangle* call = ptrcast(RenderCallRectangle, header);
+			RenderCallRectangle* call = ptrcast(RenderCallRectangle, group.pushBuffer + relativeRenderAddress);
 			V3 groundLevel = call->center -0.5f * V3{ 0, 0, call->rectSize.Z };
 			f32 zFudge = 0.1f * groundLevel.Z;
 			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
@@ -397,7 +400,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			// TODO: RenderCallBitmap and RenderCallRectangle have different approaches to calculate center
 			// It should be unified (check groundLevel) which is different from RenderCallRectangle,
 			// also, size is properly changed in RenderCallRectangle and not in RenderCallBitmap
-			RenderCallBitmap* call = ptrcast(RenderCallBitmap, header);
+			RenderCallBitmap* call = ptrcast(RenderCallBitmap, group.pushBuffer + relativeRenderAddress);
 			V3 groundLevel = call->center; // - 0.5f* V3{ 0, 0, call->rectSize.Z };
 			f32 zFudge = 0.1f * groundLevel.Z;
 			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
@@ -413,7 +416,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			relativeRenderAddress += sizeof(RenderCallBitmap);
 		} break;
 		case RenderCallType::RenderCallCoordinateSystem: {
-			RenderCallCoordinateSystem* call = ptrcast(RenderCallCoordinateSystem, header);
+			RenderCallCoordinateSystem* call = ptrcast(RenderCallCoordinateSystem, group.pushBuffer + relativeRenderAddress);
 			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis, call->color, *call->bitmap);
 			
 			RenderRectangle(dstBuffer, call->origin, call->origin + V2{5.f, 5.f}, 1.f, 0.f, 0.f);

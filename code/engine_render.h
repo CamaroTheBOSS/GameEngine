@@ -26,12 +26,10 @@ struct RenderCallHeader {
 };
 
 struct RenderCallClear {
-	RenderCallHeader header;
 	f32 R, G, B, A;
 };
 
 struct RenderCallRectangle {
-	RenderCallHeader header;
 	V3 center;
 	V3 rectSize;
 	f32 R, G, B, A;
@@ -39,7 +37,6 @@ struct RenderCallRectangle {
 };
 
 struct RenderCallBitmap {
-	RenderCallHeader header;
 	LoadedBitmap* bitmap;
 	V3 center;
 	f32 alpha;
@@ -47,7 +44,6 @@ struct RenderCallBitmap {
 };
 
 struct RenderCallCoordinateSystem {
-	RenderCallHeader header;
 	V2 origin;
 	V2 xAxis;
 	V2 yAxis;
