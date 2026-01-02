@@ -233,6 +233,154 @@ inline f32 Length(V3 A) {
 	return SquareRoot(LengthSq(A));
 }
 
+union V4 {
+	struct {
+		f32 X, Y, Z, W;
+	};
+	struct {
+		V2 XY;
+		f32 _pad0[2];
+	};
+	struct {
+		V3 XYZ;
+		f32 _pad1;
+	};
+	struct {
+		f32 R, G, B, A;
+	};
+	struct {
+		V3 RGB;
+		f32 _pad2;
+	};
+	f32 E[4];
+};
+
+V4 V4i(i32 X, i32 Y, i32 Z, i32 W) {
+	V4 result = V4{ f4(X), f4(Y), f4(Z), f4(W) };
+	return result;
+}
+
+inline
+V4 operator+(V4 A, V4 B) {
+	return V4{
+		A.X + B.X,
+		A.Y + B.Y,
+		A.Z + B.Z,
+		A.W + B.W
+	};
+}
+
+inline
+V4 operator-(V4 A, V4 B) {
+	return V4{
+		A.X - B.X,
+		A.Y - B.Y,
+		A.Z - B.Z,
+		A.W - B.W
+	};
+}
+
+inline
+V4 operator-(V4 A) {
+	return V4{
+		-A.X,
+		-A.Y,
+		-A.Z,
+		-A.W
+	};
+}
+
+inline
+V4 operator*(f32 scalar, V4 A) {
+	return V4{
+		scalar * A.X,
+		scalar * A.Y,
+		scalar * A.Z,
+		scalar * A.W
+	};
+}
+
+inline
+V4 operator*(V4 A, f32 scalar) {
+	return scalar * A;
+}
+
+inline
+V4 operator/(V4 A, f32 scalar) {
+	return V4{
+		A.X / scalar,
+		A.Y / scalar,
+		A.Z / scalar,
+		A.W / scalar
+	};
+}
+
+inline
+V4& operator*=(V4& A, f32 scalar) {
+	A.X *= scalar;
+	A.Y *= scalar;
+	A.Z *= scalar;
+	A.W *= scalar;
+	return A;
+}
+
+inline
+V4& operator+=(V4& A, V4 B) {
+	A.X += B.X;
+	A.Y += B.Y;
+	A.Z += B.Z;
+	A.W += B.W;
+	return A;
+}
+
+inline
+V4& operator-=(V4& A, V4 B) {
+	A.X -= B.X;
+	A.Y -= B.Y;
+	A.Z -= B.Z;
+	A.W -= B.W;
+	return A;
+}
+
+inline
+bool operator==(V4 A, V4 B) {
+	return A.X == B.X &&
+		A.Y == B.Y &&
+		A.Z == B.Z &&
+		A.W == B.W;
+}
+
+inline
+bool operator!=(V4 A, V4 B) {
+	return !(A == B);
+}
+
+inline // Inner / Scalar / Dot
+f32 Inner(V4 A, V4 B) {
+	return A.X * B.X + 
+		A.Y * B.Y + 
+		A.Z * B.Z + 
+		A.W * B.W;
+}
+
+inline
+V4 Hadamard(V4 A, V4 B) {
+	return V4{ 
+		A.X * B.X, 
+		A.Y * B.Y, 
+		A.Z * B.Z, 
+		A.W * B.W 
+	};
+}
+
+inline f32 LengthSq(V4 A) {
+	return Inner(A, A);
+}
+
+inline f32 Length(V4 A) {
+	return SquareRoot(LengthSq(A));
+}
+
 inline
 f32 Squared(f32 A) {
 	return A * A;
@@ -474,5 +622,10 @@ f32 Lerp(f32 min, f32 unilateral, f32 max) {
 	Assert(min < max);
 	f32 result = min + unilateral * (max - min);
 	return result;
+}
+
+inline 
+V2 Perp(V2 A) {
+	return V2{ -A.Y, A.X };
 }
 #pragma warning(pop)

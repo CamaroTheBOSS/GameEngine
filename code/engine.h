@@ -102,6 +102,7 @@ struct ProgramState {
 	LoadedBitmap playerMoveAnim[4];
 	LoadedBitmap groundBmps[2];
 	LoadedBitmap grassBmps[2];
+	LoadedBitmap treeBmp;
 
 	CollisionVolumeGroup* wallCollision;
 	CollisionVolumeGroup* playerCollision;

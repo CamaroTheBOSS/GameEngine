@@ -18,6 +18,7 @@ enum class RenderCallType {
 	RenderCallClear,
 	RenderCallRectangle,
 	RenderCallBitmap,
+	RenderCallCoordinateSystem,
 };
 
 struct RenderCallHeader {
@@ -43,6 +44,14 @@ struct RenderCallBitmap {
 	V3 center;
 	f32 alpha;
 	V2 offset;
+};
+
+struct RenderCallCoordinateSystem {
+	RenderCallHeader header;
+	V2 origin;
+	V2 xAxis;
+	V2 yAxis;
+	V4 color;
 };
 
 struct RenderGroup {

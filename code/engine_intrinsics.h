@@ -28,6 +28,16 @@ u32 CeilF32ToU32(f32 value) {
 }
 
 inline
+f32 Sin(f32 angle) {
+	return sinf(angle);
+}
+
+inline
+f32 Cos(f32 angle) {
+	return cosf(angle);
+}
+
+inline
 i32 Abs(i32 value) {
 	if (value < 0) {
 		return -value;

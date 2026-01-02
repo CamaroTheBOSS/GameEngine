@@ -15,25 +15,27 @@ RenderCallHeader* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType 
 }
 
 inline
-void PushClearCall(RenderGroup& group, f32 R, f32 G, f32 B, f32 A) {
+RenderCallClear* PushClearCall(RenderGroup& group, f32 R, f32 G, f32 B, f32 A) {
 	RenderCallClear* call = PushRenderEntry(group, RenderCallClear);
 	call->R = R;
 	call->G = G;
 	call->B = B;
 	call->A = A;
+	return call;
 }
 
 inline
-void PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 A, V2 offset) {
+RenderCallBitmap* PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 A, V2 offset) {
 	RenderCallBitmap* call = PushRenderEntry(group, RenderCallBitmap);
 	call->bitmap = bitmap;
 	call->center = center;
 	call->offset = offset;
 	call->alpha = A;
+	return call;
 }
 
 inline
-void PushRect(RenderGroup& group, V3 center, V3 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
+RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V3 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
 	RenderCallRectangle* call = PushRenderEntry(group, RenderCallRectangle);
 	call->center = center;
 	call->rectSize = rectSize;
@@ -42,6 +44,17 @@ void PushRect(RenderGroup& group, V3 center, V3 rectSize, f32 R, f32 G, f32 B, f
 	call->B = B;
 	call->A = A;
 	call->offset = offset;
+	return call;
+}
+
+inline
+RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color) {
+	RenderCallCoordinateSystem* call = PushRenderEntry(group, RenderCallCoordinateSystem);
+	call->origin = origin;
+	call->xAxis = xAxis;
+	call->yAxis = yAxis;
+	call->color = color;
+	return call;
 }
 
 internal
@@ -70,6 +83,66 @@ void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B
 		u32* pixel = ptrcast(u32, row);
 		for (i32 X = minX; X < maxX; X++) {
 			*pixel++ = color;
+		}
+		row += bitmap.pitch;
+	}
+}
+
+
+internal
+void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color) {
+	u32 colorU32 =  (scast(u32, 255 * color.A) << 24) +
+					(scast(u32, 255 * color.R) << 16) +
+					(scast(u32, 255 * color.G) << 8) +
+					(scast(u32, 255 * color.B) << 0);
+	i32 minY = i4(origin.Y);
+	i32 maxY = i4((origin + xAxis + yAxis).Y);
+	i32 minX = i4(origin.X);
+	i32 maxX = i4((origin + xAxis + yAxis).X);
+	V2 points[4] = {
+		origin,
+		origin + xAxis,
+		origin + yAxis,
+		origin + xAxis + yAxis
+	};
+	for (u32 pIndex = 0; pIndex < ArrayCount(points); pIndex++) {
+		V2 testP = points[pIndex];
+		if (testP.Y < minY) minY = i4(testP.Y);
+		if (testP.Y > maxY) maxY = i4(testP.Y);
+		if (testP.X < minX) minX = i4(testP.X);
+		if (testP.X > maxX) maxX = i4(testP.X);
+	}
+	if (minY < 0) minY = 0;
+	if (maxY > bitmap.height) maxY = bitmap.height;
+	if (minX < 0) minX = 0;
+	if (maxX > bitmap.width) maxX = bitmap.width;
+	
+	
+	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	for (i32 Y = minY; Y < maxY; Y++) {
+		u32* pixel = ptrcast(u32, row);
+		for (i32 X = minX; X < maxX; X++) {
+#if 1
+			if (Y == (minY + maxY) / 2 &&
+				X == (minX + maxY) / 2) {
+				int breakHere = 5;
+			}
+			V2 point = V2i(X, Y) + V2{ 0.5f, 0.5f };
+			V2 d = point - origin;
+			f32 edge0 = Inner(d, Perp(yAxis));
+			f32 edge1 = Inner(d, -Perp(xAxis));
+			f32 edge2 = Inner(d - xAxis, -Perp(yAxis));
+			f32 edge3 = Inner(d - xAxis - yAxis, Perp(xAxis));
+			if (edge0 < 0 &&
+				edge1 < 0 &&
+				edge2 < 0 &&
+				edge3 < 0) {
+				*pixel = colorU32;
+			}
+#else
+			*pixel = colorU32;
+#endif
+			pixel++;
 		}
 		row += bitmap.pitch;
 	}
@@ -229,6 +302,16 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			};
 			RenderBitmap(dstBuffer, *call->bitmap, offset);
 			relativeRenderAddress += sizeof(RenderCallBitmap);
+		} break;
+		case RenderCallType::RenderCallCoordinateSystem: {
+			RenderCallCoordinateSystem* call = ptrcast(RenderCallCoordinateSystem, header);
+			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis, call->color);
+			
+			RenderRectangle(dstBuffer, call->origin, call->origin + V2{5.f, 5.f}, 1.f, 0.f, 0.f);
+			RenderRectangle(dstBuffer, call->origin + call->xAxis, call->origin + call->xAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);
+			RenderRectangle(dstBuffer, call->origin + call->yAxis, call->origin + call->yAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);
+			
+			relativeRenderAddress += sizeof(RenderCallCoordinateSystem);
 		} break;
 		InvalidDefaultCase;
 		}

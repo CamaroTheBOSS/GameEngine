@@ -776,6 +776,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->groundBmps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/ground1.bmp");
 		state->grassBmps[0] = LoadBmpFile(memory.debugReadEntireFile, "test/grass0.bmp");
 		state->grassBmps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/grass1.bmp");
+		state->treeBmp = LoadBmpFile(memory.debugReadEntireFile, "test/tree.bmp");
 
 		state->playerMoveAnim[0] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-right.bmp");
 		state->playerMoveAnim[0].alignX = 0;
@@ -1109,6 +1110,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		} break;
 		case EntityType_Wall: {
 			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 1.f, 1.f, 1.f, 1.f, {});
+			PushBitmap(renderGroup, &state->treeBmp, entity->pos, 1.f, V2{0, -entity->collision->totalVolume.size.Y});
 		} break;
 		case EntityType_Stairs: {
 			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.2f, 0.2f, 0.2f, 1.f, {});
@@ -1133,7 +1135,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			if (minDistance > Squared(2.0f)) {
 				acceleration = speed * (minDistanceEntityPos - entity->pos) / SquareRoot(minDistance);
 			}
-			acceleration.Z = 10.0f * sinf(6 * t);
+			acceleration.Z = 10.0f * Sin(6 * t);
 			t += input.dtFrame;
 			acceleration -= 10.0f * entity->vel;
 			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.f, 0.f, 1.f, 1.f, {});
@@ -1158,6 +1160,21 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
 	}
+	static f32 time = 0;
+	time += input.dtFrame;
+	f32 angle = time;
+	V2 screenCenter = 0.5f * V2i(bitmap.width, bitmap.height);
+	V2 origin = screenCenter;
+	V2 xAxis = 100.f * V2{ Cos(angle), Sin(angle)};
+#if 1
+	V2 yAxis = Perp(xAxis);
+#else
+	V2 yAxis = 100.f * V2{ -Sin(angle - PI / 6.f), Cos(angle - PI / 6.f) };
+#endif
+
+	V4 color = V4{ 1.f, 1.f, 0.f, 1.f };
+	PushCoordinateSystem(renderGroup, origin, xAxis, yAxis, color);
+
 	RenderGroupToBuffer(renderGroup, screenBitmap);
 
 	EndSimulation(*simRegion, world);
