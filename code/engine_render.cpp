@@ -242,7 +242,7 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 					V3 rayDirection = - e + 2 * Inner(e, normal.RGB) * normal.RGB;
 					V3 lightProbe = {};
 					if (envMap) {
-						SampleEnvMap(*envMap, rayDirection);
+						lightProbe = SampleEnvMap(*envMap, rayDirection);
 					}
 #if 0
 					texel.RGB += lightProbe;
@@ -419,7 +419,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			RenderRectangle(dstBuffer, call->origin, call->origin + V2{5.f, 5.f}, 1.f, 0.f, 0.f);
 			RenderRectangle(dstBuffer, call->origin + call->xAxis, call->origin + call->xAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);
 			RenderRectangle(dstBuffer, call->origin + call->yAxis, call->origin + call->yAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);
-			
+			RenderRectangle(dstBuffer, call->origin + call->xAxis + call->yAxis, call->origin + call->xAxis + call->yAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);
 			relativeRenderAddress += sizeof(RenderCallCoordinateSystem);
 		} break;
 		InvalidDefaultCase;

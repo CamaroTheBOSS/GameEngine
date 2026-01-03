@@ -1225,14 +1225,52 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 	//TODO: make topEnvMap here;
-	//tranState->topEnvMap = Push
+	tranState->topEnvMap.LOD[0] = MakeEmptyBuffer(tranState->arena, 256, 256);
+	LoadedBitmap *topEnvLOD = tranState->topEnvMap.LOD;
+	u8* row = ptrcast(u8, topEnvLOD->data);
+	u32 checkboardSize = 16;
+	V4 envMapColor = V4{ 1, 1, 0, 1 };
+	V2 envMapOrigin = V2{ 0, 0 };
+	V2 envMapXAxis = V2i(topEnvLOD->width, 0);
+	V2 envMapYAxis = V2i(0, topEnvLOD->height);
+	for (i32 Y = 0; Y < topEnvLOD->height; Y++) {
+		u32* pixel = ptrcast(u32, row);
+		for (i32 X = 0; X < topEnvLOD->width; X++) {
+			V4 pixColor;
+			bool checkBoard = ((X / checkboardSize) % 2 == 0 &&
+							   (Y / checkboardSize) % 2 == 0) ||
+							  ((X / checkboardSize) % 2 == 1 &&
+							   (Y / checkboardSize) % 2 == 1);
+			if (checkBoard) {
+				pixColor = envMapColor;
+			}
+			else {
+				pixColor = V4{ 0, 0, 0, 1 };
+			}
+			f32 alpha = 255.f * pixColor.A;
+			*pixel++ = (u4(alpha) << 24) |
+					   (u4(alpha * pixColor.R) << 16) |
+					   (u4(alpha * pixColor.G) << 8) |
+					   (u4(alpha * pixColor.B) << 0);
+		}
+		row += topEnvLOD->pitch;
+	}
+	PushCoordinateSystem(renderGroup, envMapOrigin, 
+		envMapXAxis, envMapYAxis, V4{1, 0, 0, 1}, topEnvLOD, 0, 0);
+
 
 	static f32 time = 0;
 	time += input.dtFrame;
 	f32 angle = time;
 	V2 screenCenter = 0.5f * V2i(bitmap.width, bitmap.height);
 	V2 origin = screenCenter + V2{ 10.f * Sin(0.5f * angle), 0.f };
-	V2 xAxis = 256.f * V2{ Cos(angle), Sin(angle) };//V2{ 1.f, 0.f };
+
+	V2 xAxis = 256.f * V2{ 1.f, 0.f };
+#define rotation 0
+#if rotation == 1
+	xAxis.X *= Cos(angle);
+	xAxis.Y *= Sin(angle);
+#endif
 	V2 yAxis = Perp(xAxis);
 
 
