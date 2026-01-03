@@ -49,6 +49,7 @@ struct RenderCallCoordinateSystem {
 	V2 yAxis;
 	V4 color;
 	LoadedBitmap* bitmap;
+	LoadedBitmap* normalMap;
 };
 
 struct RenderGroup {

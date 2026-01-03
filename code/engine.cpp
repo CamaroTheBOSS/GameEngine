@@ -1166,7 +1166,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 
 	V4 color = V4{ 1.f, 1.f, 0.f, 1.f };
-	PushCoordinateSystem(renderGroup, origin - 0.5f*(xAxis + yAxis), xAxis, yAxis, color, &state->treeBmp);
+	PushCoordinateSystem(renderGroup, origin - 0.5f*(xAxis + yAxis), xAxis, yAxis, color, &state->treeBmp, 0);
 
 	RenderGroupToBuffer(renderGroup, screenBitmap);
 

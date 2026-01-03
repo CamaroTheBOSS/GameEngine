@@ -22,6 +22,54 @@ V4 Linear1ToSRGB255(V4 input) {
 	return result;
 }
 
+inline
+V4 Unpack4x8(u32* pixel) {
+	V4 result = { f4((*pixel >> 16) & 0xFF),
+				  f4((*pixel >> 8) & 0xFF),
+				  f4((*pixel >> 0) & 0xFF),
+				  f4((*pixel >> 24) & 0xFF)};
+	return result;
+}
+
+inline
+V4 Sample4x8FromTexture(LoadedBitmap& texture, u32 X, u32 Y) {
+	i32 texelIndex = Y * texture.pitch + X * BITMAP_BYTES_PER_PIXEL;
+	u32* texelPtr = ptrcast(u32, ptrcast(u8, texture.data) + texelIndex);
+	V4 result = Unpack4x8(texelPtr);
+	return result;
+}
+
+struct BilinearSample {
+	V4 t00, t01;
+	V4 t10, t11;
+};
+inline
+BilinearSample SampleBilinearFromTexture(LoadedBitmap& texture, u32 X, u32 Y) {
+	Assert(X >= 0 && X < u4(texture.width - 1));
+	Assert(Y >= 0 && Y < u4(texture.height - 1));
+	BilinearSample result = {};
+	result.t00 = Sample4x8FromTexture(texture, X, Y);
+	result.t01 = Sample4x8FromTexture(texture, X + 1, Y);
+	result.t10 = Sample4x8FromTexture(texture, X, Y + 1);
+	result.t11 = Sample4x8FromTexture(texture, X + 1, Y + 1);
+	return result;
+}
+
+inline
+V4 BilinearLerp(LoadedBitmap& texture, BilinearSample sample, f32 fX, f32 fY) {
+	sample.t00 = SRGB255ToLinear1(sample.t00);
+	sample.t01 = SRGB255ToLinear1(sample.t01);
+	sample.t10 = SRGB255ToLinear1(sample.t10);
+	sample.t11 = SRGB255ToLinear1(sample.t11);
+	V4 result = Lerp(
+		Lerp(sample.t00, fX, sample.t01),
+		fY,
+		Lerp(sample.t10, fX, sample.t11)
+	);
+	return result;
+}
+
+
 #define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType::##type))
 inline 
 void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
@@ -71,13 +119,16 @@ RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V3 rectSize, f32 R,
 }
 
 inline
-RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color, LoadedBitmap* bitmap) {
+RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color, 
+	LoadedBitmap* bitmap, LoadedBitmap* normalMap) 
+{
 	RenderCallCoordinateSystem* call = PushRenderEntry(group, RenderCallCoordinateSystem);
 	call->origin = origin;
 	call->xAxis = xAxis;
 	call->yAxis = yAxis;
 	call->color = color;
 	call->bitmap = bitmap;
+	call->normalMap = normalMap;
 	return call;
 }
 
@@ -114,7 +165,9 @@ void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B
 
 
 internal
-void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color, LoadedBitmap& texture) {
+void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
+	LoadedBitmap& texture, LoadedBitmap* normalMap) 
+{
 	u32 colorU32 =  (scast(u32, 255 * color.A) << 24) +
 					(scast(u32, 255 * color.R) << 16) +
 					(scast(u32, 255 * color.G) << 8) +
@@ -164,68 +217,20 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 				Assert(v >= 0 && v <= 1.0012f);
 				// TODO: What with last row and last column?
 				V2 texelVec = V2{
-					 1.f + u * (texture.width - 3),
-					 1.f + v * (texture.height - 3)
+					 u * (texture.width - 2),
+					 v * (texture.height - 2)
 				};
 				i32 texelX = u4(texelVec.X);
 				i32 texelY = u4(texelVec.Y);
-				V2 texelFracHalf = V2{
+				V2 texelFrac = V2{
 					texelVec.X - texelX,
 					texelVec.Y - texelY
 				};
 
-				i32 texelByteIndex00 = texelY * texture.pitch + texelX * BITMAP_BYTES_PER_PIXEL;
-				i32 texelByteIndex01 = texelY * texture.pitch + (texelX + 1) * BITMAP_BYTES_PER_PIXEL;
-				i32 texelByteIndex10 = (texelY + 1) * texture.pitch + texelX * BITMAP_BYTES_PER_PIXEL;
-				i32 texelByteIndex11 = (texelY + 1) * texture.pitch + (texelX + 1) * BITMAP_BYTES_PER_PIXEL;
+				BilinearSample texelBSample = SampleBilinearFromTexture(texture, texelX, texelY);
+				V4 texel = BilinearLerp(texture, texelBSample, texelFrac.X, texelFrac.Y);
 
-				u32* texel00 = ptrcast(u32, ptrcast(u8, texture.data) + texelByteIndex00);
-				u32* texel01 = ptrcast(u32, ptrcast(u8, texture.data) + texelByteIndex01);
-				u32* texel10 = ptrcast(u32, ptrcast(u8, texture.data) + texelByteIndex10);
-				u32* texel11 = ptrcast(u32, ptrcast(u8, texture.data) + texelByteIndex11);
-
-				// RGBA
-				V4 texelColor00 = {
-					f4((*texel00 >> 16) & 0xFF),
-					f4((*texel00 >> 8) & 0xFF),
-					f4((*texel00 >> 0) & 0xFF),
-					f4((*texel00 >> 24) & 0xFF)
-				};
-				V4 texelColor01 = {
-					f4((*texel01 >> 16) & 0xFF),
-					f4((*texel01 >> 8) & 0xFF),
-					f4((*texel01 >> 0) & 0xFF),
-					f4((*texel01 >> 24) & 0xFF)
-				};
-				V4 texelColor10 = {
-					f4((*texel10 >> 16) & 0xFF),
-					f4((*texel10 >> 8) & 0xFF),
-					f4((*texel10 >> 0) & 0xFF),
-					f4((*texel10 >> 24) & 0xFF)
-				};
-				V4 texelColor11 = {
-					f4((*texel11 >> 16) & 0xFF),
-					f4((*texel11 >> 8) & 0xFF),
-					f4((*texel11 >> 0) & 0xFF),
-					f4((*texel11 >> 24) & 0xFF)
-				};
-
-				texelColor00 = SRGB255ToLinear1(texelColor00);
-				texelColor01 = SRGB255ToLinear1(texelColor01);
-				texelColor10 = SRGB255ToLinear1(texelColor10);
-				texelColor11 = SRGB255ToLinear1(texelColor11);
-				V4 texel = Lerp(
-					Lerp(texelColor00, texelFracHalf.X, texelColor01),
-					texelFracHalf.Y,
-					Lerp(texelColor10, texelFracHalf.X, texelColor11)
-				);
-
-				V4 dest = {
-					f4((*dstPixel >> 16) & 0xFF),
-					f4((*dstPixel >> 8) & 0xFF),
-					f4((*dstPixel >> 0) & 0xFF),
-					f4((*dstPixel >> 24) & 0xFF)
-				};
+				V4 dest = Unpack4x8(dstPixel);
 				dest = SRGB255ToLinear1(dest);
 
 				V4 output = {
@@ -351,6 +356,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		} break;
 		case RenderCallType::RenderCallRectangle: {
 			RenderCallRectangle* call = ptrcast(RenderCallRectangle, group.pushBuffer + relativeRenderAddress);
+#if 0
 			V3 groundLevel = call->center -0.5f * V3{ 0, 0, call->rectSize.Z };
 			f32 zFudge = 0.1f * groundLevel.Z;
 			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
@@ -361,6 +367,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			V2 min = center - size / 2.f * pixelsPerMeter;
 			V2 max = min + size * pixelsPerMeter;
 			RenderRectangle(dstBuffer, min, max, call->R, call->G, call->B);
+#endif
 			relativeRenderAddress += sizeof(RenderCallRectangle);
 		} break;
 		case RenderCallType::RenderCallBitmap: {
@@ -368,6 +375,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			// It should be unified (check groundLevel) which is different from RenderCallRectangle,
 			// also, size is properly changed in RenderCallRectangle and not in RenderCallBitmap
 			RenderCallBitmap* call = ptrcast(RenderCallBitmap, group.pushBuffer + relativeRenderAddress);
+#if 0
 			V3 groundLevel = call->center; // - 0.5f* V3{ 0, 0, call->rectSize.Z };
 			f32 zFudge = 0.1f * groundLevel.Z;
 			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
@@ -380,11 +388,12 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 					center.Y + call->offset.Y * pixelsPerMeter
 			};
 			RenderBitmap(dstBuffer, *call->bitmap, offset);
+#endif
 			relativeRenderAddress += sizeof(RenderCallBitmap);
 		} break;
 		case RenderCallType::RenderCallCoordinateSystem: {
 			RenderCallCoordinateSystem* call = ptrcast(RenderCallCoordinateSystem, group.pushBuffer + relativeRenderAddress);
-			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis, call->color, *call->bitmap);
+			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis, call->color, *call->bitmap, call->normalMap);
 			
 			RenderRectangle(dstBuffer, call->origin, call->origin + V2{5.f, 5.f}, 1.f, 0.f, 0.f);
 			RenderRectangle(dstBuffer, call->origin + call->xAxis, call->origin + call->xAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);
