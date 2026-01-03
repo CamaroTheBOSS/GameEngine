@@ -111,6 +111,9 @@ struct ProgramState {
 	CollisionVolumeGroup* swordCollision;
 	CollisionVolumeGroup* stairsCollision;
 	bool isInitialized;
+
+	LoadedBitmap testNormalMap;
+	LoadedBitmap testDiffusionTexture;
 };
 
 struct GroundBuffer {
@@ -122,6 +125,8 @@ struct TransientState {
 	MemoryArena arena;
 	GroundBuffer groundBuffers[64];
 	bool isInitialized;
+
+	EnvironmentMap topEnvMap;
 };
 
 /* Functionalities served by the program layer for platform layer */

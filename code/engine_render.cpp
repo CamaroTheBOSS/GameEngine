@@ -69,6 +69,11 @@ V4 BilinearLerp(LoadedBitmap& texture, BilinearSample sample, f32 fX, f32 fY) {
 	return result;
 }
 
+inline
+V3 SampleEnvMap(EnvironmentMap envMap, V3 rayDirection) {
+	//TODO: Finish this function
+	return rayDirection;
+}
 
 #define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType::##type))
 inline 
@@ -120,7 +125,7 @@ RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V3 rectSize, f32 R,
 
 inline
 RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color, 
-	LoadedBitmap* bitmap, LoadedBitmap* normalMap) 
+	LoadedBitmap* bitmap, LoadedBitmap* normalMap, EnvironmentMap* topEnvMap) 
 {
 	RenderCallCoordinateSystem* call = PushRenderEntry(group, RenderCallCoordinateSystem);
 	call->origin = origin;
@@ -129,6 +134,7 @@ RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, 
 	call->color = color;
 	call->bitmap = bitmap;
 	call->normalMap = normalMap;
+	call->topEnvMap = topEnvMap;
 	return call;
 }
 
@@ -166,7 +172,7 @@ void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B
 
 internal
 void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
-	LoadedBitmap& texture, LoadedBitmap* normalMap) 
+	LoadedBitmap& texture, LoadedBitmap* normalMap, EnvironmentMap* envMap) 
 {
 	u32 colorU32 =  (scast(u32, 255 * color.A) << 24) +
 					(scast(u32, 255 * color.R) << 16) +
@@ -222,13 +228,28 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 				};
 				i32 texelX = u4(texelVec.X);
 				i32 texelY = u4(texelVec.Y);
-				V2 texelFrac = V2{
+				V2 frac = V2{
 					texelVec.X - texelX,
 					texelVec.Y - texelY
 				};
 
 				BilinearSample texelBSample = SampleBilinearFromTexture(texture, texelX, texelY);
-				V4 texel = BilinearLerp(texture, texelBSample, texelFrac.X, texelFrac.Y);
+				V4 texel = BilinearLerp(texture, texelBSample, frac.X, frac.Y);
+				if (normalMap) {
+					BilinearSample normalBSample = SampleBilinearFromTexture(*normalMap, texelX, texelY);
+					V4 normal = BilinearLerp(*normalMap, normalBSample, frac.X, frac.Y);
+					V3 e = V3{ 0, 0, 1 }; // Assume top-down view
+					V3 rayDirection = - e + 2 * Inner(e, normal.RGB) * normal.RGB;
+					V3 lightProbe = {};
+					if (envMap) {
+						SampleEnvMap(*envMap, rayDirection);
+					}
+#if 0
+					texel.RGB += lightProbe;
+#else
+					texel.RGB = texel.A * normal.RGB;
+#endif
+				}
 
 				V4 dest = Unpack4x8(dstPixel);
 				dest = SRGB255ToLinear1(dest);
@@ -393,7 +414,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		} break;
 		case RenderCallType::RenderCallCoordinateSystem: {
 			RenderCallCoordinateSystem* call = ptrcast(RenderCallCoordinateSystem, group.pushBuffer + relativeRenderAddress);
-			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis, call->color, *call->bitmap, call->normalMap);
+			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis, call->color, *call->bitmap, call->normalMap, call->topEnvMap);
 			
 			RenderRectangle(dstBuffer, call->origin, call->origin + V2{5.f, 5.f}, 1.f, 0.f, 0.f);
 			RenderRectangle(dstBuffer, call->origin + call->xAxis, call->origin + call->xAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);

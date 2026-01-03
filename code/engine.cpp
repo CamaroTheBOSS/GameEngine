@@ -737,6 +737,70 @@ V2 MapScreenSpacePosIntoCameraSpace(f32 screenPosX, f32 screenPosY, u32 screenWi
 	return pos;
 }
 
+LoadedBitmap MakeSphereNormalMap(MemoryArena& arena, u32 width, u32 height, f32 roughness) {
+	LoadedBitmap result = MakeEmptyBuffer(arena, width, height);
+	u8* row = ptrcast(u8, result.data);
+	for (u32 Y = 0; Y < height; Y++) {	
+		u32* pixel = ptrcast(u32, row);
+		for (u32 X = 0; X < width; X++) {
+			f32 U = f4(X) / f4(width - 1);
+			f32 V = f4(Y) / f4(height - 1);
+			Assert(U >= 0.f && U <= 1.f);
+			Assert(V >= 0.f && V <= 1.f);
+			U = 2 * U - 1;
+			V = 2 * V - 1;
+			f32 sqSumUV = Squared(U) + Squared(V);
+			V4 normal;
+			if (sqSumUV < 1.f) {
+				f32 Z = SquareRoot(1 - sqSumUV);
+				normal = V4{ U, V, Z, roughness };
+			}
+			else if(V > 0.f) {
+				normal = V4{ U, V, (U + V) / 2.f, roughness };
+			}
+			else {
+				normal = V4{ U, -V, (U + V) / 2.f, roughness };
+			}
+			normal.XYZ = Normalize(normal.XYZ);
+			*pixel = (u4(255.f * normal.W + 0.5f) << 24) |
+					 (u4(127.5f * normal.X + 0.5f + 127.f) << 16) |
+					 (u4(127.5f * normal.Y + 0.5f + 127.f) << 8) |
+					 (u4(127.5f * normal.Z + 0.5f + 127.f) << 0);
+			pixel++;
+		}
+		row += result.pitch;
+	}
+	return result;
+}
+LoadedBitmap MakeSphereDiffusionTexture(MemoryArena& arena, u32 width, u32 height) {
+	LoadedBitmap result = MakeEmptyBuffer(arena, width, height);
+	u8* row = ptrcast(u8, result.data);
+	V4 color = { 0, 0, 0, 1 };
+	for (u32 Y = 0; Y < height; Y++) {
+		u32* pixel = ptrcast(u32, row);
+		for (u32 X = 0; X < width; X++) {
+			f32 alpha = 255.f;
+			f32 U = f4(X) / f4(width - 1);
+			f32 V = f4(Y) / f4(height - 1);
+			Assert(U >= 0.f && U <= 1.f);
+			Assert(V >= 0.f && V <= 1.f);
+			f32 USq = Squared(f4(2 * U - 1));
+			f32 VSq = Squared(f4(2 * V - 1));
+			if (USq + VSq > 1.f) {
+				alpha = 0.f;
+			}
+			alpha *= color.A;
+			*pixel = (u4(alpha) << 24) |
+					(u4(alpha * color.R) << 16) |
+					(u4(alpha * color.G) << 8) |
+					(u4(alpha * color.B) << 0);
+			pixel++;
+		}
+		row += result.pitch;
+	}
+	return result;
+}
+
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	World& world = state->world;
@@ -771,6 +835,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->grassBmps[0] = LoadBmpFile(memory.debugReadEntireFile, "test/grass0.bmp");
 		state->grassBmps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/grass1.bmp");
 		state->treeBmp = LoadBmpFile(memory.debugReadEntireFile, "test/tree3.bmp");
+
+		u32 testTextureWidth = 256;
+		u32 testTextureHeight = 256;
+		state->testNormalMap = MakeSphereNormalMap(state->world.arena, testTextureWidth, testTextureHeight, 1.f);
+		state->testDiffusionTexture = MakeSphereDiffusionTexture(state->world.arena, testTextureWidth, testTextureHeight);
 
 		state->playerMoveAnim[0] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-right.bmp");
 		state->playerMoveAnim[0].alignX = 0;
@@ -921,7 +990,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			groundBuffer->buffer = MakeEmptyBuffer(tranState->arena, RoundF32ToU32(chunkSizePix.X), RoundF32ToU32(chunkSizePix.Y));
 			groundBuffer->pos = NullPosition();
 		}
-
 		tranState->isInitialized = true;
 	}
 
@@ -1156,17 +1224,21 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
 	}
+	//TODO: make topEnvMap here;
+	//tranState->topEnvMap = Push
+
 	static f32 time = 0;
 	time += input.dtFrame;
 	f32 angle = time;
 	V2 screenCenter = 0.5f * V2i(bitmap.width, bitmap.height);
 	V2 origin = screenCenter + V2{ 10.f * Sin(0.5f * angle), 0.f };
-	V2 xAxis = 200.f * V2{ Cos(angle), Sin(angle) };//V2{ 1.f, 0.f };
+	V2 xAxis = 256.f * V2{ Cos(angle), Sin(angle) };//V2{ 1.f, 0.f };
 	V2 yAxis = Perp(xAxis);
 
 
 	V4 color = V4{ 1.f, 1.f, 0.f, 1.f };
-	PushCoordinateSystem(renderGroup, origin - 0.5f*(xAxis + yAxis), xAxis, yAxis, color, &state->treeBmp, 0);
+	PushCoordinateSystem(renderGroup, origin - 0.5f*(xAxis + yAxis), xAxis, yAxis, color, 
+		&state->testDiffusionTexture, &state->testNormalMap, 0);
 
 	RenderGroupToBuffer(renderGroup, screenBitmap);
 

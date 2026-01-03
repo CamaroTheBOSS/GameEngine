@@ -14,6 +14,12 @@ struct LoadedBitmap {
 	u32 alignY;
 };
 
+struct EnvironmentMap {
+	u32 mapWidth;
+	u32 mapHeight;
+	LoadedBitmap LOD[4];
+};
+
 enum class RenderCallType {
 	RenderCallClear,
 	RenderCallRectangle,
@@ -50,6 +56,7 @@ struct RenderCallCoordinateSystem {
 	V4 color;
 	LoadedBitmap* bitmap;
 	LoadedBitmap* normalMap;
+	EnvironmentMap* topEnvMap;
 };
 
 struct RenderGroup {

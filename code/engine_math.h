@@ -382,6 +382,42 @@ inline f32 Length(V4 A) {
 }
 
 inline
+V2 ToV2(f32 X, f32 Y) {
+	return V2{ X, Y };
+}
+
+inline
+V3 ToV3(V2 XY, f32 Z) {
+	V3 result;
+	result.XY = XY;
+	result.Z = Z;
+	return result;
+}
+
+inline
+V4 ToV4(V3 XYZ, f32 W) {
+	V4 result;
+	result.XYZ = XYZ;
+	result.W = W;
+	return result;
+}
+
+inline
+V2 Normalize(V2 A) {
+	return A / Length(A);
+}
+
+inline
+V3 Normalize(V3 A) {
+	return A / Length(A);
+}
+
+inline
+V4 Normalize(V4 A) {
+	return A / Length(A);
+}
+
+inline
 f32 Squared(f32 A) {
 	return A * A;
 }
