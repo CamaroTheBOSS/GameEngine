@@ -418,6 +418,40 @@ V4 Normalize(V4 A) {
 }
 
 inline
+f32 Clip01(f32 A) {
+	if (A < 0.f) return 0.f;
+	else if (A > 1.f) return 1.f;
+	return A;
+}
+
+inline
+V2 Clip01(V2 A) {
+	V2 result = A;
+	result.X = Clip01(result.X);
+	result.Y = Clip01(result.Y);
+	return result;
+}
+
+inline
+V3 Clip01(V3 A) {
+	V3 result = A;
+	result.X = Clip01(result.X);
+	result.Y = Clip01(result.Y);
+	result.Z = Clip01(result.Z);
+	return result;
+}
+
+inline
+V4 Clip01(V4 A) {
+	V4 result = A;
+	result.X = Clip01(result.X);
+	result.Y = Clip01(result.Y);
+	result.Z = Clip01(result.Z);
+	result.W = Clip01(result.W);
+	return result;
+}
+
+inline
 f32 Squared(f32 A) {
 	return A * A;
 }
@@ -687,6 +721,30 @@ V4 Lerp(V4 A, f32 unilateral, V4 B) {
 		Lerp(A.W, unilateral, B.W),
 	};
 	return result;
+}
+
+inline
+V2 Abs(V2 A) {
+	A.X = Abs(A.X);
+	A.Y = Abs(A.Y);
+	return A;
+}
+
+inline
+V3 Abs(V3 A) {
+	A.X = Abs(A.X);
+	A.Y = Abs(A.Y);
+	A.Z = Abs(A.Z);
+	return A;
+}
+
+inline
+V4 Abs(V4 A) {
+	A.X = Abs(A.X);
+	A.Y = Abs(A.Y);
+	A.Z = Abs(A.Z);
+	A.W = Abs(A.W);
+	return A;
 }
 
 inline 

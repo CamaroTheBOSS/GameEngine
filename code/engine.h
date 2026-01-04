@@ -127,6 +127,8 @@ struct TransientState {
 	bool isInitialized;
 
 	EnvironmentMap topEnvMap;
+	EnvironmentMap middleEnvMap;
+	EnvironmentMap bottomEnvMap;
 };
 
 /* Functionalities served by the program layer for platform layer */

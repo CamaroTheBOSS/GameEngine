@@ -57,6 +57,8 @@ struct RenderCallCoordinateSystem {
 	LoadedBitmap* bitmap;
 	LoadedBitmap* normalMap;
 	EnvironmentMap* topEnvMap;
+	EnvironmentMap* middleEnvMap;
+	EnvironmentMap* bottomEnvMap;
 };
 
 struct RenderGroup {

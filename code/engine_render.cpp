@@ -9,6 +9,7 @@ V4 SRGB255ToLinear1(V4 input) {
 	result.G = Squared(inv255 * input.G);
 	result.B = Squared(inv255 * input.B);
 	result.A = inv255 * input.A;
+	V4 copy = result;
 	return result;
 }
 
@@ -43,6 +44,7 @@ struct BilinearSample {
 	V4 t00, t01;
 	V4 t10, t11;
 };
+
 inline
 BilinearSample SampleBilinearFromTexture(LoadedBitmap& texture, u32 X, u32 Y) {
 	Assert(X >= 0 && X < u4(texture.width - 1));
@@ -70,9 +72,44 @@ V4 BilinearLerp(LoadedBitmap& texture, BilinearSample sample, f32 fX, f32 fY) {
 }
 
 inline
-V3 SampleEnvMap(EnvironmentMap envMap, V3 rayDirection) {
+V4 SampleEnvMap(EnvironmentMap envMap, V2 screenSpaceUV, V3 rayDirection) {
 	//TODO: Finish this function
-	return rayDirection;
+	f32 distanceToMapInZMeters = 3.0f;
+	f32 metersToUVs = 0.01f;
+	LoadedBitmap* LOD = envMap.LOD;
+
+	V2 startP = screenSpaceUV; // TODO: Should it be changed not to sample one screen to one env map?
+#if 0
+	V2 offsetP = metersToUVs * distanceToMapInZMeters * rayDirection.XY * Length(rayDirection.XY) * rayDirection.Z;
+
+#else
+	f32 rayCastZ = 0.f;
+	f32 len = (distanceToMapInZMeters - rayCastZ) / rayDirection.Z;
+	V2 offsetP = metersToUVs * len * rayDirection.XY;
+#endif
+	V2 sum = startP + offsetP;
+	V2 sampleUV = Clip01(sum);
+	if (sampleUV.Y < 0.4) {
+		int breakHere = 0;
+	}
+	f32 Xf = sampleUV.X * (envMap.LOD[0].width - 2);
+	f32 Yf = sampleUV.Y * (envMap.LOD[0].height - 2);
+	u32 X = u4(Xf);
+	u32 Y = u4(Yf);
+	f32 fX = Xf - X;
+	f32 fY = Yf - Y;
+#if 0 // Draw sampled values on envMap;
+	u32 colorU32 = (255 << 24) |
+		(X << 16) |
+		(Y << 8) |
+		(X << 0);
+	u8* row = ptrcast(u8, LOD->data) + Y * LOD->pitch + X * BITMAP_BYTES_PER_PIXEL;
+	u32* pixel = ptrcast(u32, row);
+	*pixel = colorU32;
+#endif
+	BilinearSample sample = SampleBilinearFromTexture(*LOD, X, Y);
+	V4 lightProbe = BilinearLerp(*LOD, sample, fX, fY);
+	return lightProbe;
 }
 
 #define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType::##type))
@@ -125,7 +162,8 @@ RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V3 rectSize, f32 R,
 
 inline
 RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color, 
-	LoadedBitmap* bitmap, LoadedBitmap* normalMap, EnvironmentMap* topEnvMap) 
+	LoadedBitmap* bitmap, LoadedBitmap* normalMap, EnvironmentMap* topEnvMap, 
+	EnvironmentMap* middleEnvMap, EnvironmentMap* bottomEnvMap)
 {
 	RenderCallCoordinateSystem* call = PushRenderEntry(group, RenderCallCoordinateSystem);
 	call->origin = origin;
@@ -135,6 +173,8 @@ RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, 
 	call->bitmap = bitmap;
 	call->normalMap = normalMap;
 	call->topEnvMap = topEnvMap;
+	call->middleEnvMap = middleEnvMap;
+	call->bottomEnvMap = bottomEnvMap;
 	return call;
 }
 
@@ -172,7 +212,8 @@ void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B
 
 internal
 void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
-	LoadedBitmap& texture, LoadedBitmap* normalMap, EnvironmentMap* envMap) 
+	LoadedBitmap& texture, LoadedBitmap* normalMap, EnvironmentMap* topMap, 
+	EnvironmentMap* middleMap, EnvironmentMap* bottomMap)
 {
 	u32 colorU32 =  (scast(u32, 255 * color.A) << 24) +
 					(scast(u32, 255 * color.R) << 16) +
@@ -215,7 +256,8 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 				edge1 < 0 &&
 				edge2 < 0 &&
 				edge3 < 0) {
-
+				V2 screenSpaceUV = V2{ f4(X) / f4(bitmap.width - 1),
+									   f4(Y) / f4(bitmap.height - 1) };
 				f32 u = Inner(d, xAxis) / (LengthSq(xAxis));
 				f32 v = Inner(d, yAxis) / (LengthSq(yAxis));
 				// TODO: U and V values should be clipped 
@@ -236,18 +278,73 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 				BilinearSample texelBSample = SampleBilinearFromTexture(texture, texelX, texelY);
 				V4 texel = BilinearLerp(texture, texelBSample, frac.X, frac.Y);
 				if (normalMap) {
-					BilinearSample normalBSample = SampleBilinearFromTexture(*normalMap, texelX, texelY);
-					V4 normal = BilinearLerp(*normalMap, normalBSample, frac.X, frac.Y);
-					V3 e = V3{ 0, 0, 1 }; // Assume top-down view
-					V3 rayDirection = - e + 2 * Inner(e, normal.RGB) * normal.RGB;
-					V3 lightProbe = {};
-					if (envMap) {
-						lightProbe = SampleEnvMap(*envMap, rayDirection);
+					if (u > 0.49f && u < 0.51f &&
+						v > 0.49f && v < 0.51f) {
+						int breakHere = 5;
 					}
-#if 0
-					texel.RGB += lightProbe;
+					f32 uSq = Squared(u);
+					f32 vSq = Squared(v);
+					f32 sumUVSq = uSq + vSq;
+					if (sumUVSq > 0.99f && sumUVSq < 1.01f) {
+						int breakHere = 5;
+					}
+					BilinearSample normalBSample = SampleBilinearFromTexture(*normalMap, texelX, texelY);
+					normalBSample.t00.RGB -= 127.f * V3{ 1, 1, 1 };
+					normalBSample.t00.RGB = normalBSample.t00.RGB / 127.f;
+					normalBSample.t01.RGB -= 127.f * V3{ 1, 1, 1 };
+					normalBSample.t01.RGB = normalBSample.t01.RGB / 127.f;
+					normalBSample.t10.RGB -= 127.f * V3{ 1, 1, 1 };
+					normalBSample.t10.RGB = normalBSample.t10.RGB / 127.f;
+					normalBSample.t11.RGB -= 127.f * V3{ 1, 1, 1 };
+					normalBSample.t11.RGB = normalBSample.t11.RGB / 127.f;
+					V4 normal = Lerp(
+						Lerp(normalBSample.t00, frac.X, normalBSample.t01),
+						frac.Y,
+						Lerp(normalBSample.t10, frac.X, normalBSample.t11)
+					);
+					normal.XYZ = Normalize(normal.XYZ);
+					// TODO: Test this Note;
+					// NOTE: Insetad of swapping normal.Y with normal.Z it is better to
+					// swap 'e' vector (POV) Y and Z. This way we can work with env maps
+					// as they were actually aligned with the Z axis and all the objects 
+					// looking in front of them
+					// |-------- ENVMAP --------|
+					//           ^^^ <-normal vectors
+					//          _|||_     e vector
+					// |________|obj|<-------------
+					V3 e = V3{ 0, 1, 0 }; // Assume top-down view // TODO: optimize this equation
+					V3 rayDirection = -e + 2 * Inner(e, normal.RGB) * normal.RGB;
+					f32 intensity = 0.f;
+					EnvironmentMap* map = 0;
+					// TODO: If I want to change these conditions to other vales I need
+					// to have different intensity function to map intensity properly
+					// from 0 to 1
+					// TODO: Add middle map and overlap between maps
+					if (normal.Y < -0.5f) {
+						intensity = -2.f * normal.Y - 1.f;
+						map = topMap;
+					}
+					else if (normal.Y > 0.5f) {
+						intensity = 2.f * normal.Y - 1.f;
+						map = bottomMap;
+					}
+					else {
+
+					}
+					
+					V4 lightProbe = {};
+					if (map && texel.A > 0) {
+						lightProbe = SampleEnvMap(*map, screenSpaceUV, rayDirection);
+						lightProbe.RGB *= intensity;
+					}
+#if 1
+					texel.RGB += texel.A * lightProbe.RGB;
 #else
-					texel.RGB = texel.A * normal.RGB;
+					texel.RGB = texel.A * Abs(normal.RGB);
+#endif
+#if 0
+					texel.RGB = texel.A * Abs(rayDirection);
+#else
 #endif
 				}
 
@@ -414,7 +511,10 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		} break;
 		case RenderCallType::RenderCallCoordinateSystem: {
 			RenderCallCoordinateSystem* call = ptrcast(RenderCallCoordinateSystem, group.pushBuffer + relativeRenderAddress);
-			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis, call->color, *call->bitmap, call->normalMap, call->topEnvMap);
+			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis,
+				call->color, *call->bitmap, call->normalMap, call->topEnvMap,
+				call->middleEnvMap, call->bottomEnvMap
+			);
 			
 			RenderRectangle(dstBuffer, call->origin, call->origin + V2{5.f, 5.f}, 1.f, 0.f, 0.f);
 			RenderRectangle(dstBuffer, call->origin + call->xAxis, call->origin + call->xAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);

@@ -1224,59 +1224,103 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
 	}
-	//TODO: make topEnvMap here;
-	tranState->topEnvMap.LOD[0] = MakeEmptyBuffer(tranState->arena, 256, 256);
-	LoadedBitmap *topEnvLOD = tranState->topEnvMap.LOD;
-	u8* row = ptrcast(u8, topEnvLOD->data);
+	EnvironmentMap* maps[3] = {
+		&tranState->topEnvMap,
+		&tranState->middleEnvMap,
+		&tranState->bottomEnvMap,
+	};
+	V4 colors[3] = {
+		V4{ 1, 0, 0, 1 },
+		V4{ 0, 1, 0, 1 },
+		V4{ 0, 1, 1, 1 }
+	};
 	u32 checkboardSize = 16;
-	V4 envMapColor = V4{ 1, 1, 0, 1 };
-	V2 envMapOrigin = V2{ 0, 0 };
-	V2 envMapXAxis = V2i(topEnvLOD->width, 0);
-	V2 envMapYAxis = V2i(0, topEnvLOD->height);
-	for (i32 Y = 0; Y < topEnvLOD->height; Y++) {
-		u32* pixel = ptrcast(u32, row);
-		for (i32 X = 0; X < topEnvLOD->width; X++) {
-			V4 pixColor;
-			bool checkBoard = ((X / checkboardSize) % 2 == 0 &&
-							   (Y / checkboardSize) % 2 == 0) ||
-							  ((X / checkboardSize) % 2 == 1 &&
-							   (Y / checkboardSize) % 2 == 1);
-			if (checkBoard) {
-				pixColor = envMapColor;
+	for (u32 mapIndex = 0; mapIndex < ArrayCount(maps); mapIndex++) {
+		EnvironmentMap* map = maps[mapIndex];
+		LoadedBitmap* LOD = map->LOD;
+		*LOD = MakeEmptyBuffer(tranState->arena, 256, 128);
+
+		
+		u8* row = ptrcast(u8, LOD->data);
+		V4 envMapColor = colors[mapIndex];
+		f32 envMapColorIntensity = 1.f;
+		f32 colorMultiplier = 1.0f;
+		f32 whiteIntensity = 1.f - envMapColorIntensity;
+		for (i32 Y = 0; Y < LOD->height; Y++) {
+			u32* pixel = ptrcast(u32, row);
+			if (((Y + 1) % 16) == 0) {
+				envMapColorIntensity *= colorMultiplier;
+				whiteIntensity = 1.f - envMapColorIntensity;
 			}
-			else {
-				pixColor = V4{ 0, 0, 0, 1 };
+			for (i32 X = 0; X < LOD->width; X++) {
+				V4 pixColor;
+				bool checkBoard = ((X / checkboardSize) % 2 == 0 &&
+					(Y / checkboardSize) % 2 == 0) ||
+					((X / checkboardSize) % 2 == 1 &&
+						(Y / checkboardSize) % 2 == 1);
+				if (checkBoard) {
+					pixColor = envMapColor;
+					pixColor.RGB *= envMapColorIntensity;
+				}
+				else {
+					pixColor = V4{ 1, 1, 1, 1 };
+					pixColor.RGB *= whiteIntensity;
+				}
+				f32 alpha = 255.f * pixColor.A;
+				*pixel++ = (u4(alpha) << 24) |
+					(u4(alpha * pixColor.R) << 16) |
+					(u4(alpha * pixColor.G) << 8) |
+					(u4(alpha * pixColor.B) << 0);
 			}
-			f32 alpha = 255.f * pixColor.A;
-			*pixel++ = (u4(alpha) << 24) |
-					   (u4(alpha * pixColor.R) << 16) |
-					   (u4(alpha * pixColor.G) << 8) |
-					   (u4(alpha * pixColor.B) << 0);
+			row += LOD->pitch;
 		}
-		row += topEnvLOD->pitch;
 	}
-	PushCoordinateSystem(renderGroup, envMapOrigin, 
-		envMapXAxis, envMapYAxis, V4{1, 0, 0, 1}, topEnvLOD, 0, 0);
 
-
+	
 	static f32 time = 0;
-	time += input.dtFrame;
+	time += input.dtFrame * 0.1f;
 	f32 angle = time;
 	V2 screenCenter = 0.5f * V2i(bitmap.width, bitmap.height);
-	V2 origin = screenCenter + V2{ 10.f * Sin(0.5f * angle), 0.f };
+	V2 origin = screenCenter;
 
 	V2 xAxis = 256.f * V2{ 1.f, 0.f };
-#define rotation 0
+#define rotation 1
+#define move_origin_x 1
+#define move_origin_y 1
+#define extend_x 0
 #if rotation == 1
-	xAxis.X *= Cos(angle);
-	xAxis.Y *= Sin(angle);
+	f32 l = Length(xAxis);
+	xAxis.X = l * Cos(5.f * angle);
+	xAxis.Y = l * Sin(5.f * angle);
+#endif
+#if move_origin_x == 1
+	origin += V2{ 100.f * Sin(10.f * angle), 0.f };
+#endif
+#if move_origin_y == 1
+	origin += V2{ 0.f, 70.f * Cos(5.f * angle) };
 #endif
 	V2 yAxis = Perp(xAxis);
+#if extend_x
+	xAxis *= 1.6f;
+#endif
 
 
 	V4 color = V4{ 1.f, 1.f, 0.f, 1.f };
-	PushCoordinateSystem(renderGroup, origin - 0.5f*(xAxis + yAxis), xAxis, yAxis, color, 
-		&state->testDiffusionTexture, &state->testNormalMap, 0);
+	PushCoordinateSystem(renderGroup, origin - 0.5f * (xAxis + yAxis), xAxis, yAxis, color,
+		&state->testDiffusionTexture, &state->testNormalMap, &tranState->topEnvMap,
+		&tranState->middleEnvMap, &tranState->bottomEnvMap);
+
+	for (u32 mapIndex = 0; mapIndex < ArrayCount(maps); mapIndex++) {
+		EnvironmentMap* map = maps[mapIndex];
+		LoadedBitmap* LOD = map->LOD;
+
+		V2 envMapOrigin = f4(mapIndex) * (V2{ 0, f4(LOD->height) } + V2{ 0, 10.f });
+		V2 envMapXAxis = V2i(LOD->width, 0);
+		V2 envMapYAxis = V2i(0, LOD->height);
+		PushCoordinateSystem(renderGroup, envMapOrigin,
+			envMapXAxis, envMapYAxis, V4{ 1, 1, 1, 1 }, LOD, 0, 0, 0, 0);
+	}
+	
 
 	RenderGroupToBuffer(renderGroup, screenBitmap);
 
