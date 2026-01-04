@@ -241,6 +241,14 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 	if (minX < 0) minX = 0;
 	if (maxX > bitmap.width) maxX = bitmap.width;
 	
+	f32 xAxisLength = Length(xAxis);
+	f32 yAxisLength = Length(yAxis);
+	// TODO: think about it, is it screen space responsible that this equation is
+	// actually p'=px*X*|X|/|Y| + py*Y*|Y|/|X| instead of 
+	//			p'=px*X*|Y|/|X| + py*Y*|X|/|Y| ??????
+	V2 xScaleRotNormalizer = Normalize(xAxis) * (xAxisLength / yAxisLength);
+	V2 yScaleRotNormalizer = Normalize(yAxis) * (yAxisLength / xAxisLength);
+	f32 testCoefficient = (xAxisLength / yAxisLength);
 	
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
 	for (i32 Y = minY; Y < maxY; Y++) {
@@ -261,8 +269,8 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 				f32 u = Inner(d, xAxis) / (LengthSq(xAxis));
 				f32 v = Inner(d, yAxis) / (LengthSq(yAxis));
 				// TODO: U and V values should be clipped 
-				Assert(u >= 0 && u <= 1.0012f);
-				Assert(v >= 0 && v <= 1.0012f);
+				Assert(u >= -0.0012 && u <= 1.0012f);
+				Assert(v >= -0.0012 && v <= 1.0012f);
 				// TODO: What with last row and last column?
 				V2 texelVec = V2{
 					 u * (texture.width - 2),
@@ -303,6 +311,8 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 						Lerp(normalBSample.t10, frac.X, normalBSample.t11)
 					);
 					normal.XYZ = Normalize(normal.XYZ);
+					normal.XY = normal.X * xScaleRotNormalizer + normal.Y * yScaleRotNormalizer;
+					normal.XYZ = Normalize(normal.XYZ);
 					// TODO: Test this Note;
 					// NOTE: Insetad of swapping normal.Y with normal.Z it is better to
 					// swap 'e' vector (POV) Y and Z. This way we can work with env maps
@@ -320,6 +330,10 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 					// to have different intensity function to map intensity properly
 					// from 0 to 1
 					// TODO: Add middle map and overlap between maps
+					// TODO: based on the ANGLE of coord system, I think we should
+					// have different conditions here or sth
+					// TODO: Shapes with different size across axis X and Y are somehow
+					// busted, we need to take a look
 					if (normal.Y < -0.5f) {
 						intensity = -2.f * normal.Y - 1.f;
 						map = topMap;
@@ -343,8 +357,13 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 					texel.RGB = texel.A * Abs(normal.RGB);
 #endif
 #if 0
-					texel.RGB = texel.A * Abs(rayDirection);
-#else
+					texel.RGB = V3{ 0, 0, 0 };
+					texel.R = texel.A * rayDirection.Z;
+					//texel.RGB = texel.A * Abs(rayDirection);
+					
+#endif
+#if 0
+					texel.RGB = V3{1, 1, 1} * normal.G;
 #endif
 				}
 

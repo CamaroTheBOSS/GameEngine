@@ -1285,13 +1285,13 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 	V2 xAxis = 256.f * V2{ 1.f, 0.f };
 #define rotation 1
-#define move_origin_x 1
-#define move_origin_y 1
-#define extend_x 0
+#define move_origin_x 0
+#define move_origin_y 0
+#define extend_x 1
 #if rotation == 1
 	f32 l = Length(xAxis);
-	xAxis.X = l * Cos(5.f * angle);
-	xAxis.Y = l * Sin(5.f * angle);
+	xAxis.X = l * Cos(3.5f * angle);
+	xAxis.Y = l * Sin(3.5f * angle);
 #endif
 #if move_origin_x == 1
 	origin += V2{ 100.f * Sin(10.f * angle), 0.f };
@@ -1301,7 +1301,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #endif
 	V2 yAxis = Perp(xAxis);
 #if extend_x
-	xAxis *= 1.6f;
+	//yAxis *= 0.5f;
+	xAxis *= 2.f;
 #endif
 
 
