@@ -438,9 +438,9 @@ void PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thick
 
 internal
 void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 position) {
-	i32 minX = RoundF32ToI32(position.X - loadedBitmap.align.X);
+	i32 minX = RoundF32ToI32(position.X);
 	i32 maxX = minX + loadedBitmap.width;
-	i32 minY = RoundF32ToI32(position.Y - loadedBitmap.align.Y);
+	i32 minY = RoundF32ToI32(position.Y);
 	i32 maxY = minY + loadedBitmap.height;
 	i32 offsetX = 0;
 	i32 offsetY = 0;
@@ -503,17 +503,23 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 struct EntityRenderParams {
 	V2 center;
 	V2 size;
+	bool valid;
 };
 internal
 EntityRenderParams CalculateEntityRenderParams(V2 screenCenter, V3 entityCenter, V2 size) {
-	// TODO: Shouldn't it be calculated in meters and at the end everything
-	// change to pixelsPerMeter?
-	V3 entityGroundLevel = entityCenter * pixelsPerMeter;
-	f32 zFudge = 1.f + 0.002f * entityGroundLevel.Z;
-	
 	EntityRenderParams result = {};
-	result.center = screenCenter + zFudge * entityGroundLevel.XY + V2{ 0, entityGroundLevel.Z };
-	result.size = zFudge * size * pixelsPerMeter;
+	f32 focalLength = 10.f;
+	f32 distToCamera = 2.f;
+	f32 nearClip = focalLength + 0.2f;
+	V3 rawCoords = ToV3(entityCenter.XY, 1.f);
+	f32 denominator = focalLength + distToCamera - entityCenter.Z;
+	if (denominator > nearClip) {
+		V3 projectedCoords = focalLength * rawCoords / denominator;
+
+		result.center = screenCenter + projectedCoords.XY * pixelsPerMeter;
+		result.size = projectedCoords.Z * size * pixelsPerMeter;
+		result.valid = true;
+	}
 	return result;
 }
 
@@ -537,9 +543,11 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			RenderCallRectangle* call = ptrcast(RenderCallRectangle, group.pushBuffer + relativeRenderAddress);
 			EntityRenderParams params = CalculateEntityRenderParams(
 				screenCenter, call->center, call->size);
-			V2 min = params.center - params.size / 2.f;
-			V2 max = min + params.size;
-			RenderRectangle(dstBuffer, min, max, call->color);
+			if (params.valid) {
+				V2 min = params.center - params.size / 2.f;
+				V2 max = min + params.size;
+				RenderRectangle(dstBuffer, min, max, call->color);
+			}
 			relativeRenderAddress += sizeof(RenderCallRectangle);
 		} break;
 		case RenderCallType::RenderCallBitmap: {
@@ -551,16 +559,16 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 								call->bitmap->height * metersPerPixel };
 			EntityRenderParams params = CalculateEntityRenderParams(
 				screenCenter, call->center, bitmapSize);
-#if 0
-			V2 position = params.center + call->offset * pixelsPerMeter;
-			RenderBitmap(dstBuffer, *call->bitmap, position);
-#else
-			V2 position = params.center + call->offset * pixelsPerMeter;
-			V2 xAxis = V2{ params.size.X, 0 };
-			V2 yAxis =  V2{ 0, params.size.Y };
-			V2 origin = params.center + call->offset * pixelsPerMeter - call->bitmap->align;
-			RenderRectangleSlowly(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, 0, 0, 0, 0);
-#endif
+			if (params.valid) {
+				V2 xAxis = V2{ params.size.X, 0 };
+				V2 yAxis = V2{ 0, params.size.Y };
+				// TODO: offset seems to be like alignment, should I delete that?
+				// TODO: also, if not I need to do the same stuff with offset what I did here
+				V2 alignment = V2{ call->bitmap->align.X / (call->bitmap->width - 1) * xAxis.X,
+								   call->bitmap->align.Y / (call->bitmap->height - 1) * yAxis.Y };
+				V2 origin = params.center + call->offset * pixelsPerMeter - alignment;
+				RenderRectangleSlowly(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, 0, 0, 0, 0);
+			}
 			relativeRenderAddress += sizeof(RenderCallBitmap);
 		} break;
 		case RenderCallType::RenderCallCoordinateSystem: {
