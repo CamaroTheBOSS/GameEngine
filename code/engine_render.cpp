@@ -83,6 +83,7 @@ V4 SampleEnvMap(EnvironmentMap envMap, V2 screenSpaceUV, V3 rayDirection) {
 	V2 offsetP = metersToUVs * distanceToMapInZMeters * rayDirection.XY * Length(rayDirection.XY) * rayDirection.Z;
 
 #else
+	// TODO: How rayCastZ affects actual results of lighting?
 	f32 rayCastZ = 0.f;
 	f32 len = (distanceToMapInZMeters - rayCastZ) / rayDirection.Z;
 	V2 offsetP = metersToUVs * len * rayDirection.XY;
@@ -128,12 +129,9 @@ void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
 }
 
 inline
-RenderCallClear* PushClearCall(RenderGroup& group, f32 R, f32 G, f32 B, f32 A) {
+RenderCallClear* PushClearCall(RenderGroup& group, V4 color) {
 	RenderCallClear* call = PushRenderEntry(group, RenderCallClear);
-	call->R = R;
-	call->G = G;
-	call->B = B;
-	call->A = A;
+	call->color = color;
 	return call;
 }
 
@@ -148,15 +146,12 @@ RenderCallBitmap* PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center
 }
 
 inline
-RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V3 rectSize, f32 R, f32 G, f32 B, f32 A, V2 offset) {
+RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
 	RenderCallRectangle* call = PushRenderEntry(group, RenderCallRectangle);
 	call->center = center;
-	call->rectSize = rectSize;
-	call->R = R;
-	call->G = G;
-	call->B = B;
-	call->A = A;
+	call->size = size;
 	call->offset = offset;
+	call->color = color;
 	return call;
 }
 
@@ -179,7 +174,7 @@ RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, 
 }
 
 internal
-void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B) {
+void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, V4 color) {
 	i32 minX = RoundF32ToI32(start.X);
 	i32 maxX = RoundF32ToI32(end.X);
 	i32 minY = RoundF32ToI32(start.Y);
@@ -196,14 +191,15 @@ void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, f32 R, f32 G, f32 B
 	if (maxY > scast(i32, bitmap.height)) {
 		maxY = scast(i32, bitmap.height);
 	}
-	u32 color = (scast(u32, 255 * R) << 16) +
-		(scast(u32, 255 * G) << 8) +
-		(scast(u32, 255 * B) << 0);
+	// TODO: Color modulation + premultiplied alpha?
+	u32 colorU32 = (scast(u32, 255 * color.R) << 16) +
+				   (scast(u32, 255 * color.G) << 8) +
+				   (scast(u32, 255 * color.B) << 0);
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* pixel = ptrcast(u32, row);
 		for (i32 X = minX; X < maxX; X++) {
-			*pixel++ = color;
+			*pixel++ = colorU32;
 		}
 		row += bitmap.pitch;
 	}
@@ -389,15 +385,17 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 }
 
 internal
-void PushRectBorders(RenderGroup& group, V3 center, V3 size, f32 thickness) {
-	PushRect(group, center - V3{ 0.5f * size.X, 0, 0 },
-		V3{ thickness, size.Y, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
-	PushRect(group, center + V3{ 0.5f * size.X, 0, 0 },
-		V3{ thickness, size.Y, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
-	PushRect(group, center - V3{ 0, 0.5f * size.Y, 0 },
-		V3{ size.X, thickness, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
-	PushRect(group, center + V3{ 0, 0.5f * size.Y, 0 },
-		V3{ size.X, thickness, size.Z }, 0.f, 0.f, 1.f, 1.f, {});
+void PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness) {
+	V3 basePos = center;
+	basePos.X = center.X - 0.5f * size.X;
+	PushRect(group, basePos, V2{ thickness, size.Y }, V2{0, 0}, color);
+	basePos.X = center.X + 0.5f * size.X;
+	PushRect(group, basePos, V2{ thickness, size.Y }, V2{ 0, 0 }, color);
+	basePos = center;
+	basePos.Y = center.Y - 0.5f * size.Y;
+	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
+	basePos.Y = center.Y + 0.5f * size.Y;
+	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
 }
 
 internal
@@ -483,28 +481,24 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		switch (header->type) {
 		case RenderCallType::RenderCallClear: {
 			RenderCallClear* call = ptrcast(RenderCallClear, group.pushBuffer + relativeRenderAddress);
-			RenderRectangle(
-				dstBuffer, 
-				V2{ 0, 0 }, 
-				V2i(dstBuffer.width, dstBuffer.height), 
-				call->R, call->G, call->B
-			);
+			RenderRectangle(dstBuffer, V2{ 0, 0 }, 
+				V2i(dstBuffer.width, dstBuffer.height), call->color);
 			relativeRenderAddress += sizeof(RenderCallClear);
 		} break;
 		case RenderCallType::RenderCallRectangle: {
 			RenderCallRectangle* call = ptrcast(RenderCallRectangle, group.pushBuffer + relativeRenderAddress);
-#if 0
-			V3 groundLevel = call->center -0.5f * V3{ 0, 0, call->rectSize.Z };
-			f32 zFudge = 0.1f * groundLevel.Z;
-			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
-						  scast(f32, dstBuffer.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - dstBuffer.height / 2.0f - groundLevel.Z * pixelsPerMeter };
-			V2 size = { (1.f + zFudge) * call->rectSize.X,
-						(1.f + zFudge) * call->rectSize.Y };
+			V2 screenCenter = { dstBuffer.width / 2.f,
+								dstBuffer.height / 2.f };
+			V3 entityGroundLevel = call->center * pixelsPerMeter; // TODO: This is not ground level?
+			f32 zFudge = 1.f + 0.005f * entityGroundLevel.Z;
+			V2 center = screenCenter;
+			center.X += zFudge * entityGroundLevel.X;
+			center.Y -= zFudge * entityGroundLevel.Y + entityGroundLevel.Z;
+			V2 size = zFudge * call->size * pixelsPerMeter;
 
-			V2 min = center - size / 2.f * pixelsPerMeter;
-			V2 max = min + size * pixelsPerMeter;
-			RenderRectangle(dstBuffer, min, max, call->R, call->G, call->B);
-#endif
+			V2 min = center - size / 2.f;
+			V2 max = min + size;
+			RenderRectangle(dstBuffer, min, max, call->color);
 			relativeRenderAddress += sizeof(RenderCallRectangle);
 		} break;
 		case RenderCallType::RenderCallBitmap: {
@@ -512,7 +506,6 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			// It should be unified (check groundLevel) which is different from RenderCallRectangle,
 			// also, size is properly changed in RenderCallRectangle and not in RenderCallBitmap
 			RenderCallBitmap* call = ptrcast(RenderCallBitmap, group.pushBuffer + relativeRenderAddress);
-#if 0
 			V3 groundLevel = call->center; // - 0.5f* V3{ 0, 0, call->rectSize.Z };
 			f32 zFudge = 0.1f * groundLevel.Z;
 			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
@@ -525,7 +518,6 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 					center.Y + call->offset.Y * pixelsPerMeter
 			};
 			RenderBitmap(dstBuffer, *call->bitmap, offset);
-#endif
 			relativeRenderAddress += sizeof(RenderCallBitmap);
 		} break;
 		case RenderCallType::RenderCallCoordinateSystem: {
@@ -534,11 +526,18 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 				call->color, *call->bitmap, call->normalMap, call->topEnvMap,
 				call->middleEnvMap, call->bottomEnvMap
 			);
-			
-			RenderRectangle(dstBuffer, call->origin, call->origin + V2{5.f, 5.f}, 1.f, 0.f, 0.f);
-			RenderRectangle(dstBuffer, call->origin + call->xAxis, call->origin + call->xAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);
-			RenderRectangle(dstBuffer, call->origin + call->yAxis, call->origin + call->yAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);
-			RenderRectangle(dstBuffer, call->origin + call->xAxis + call->yAxis, call->origin + call->xAxis + call->yAxis + V2{ 5.f, 5.f }, 1.f, 0.f, 0.f);
+			V4 color = V4{ 1.f, 0.f, 0.f, 0.f };
+			V2 size = V2{ 5.f, 5.f };
+			V2 points[4]{
+				call->origin,
+				call->origin + call->xAxis,
+				call->origin + call->yAxis,
+				call->origin + call->xAxis + call->yAxis
+			};
+			RenderRectangle(dstBuffer, points[0], points[0] + size, color);
+			RenderRectangle(dstBuffer, points[1], points[1] + size, color);
+			RenderRectangle(dstBuffer, points[2], points[2] + size, color);
+			RenderRectangle(dstBuffer, points[3], points[3] + size, color);
 			relativeRenderAddress += sizeof(RenderCallCoordinateSystem);
 		} break;
 		InvalidDefaultCase;

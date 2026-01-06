@@ -1,5 +1,18 @@
 #pragma once
 
+/*
+	1) All coordinates outside the renderer are expected to be bottom-up in Y and
+	   left-right in X
+
+	2) Bitmaps are expected to be bottom-up, ARGB with premultiplied alpha
+
+	3) All distance/size metrics are expected to be in meters, not in pixels 
+	   (unless it is explicitly specified)
+
+	4) Colors should be in range <0, 1> RGBA, no premultiplied alpha, renderer
+	   is responsible for correctly premultipling all the colors
+*/
+
 constexpr f32 pixelsPerMeter = 42.85714f;
 constexpr f32 metersPerPixel = 1.f / pixelsPerMeter;
 
@@ -32,14 +45,14 @@ struct RenderCallHeader {
 };
 
 struct RenderCallClear {
-	f32 R, G, B, A;
+	V4 color;
 };
 
 struct RenderCallRectangle {
 	V3 center;
-	V3 rectSize;
-	f32 R, G, B, A;
+	V2 size;
 	V2 offset;
+	V4 color;
 };
 
 struct RenderCallBitmap {

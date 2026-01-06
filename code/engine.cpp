@@ -30,10 +30,10 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 internal
 void RenderHitPoints(RenderGroup& group, Entity& entity, V3 center, V2 offset, f32 distBetween, f32 pointSize) {
 	V2 realOffset = (offset + V2{ -scast(f32, entity.hitPoints.count - 1) * scast(f32, distBetween + pointSize) / 2.f , 0.f });
-	V3 pointSizeVec = V3{ pointSize, pointSize, 0.f };
+	V2 pointSizeVec = V2{ pointSize, pointSize };
 	for (u32 hitPointIndex = 0; hitPointIndex < entity.hitPoints.count; hitPointIndex++) {
 		V3 rectCenter = center + V3{ realOffset.X, realOffset.Y, 0.f };
-		PushRect(group, rectCenter, pointSizeVec, 1.f, 0.f, 0.f, 1.f, {});
+		PushRect(group, rectCenter, pointSizeVec, V2{0, 0}, V4{1.f, 0.f, 0.f, 1.f});
 		realOffset.X += (distBetween + pointSize);
 	}
 }
@@ -1082,8 +1082,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	screenBitmap.pitch = bitmap.pitch;
 
 	V3 screenSizeInMeters = V3{ f4(bitmap.width), f4(bitmap.height), 0.f } *metersPerPixel;
-	PushClearCall(renderGroup, 0.5f, 0.5f, 0.5f, 1.f);
-	//PushRect(renderGroup, V3{0, 0, 0}, screenSizeInMeters, 0.5f, 0.5f, 0.5f, 1.f, {});
+	PushClearCall(renderGroup, V4{ 0.5f, 0.5f, 0.5f, 1.f });
 	
 	V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
 	Rect3 realCameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, screenSizeInMeters);
@@ -1139,12 +1138,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			WorldPosition chunkPos = CenteredWorldPosition(chunkX, chunkY, chunkZ);
 			V3 diff = Subtract(world, chunkPos, state->cameraPos);
 			diff.Z = 0;
-			V3 size = {
-				state->world.chunkSizeInMeters.X,
-				state->world.chunkSizeInMeters.Y,
-				0
-			};
-			PushRectBorders(renderGroup, diff, size, 0.05f);
+			PushRectBorders(renderGroup, diff, state->world.chunkSizeInMeters.XY, V4{1, 0, 0, 1}, 0.05f);
 		}
 	}
 	for (u32 entityIndex = 0; entityIndex < simRegion->entityCount; entityIndex++) {
@@ -1153,7 +1147,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			continue;
 		}
 		V3 acceleration = V3{ 0, 0, 0 };
-
 		switch(entity->type) {
 		case EntityType_Player: {
 			PlayerControls* playerControls = 0;
@@ -1166,19 +1159,19 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 			Assert(playerControls);
 			acceleration = playerControls->acceleration;
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.f, 1.f, 1.f, 1.f, {});
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, 1 });
 			PushBitmap(renderGroup, &state->playerMoveAnim[entity->faceDir], entity->pos, 1.f,
 				entity->collision->totalVolume.size.XY / 2.f);
 			RenderHitPoints(renderGroup, *entity, entity->pos, V2{0.f, -0.6f}, 0.1f, 0.2f);
 		} break;
 		case EntityType_Wall: {
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 1.f, 1.f, 1.f, 1.f, {});
-			PushBitmap(renderGroup, &state->treeBmp, entity->pos, 1.f, V2{0, -entity->collision->totalVolume.size.Y});
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, 1 });
+			//PushBitmap(renderGroup, &state->treeBmp, entity->pos, 1.f, V2{0, 0});
 		} break;
 		case EntityType_Stairs: {
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.2f, 0.2f, 0.2f, 1.f, {});
-			PushRect(renderGroup, entity->pos + V3{ 0, 0, entity->collision->totalVolume.size.Z },
-				entity->collision->totalVolume.size, 0.f, 0.f, 0.f, 1.f, {});
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, 1.f });
+			V3 upStairsPos = entity->pos + V3{ 0, 0, entity->collision->totalVolume.size.Z };
+			PushRect(renderGroup, upStairsPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 0, 0, 1.f });
 		} break;
 		case EntityType_Familiar: {
 			f32 minDistance = Squared(10.f);
@@ -1201,14 +1194,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			acceleration.Z = 10.0f * Sin(6 * t);
 			t += input.dtFrame;
 			acceleration -= 10.0f * entity->vel;
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.f, 0.f, 1.f, 1.f, {});
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.f, 0.5f, 0.5f, 1.f });
 		} break;
 		case EntityType_Monster: {
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 1.f, 0.5f, 0.f, 1.f, {});
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1.f, 0.5f, 0, 1.f });
 			RenderHitPoints(renderGroup, *entity, entity->pos, V2{ 0.f, -0.9f }, 0.1f, 0.2f);
 		} break;
 		case EntityType_Sword: {
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.f, 0.f, 0.f, 1.f, {});
+			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{0, 0}, V4{0, 0, 0, 1});
 			entity->timeRemaining -= input.dtFrame;
 			if (entity->distanceRemaining <= 0.f || entity->timeRemaining <= 0.f) {
 				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
@@ -1216,7 +1209,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		} break;
 		case EntityType_Space: {
-			PushRectBorders(renderGroup, entity->pos, entity->collision->totalVolume.size, 0.2f);
+			PushRectBorders(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V4{0, 0, 1, 1}, 0.02f);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
 		}
@@ -1224,6 +1217,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
 	}
+
+#if 0
 	EnvironmentMap* maps[3] = {
 		&tranState->topEnvMap,
 		&tranState->middleEnvMap,
@@ -1276,7 +1271,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 
-	
 	static f32 time = 0;
 	time += input.dtFrame * 0.1f;
 	f32 angle = time;
@@ -1285,9 +1279,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 	V2 xAxis = 256.f * V2{ 1.f, 0.f };
 #define rotation 1
-#define move_origin_x 0
-#define move_origin_y 0
-#define extend_x 1
+#define move_origin_x 1
+#define move_origin_y 1
+#define extend_x 0
 #if rotation == 1
 	f32 l = Length(xAxis);
 	xAxis.X = l * Cos(3.5f * angle);
@@ -1321,6 +1315,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		PushCoordinateSystem(renderGroup, envMapOrigin,
 			envMapXAxis, envMapYAxis, V4{ 1, 1, 1, 1 }, LOD, 0, 0, 0, 0);
 	}
+#endif
 	
 
 	RenderGroupToBuffer(renderGroup, screenBitmap);
