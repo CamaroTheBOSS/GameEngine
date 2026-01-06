@@ -873,23 +873,23 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		bool doorUp = false;
 		bool doorDown = false;
 		bool lvlJustChanged = false;
-		bool ladder = false;
+		bool stairs = false;
 		u32 screenX = 0;
 		u32 screenY = 0;
 		u32 absTileZ = 0;
 		RandomSeries series = {};
 #if 1
 		for (u32 screenIndex = 0; screenIndex < 100; screenIndex++) {
+#if 0
 			u32 randomNumber = NextRandom(series);
+#else
+			u32 randomNumber = 2;
+#endif
 #if 1
 			u32 mod = randomNumber % 3;
 #else
 			u32 mod = randomNumber % 2;
 #endif
-			if (ladder) {
-				mod = randomNumber % 2;
-				ladder = false;
-			}
 			if (mod == 0) {
 				doorRight = true;
 			}
@@ -897,7 +897,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				doorUp = true;
 			}
 			else if (mod == 2) {
-				ladder = true;
+				stairs = true;
 			}
 
 			u32 roomCenterX = screenX * world.tileCountX + world.tileCountX / 2;
@@ -939,18 +939,15 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					}
 					u32 stairPosX = 9;
 					u32 stairPosY = 5;
-					if (ladder && absTileZ == 0 && tileX == stairPosX && tileY == stairPosY) {
-						putStairs = true; // Ladder up
+					if (stairs) {
+						if (absTileZ % 2 == 0 && tileX == stairPosX && tileY == stairPosY) {
+							putStairs = true; // Ladder up
+						}
+						else if (absTileZ % 2 == 1 && tileX == stairPosX - 3 && tileY == stairPosY) {
+							putStairs = true; // Ladder up
+						}
 					}
-					else if (ladder && absTileZ == 1 && tileX == 2 && tileY == 2) {
-						//tileValue = 4; // Ladder down
-					}
-					else if (lvlJustChanged && absTileZ == 0 && tileX == stairPosX && tileY == stairPosY) {
-						putStairs = true; // Ladder up
-					}
-					else if (lvlJustChanged && absTileZ == 1 && tileX == 2 && tileY == 2) {
-						//tileValue = 4; // Ladder down
-					}
+					
 					if (tileValue == 2) {
 						AddWall(state, world, absTileX, absTileY, absTileZ);
 					}
@@ -970,12 +967,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			else if (mod == 1) {
 				screenY++;
 			}
-			if (ladder) {
-				lvlJustChanged = true;
-				absTileZ = scast(u32, !absTileZ);
-			}
-			else {
-				lvlJustChanged = false;
+			else if (mod == 2) {
+				absTileZ++;
+				stairs = false;
 			}
 		}
 		AddFamiliar(state, world, 17 / 2, 9 / 2, 0);
@@ -1016,6 +1010,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->highFreqBoundHeight * state->world.tileSizeInMeters.Z
 	};
 	Rect3 cameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, cameraBoundsDims);
+	cameraBounds.max.Z += state->world.tileSizeInMeters.Z;
+	cameraBounds.min.Z -= 3 * state->world.tileSizeInMeters.Z;
 	SimRegion* simRegion = BeginSimulation(*simMemory.arena, world, state->cameraPos, cameraBounds);
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
 		Controller& controller = input.controllers[playerIdx]; 
@@ -1090,9 +1086,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	screenBitmap.pitch = bitmap.pitch;
 
 	V3 screenSizeInMeters = V3{ f4(bitmap.width), f4(bitmap.height), 0.f } *metersPerPixel;
-	PushClearCall(renderGroup, V4{ 0.5f, 0.5f, 0.5f, 1.f });
+	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
 
-#if 1
+#if 0
 	V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
 	Rect3 realCameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, screenSizeInMeters);
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(realCameraBounds));
@@ -1155,6 +1151,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 #endif
+	f32 fadeUpStartZ = 0.f * state->world.tileSizeInMeters.Z;
+	f32 fadeUpEndZ = 0.3f * state->world.tileSizeInMeters.Z;
+	f32 fadeDownStartZ = -3.1f * state->world.tileSizeInMeters.Z;
+	f32 fadeDownEndZ = -3.4f * state->world.tileSizeInMeters.Z;
 	for (u32 entityIndex = 0; entityIndex < simRegion->entityCount; entityIndex++) {
 		Entity* entity = simRegion->entities + entityIndex;
 		if (!entity) {
@@ -1162,6 +1162,24 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		V3 acceleration = V3{ 0, 0, 0 };
 		V3 groundLevelPos = GetEntityGroundLevel(*entity);
+#if 0
+		static f32 tFade = 0;
+		tFade += input.dtFrame * 0.01f;
+		f32 layerAlpha = 0.5f * Sin(tFade) + 0.5f;
+#else
+		f32 layerAlpha = 1.0f;
+		if (groundLevelPos.Z > fadeUpStartZ) {
+			f32 range = fadeUpEndZ - fadeUpStartZ;
+			f32 Z = groundLevelPos.Z - fadeUpStartZ;
+			layerAlpha = 1.0f - Clip01(Z / range);
+		}
+		else if (groundLevelPos.Z < fadeDownStartZ) {
+			f32 range =  fadeDownEndZ - fadeDownStartZ;
+			f32 Z = groundLevelPos.Z - fadeDownStartZ;
+			layerAlpha = 1.0f - Clip01(Z / range);
+		}
+#endif
+		if (groundLevelPos.Z)
 		switch(entity->type) {
 		case EntityType_Player: {
 			PlayerControls* playerControls = 0;
@@ -1175,18 +1193,18 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			Assert(playerControls);
 			acceleration = playerControls->acceleration;
 
-			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, 1 });
+			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, layerAlpha });
 			PushBitmap(renderGroup, &state->playerMoveAnim[entity->faceDir], groundLevelPos, V2{0, 0});
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f);
 		} break;
 		case EntityType_Wall: {
-			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, 1 });
+			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
 			//PushBitmap(renderGroup, &state->treeBmp, entity->pos, 1.f, V2{0, 0});
 		} break;
 		case EntityType_Stairs: {
-			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, 1.f });
+			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, layerAlpha });
 			V3 upStairsPos = groundLevelPos + V3{ 0, 0, entity->walkableDim.Z };
-			PushRect(renderGroup, upStairsPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 0, 0, 1.f });
+			PushRect(renderGroup, upStairsPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 0, 0, layerAlpha });
 		} break;
 		case EntityType_Familiar: {
 			f32 minDistance = Squared(10.f);
@@ -1211,14 +1229,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			t += input.dtFrame;
 			acceleration -= 10.0f * entity->vel;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY,
-				V2{ 0, 0 }, V4{ 0.f, 0.5f, 0.5f, 1.f });
+				V2{ 0, 0 }, V4{ 0.f, 0.5f, 0.5f, layerAlpha });
 		} break;
 		case EntityType_Monster: {
-			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1.f, 0.5f, 0, 1.f });
+			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1.f, 0.5f, 0, layerAlpha });
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{ 0.f, -0.9f }, 0.1f, 0.2f);
 		} break;
 		case EntityType_Sword: {
-			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{0, 0}, V4{0, 0, 0, 1});
+			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{0, 0}, V4{0, 0, 0, layerAlpha });
 			entity->timeRemaining -= input.dtFrame;
 			if (entity->distanceRemaining <= 0.f || entity->timeRemaining <= 0.f) {
 				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
@@ -1226,7 +1244,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		} break;
 		case EntityType_Space: {
-			PushRectBorders(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V4{0, 0, 1, 1}, 0.2f);
+			PushRectBorders(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V4{0, 0, 1, layerAlpha }, 0.2f);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
 		}

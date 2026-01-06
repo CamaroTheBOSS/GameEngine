@@ -192,17 +192,51 @@ void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, V4 color) {
 		maxY = scast(i32, bitmap.height);
 	}
 	// TODO: Color modulation + premultiplied alpha?
-	u32 colorU32 = (scast(u32, 255 * color.R) << 16) +
-				   (scast(u32, 255 * color.G) << 8) +
-				   (scast(u32, 255 * color.B) << 0);
-	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+
+	u8* dstRow = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+#if 0
+	color.A *= 255.f;
+	u32 colorU32 = (u4(color.A) << 24) +
+		(u4(color.A * color.R) << 16) +
+		(u4(color.A * color.G) << 8) +
+		(u4(color.A * color.B) << 0);
+
 	for (i32 Y = minY; Y < maxY; Y++) {
-		u32* pixel = ptrcast(u32, row);
+		u32* pixel = ptrcast(u32, dstRow);
 		for (i32 X = minX; X < maxX; X++) {
 			*pixel++ = colorU32;
 		}
-		row += bitmap.pitch;
+		dstRow += bitmap.pitch;
 	}
+#else
+	color.RGB *= color.A;
+	for (i32 Y = minY; Y < maxY; Y++) {
+		u32* dstPixel = ptrcast(u32, dstRow);
+		for (i32 X = minX; X < maxX; X++) {
+			V4 dest = {
+					f4((*dstPixel >> 16) & 0xFF),
+					f4((*dstPixel >> 8) & 0xFF),
+					f4((*dstPixel >> 0) & 0xFF),
+					f4((*dstPixel >> 24) & 0xFF)
+			};
+			dest = SRGB255ToLinear1(dest);
+			V4 output = {
+					color.R + (1 - color.A) * dest.R,
+					color.G + (1 - color.A) * dest.G,
+					color.B + (1 - color.A) * dest.B,
+					color.A + dest.A - color.A * dest.A
+			};
+			output = Linear1ToSRGB255(output);
+			*dstPixel = (u4(output.A + 0.5f) << 24) |
+				(u4(output.R + 0.5f) << 16) |
+				(u4(output.G + 0.5f) << 8) |
+				(u4(output.B + 0.5f) << 0);
+
+			dstPixel++;
+		}
+		dstRow += bitmap.pitch;
+	}
+#endif
 }
 
 
@@ -475,7 +509,7 @@ EntityRenderParams CalculateEntityRenderParams(V2 screenCenter, V3 entityCenter,
 	// TODO: Shouldn't it be calculated in meters and at the end everything
 	// change to pixelsPerMeter?
 	V3 entityGroundLevel = entityCenter * pixelsPerMeter;
-	f32 zFudge = 1.f + 0.005f * entityGroundLevel.Z;
+	f32 zFudge = 1.f + 0.002f * entityGroundLevel.Z;
 	
 	EntityRenderParams result = {};
 	result.center = screenCenter + zFudge * entityGroundLevel.XY + V2{ 0, entityGroundLevel.Z };
