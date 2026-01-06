@@ -28,12 +28,12 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 }
 
 internal
-void RenderHitPoints(RenderGroup& group, Entity& entity, V3 center, V2 offset, f32 distBetween, f32 pointSize) {
+void RenderHitPoints(RenderGroup& group, Entity& entity, V3 center, V2 offset, f32 distBetween, f32 pointSize, V4 color) {
 	V2 realOffset = (offset + V2{ -scast(f32, entity.hitPoints.count - 1) * scast(f32, distBetween + pointSize) / 2.f , 0.f });
 	V2 pointSizeVec = V2{ pointSize, pointSize };
 	for (u32 hitPointIndex = 0; hitPointIndex < entity.hitPoints.count; hitPointIndex++) {
 		V3 rectCenter = center + V3{ realOffset.X, realOffset.Y, 0.f };
-		PushRect(group, rectCenter, pointSizeVec, V2{0, 0}, V4{1.f, 0.f, 0.f, 1.f});
+		PushRect(group, rectCenter, pointSizeVec, V2{0, 0}, color);
 		realOffset.X += (distBetween + pointSize);
 	}
 }
@@ -1162,11 +1162,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		V3 acceleration = V3{ 0, 0, 0 };
 		V3 groundLevelPos = GetEntityGroundLevel(*entity);
-#if 0
-		static f32 tFade = 0;
-		tFade += input.dtFrame * 0.01f;
-		f32 layerAlpha = 0.5f * Sin(tFade) + 0.5f;
-#else
 		f32 layerAlpha = 1.0f;
 		if (groundLevelPos.Z > fadeUpStartZ) {
 			f32 range = fadeUpEndZ - fadeUpStartZ;
@@ -1178,8 +1173,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			f32 Z = groundLevelPos.Z - fadeDownStartZ;
 			layerAlpha = 1.0f - Clip01(Z / range);
 		}
-#endif
-		if (groundLevelPos.Z)
 		switch(entity->type) {
 		case EntityType_Player: {
 			PlayerControls* playerControls = 0;
@@ -1195,7 +1188,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, layerAlpha });
 			PushBitmap(renderGroup, &state->playerMoveAnim[entity->faceDir], groundLevelPos, V2{0, 0});
-			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f);
+			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 		} break;
 		case EntityType_Wall: {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
@@ -1233,7 +1226,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		} break;
 		case EntityType_Monster: {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1.f, 0.5f, 0, layerAlpha });
-			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{ 0.f, -0.9f }, 0.1f, 0.2f);
+			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{ 0.f, -0.9f }, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 		} break;
 		case EntityType_Sword: {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{0, 0}, V4{0, 0, 0, layerAlpha });
