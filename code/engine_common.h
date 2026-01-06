@@ -52,7 +52,10 @@
 #define Minimum(a, b) ((a) > (b) ? (b) : (a))
 #define Maximum(a, b) ((a) > (b) ? (a) : (b))
 #define MY_MAX_PATH 255
-#define F32_MAX f4(u4(0xFFFFFFFF));
+#define U32_MAX u4(0xFFFFFFFF)
+#define I32_MAX i4(U32_MAX >> 1)
+#define F32_MAX f4(U32_MAX)
+
 
 typedef uint8_t u8;
 typedef uint16_t u16;

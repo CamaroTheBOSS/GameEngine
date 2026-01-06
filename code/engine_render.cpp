@@ -1,6 +1,66 @@
 #include "engine_common.h"
 #include "engine_render.h"
 
+#define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType::##type))
+inline
+void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
+	size += sizeof(RenderCallHeader);
+	Assert(group.pushBufferSize + size <= group.maxPushBufferSize);
+	if (group.pushBufferSize + size > group.maxPushBufferSize) {
+		return 0;
+	}
+	RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + group.pushBufferSize);
+	header->type = type;
+	void* result = (header + 1);
+	group.pushBufferSize += size;
+	return result;
+}
+
+inline
+RenderCallClear* PushClearCall(RenderGroup& group, V4 color) {
+	RenderCallClear* call = PushRenderEntry(group, RenderCallClear);
+	call->color = color;
+	return call;
+}
+
+inline
+RenderCallBitmap* PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, V2 offset, V4 color) {
+	RenderCallBitmap* call = PushRenderEntry(group, RenderCallBitmap);
+	call->bitmap = bitmap;
+	call->center = center;
+	call->offset = offset;
+	call->color = color;
+	return call;
+}
+
+inline
+RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
+	RenderCallRectangle* call = PushRenderEntry(group, RenderCallRectangle);
+	call->center = center;
+	call->size = size;
+	call->offset = offset;
+	call->color = color;
+	return call;
+}
+
+inline
+RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color,
+	LoadedBitmap* bitmap, LoadedBitmap* normalMap, EnvironmentMap* topEnvMap,
+	EnvironmentMap* middleEnvMap, EnvironmentMap* bottomEnvMap)
+{
+	RenderCallCoordinateSystem* call = PushRenderEntry(group, RenderCallCoordinateSystem);
+	call->origin = origin;
+	call->xAxis = xAxis;
+	call->yAxis = yAxis;
+	call->color = color;
+	call->bitmap = bitmap;
+	call->normalMap = normalMap;
+	call->topEnvMap = topEnvMap;
+	call->middleEnvMap = middleEnvMap;
+	call->bottomEnvMap = bottomEnvMap;
+	return call;
+}
+
 inline
 V4 SRGB255ToLinear1(V4 input) {
 	V4 result = {};
@@ -113,66 +173,6 @@ V4 SampleEnvMap(EnvironmentMap envMap, V2 screenSpaceUV, V3 rayDirection) {
 	return lightProbe;
 }
 
-#define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType::##type))
-inline 
-void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
-	size += sizeof(RenderCallHeader);
-	Assert(group.pushBufferSize + size <= group.maxPushBufferSize);
-	if (group.pushBufferSize + size > group.maxPushBufferSize) {
-		return 0;
-	}
-	RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + group.pushBufferSize);
-	header->type = type;
-	void* result = (header + 1);
-	group.pushBufferSize += size;
-	return result;
-}
-
-inline
-RenderCallClear* PushClearCall(RenderGroup& group, V4 color) {
-	RenderCallClear* call = PushRenderEntry(group, RenderCallClear);
-	call->color = color;
-	return call;
-}
-
-inline
-RenderCallBitmap* PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 A, V2 offset) {
-	RenderCallBitmap* call = PushRenderEntry(group, RenderCallBitmap);
-	call->bitmap = bitmap;
-	call->center = center;
-	call->offset = offset;
-	call->alpha = A;
-	return call;
-}
-
-inline
-RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
-	RenderCallRectangle* call = PushRenderEntry(group, RenderCallRectangle);
-	call->center = center;
-	call->size = size;
-	call->offset = offset;
-	call->color = color;
-	return call;
-}
-
-inline
-RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color, 
-	LoadedBitmap* bitmap, LoadedBitmap* normalMap, EnvironmentMap* topEnvMap, 
-	EnvironmentMap* middleEnvMap, EnvironmentMap* bottomEnvMap)
-{
-	RenderCallCoordinateSystem* call = PushRenderEntry(group, RenderCallCoordinateSystem);
-	call->origin = origin;
-	call->xAxis = xAxis;
-	call->yAxis = yAxis;
-	call->color = color;
-	call->bitmap = bitmap;
-	call->normalMap = normalMap;
-	call->topEnvMap = topEnvMap;
-	call->middleEnvMap = middleEnvMap;
-	call->bottomEnvMap = bottomEnvMap;
-	return call;
-}
-
 internal
 void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, V4 color) {
 	i32 minX = RoundF32ToI32(start.X);
@@ -215,16 +215,16 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 					(scast(u32, 255 * color.R) << 16) +
 					(scast(u32, 255 * color.G) << 8) +
 					(scast(u32, 255 * color.B) << 0);
-	i32 minY = i4(origin.Y);
-	i32 maxY = i4((origin + xAxis + yAxis).Y);
-	i32 minX = i4(origin.X);
-	i32 maxX = i4((origin + xAxis + yAxis).X);
 	V2 points[4] = {
 		origin,
 		origin + xAxis,
 		origin + yAxis,
 		origin + xAxis + yAxis
 	};
+	i32 minY = I32_MAX;
+	i32 maxY = -I32_MAX;
+	i32 minX = I32_MAX;
+	i32 maxX = -I32_MAX;
 	for (u32 pIndex = 0; pIndex < ArrayCount(points); pIndex++) {
 		V2 testP = points[pIndex];
 		if (testP.Y < minY) minY = i4(testP.Y);
@@ -492,8 +492,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		switch (header->type) {
 		case RenderCallType::RenderCallClear: {
 			RenderCallClear* call = ptrcast(RenderCallClear, group.pushBuffer + relativeRenderAddress);
-			RenderRectangle(dstBuffer, V2{ 0, 0 }, 
-				V2i(dstBuffer.width, dstBuffer.height), call->color);
+			RenderRectangle(dstBuffer, V2{ 0, 0 }, V2i(dstBuffer.width, dstBuffer.height), call->color);
 			relativeRenderAddress += sizeof(RenderCallClear);
 		} break;
 		case RenderCallType::RenderCallRectangle: {
@@ -514,8 +513,18 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 								call->bitmap->height * metersPerPixel };
 			EntityRenderParams params = CalculateEntityRenderParams(
 				screenCenter, call->center, bitmapSize);
+#if 0
 			V2 position = params.center + call->offset * pixelsPerMeter;
 			RenderBitmap(dstBuffer, *call->bitmap, position);
+#else
+			// TODO: IMPORTANT +1.f shouldn't be here, it is here for now,
+			// because bilinear filter is not correctly sampling all the bitmap (it
+			// leaves last row and last column
+			V2 xAxis = V2{ params.size.X + 1.f, 0 };
+			V2 yAxis =  V2{ 0, params.size.Y + 1.f };
+			V2 origin = params.center - call->bitmap->align;
+			RenderRectangleSlowly(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, 0, 0, 0, 0);
+#endif
 			relativeRenderAddress += sizeof(RenderCallBitmap);
 		} break;
 		case RenderCallType::RenderCallCoordinateSystem: {

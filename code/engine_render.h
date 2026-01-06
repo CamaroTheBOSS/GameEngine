@@ -57,8 +57,8 @@ struct RenderCallRectangle {
 struct RenderCallBitmap {
 	LoadedBitmap* bitmap;
 	V3 center;
-	f32 alpha;
 	V2 offset;
+	V4 color;
 };
 
 struct RenderCallCoordinateSystem {
@@ -78,3 +78,11 @@ struct RenderGroup {
 	u32 pushBufferSize;
 	u32 maxPushBufferSize;
 };
+
+/*                Renderer API                  */
+inline RenderCallClear* PushClearCall(RenderGroup& group, V4 color = V4{ 1, 1, 1, 1 });
+inline RenderCallBitmap* PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, 
+	V2 offset, V4 color = V4{1, 1, 1, 1});
+inline RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V2 size, 
+	V2 offset, V4 color = V4{ 1, 1, 1, 1 });
+/*                Renderer API                  */

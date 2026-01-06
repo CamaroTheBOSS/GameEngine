@@ -1141,7 +1141,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				// done differently;
 				0 //-state->cameraPos.offset.Z
 			};
-			PushBitmap(renderGroup, &drawBuffer->buffer, chunkLeftUp, 1.f, V2{0, 0});
+			PushBitmap(renderGroup, &drawBuffer->buffer, chunkLeftUp, V2{ 0, 0 });
 		}
 	}
 #endif
@@ -1177,7 +1177,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			acceleration = playerControls->acceleration;
 
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, 1 });
-			PushBitmap(renderGroup, &state->playerMoveAnim[entity->faceDir], groundLevelPos, 1.f, V2{0, 0});
+			PushBitmap(renderGroup, &state->playerMoveAnim[entity->faceDir], groundLevelPos, V2{0, 0});
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f);
 		} break;
 		case EntityType_Wall: {
