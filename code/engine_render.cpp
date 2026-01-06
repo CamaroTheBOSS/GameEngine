@@ -221,17 +221,21 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 		origin + yAxis,
 		origin + xAxis + yAxis
 	};
-	i32 minY = I32_MAX;
-	i32 maxY = -I32_MAX;
-	i32 minX = I32_MAX;
-	i32 maxX = -I32_MAX;
+	f32 fminY = F32_MAX;
+	f32 fmaxY = -F32_MAX;
+	f32 fminX = F32_MAX;
+	f32 fmaxX = -F32_MAX;
 	for (u32 pIndex = 0; pIndex < ArrayCount(points); pIndex++) {
 		V2 testP = points[pIndex];
-		if (testP.Y < minY) minY = i4(testP.Y);
-		if (testP.Y > maxY) maxY = i4(testP.Y);
-		if (testP.X < minX) minX = i4(testP.X);
-		if (testP.X > maxX) maxX = i4(testP.X);
+		if (testP.Y < fminY) fminY = testP.Y;
+		if (testP.Y > fmaxY) fmaxY = testP.Y;
+		if (testP.X < fminX) fminX = testP.X;
+		if (testP.X > fmaxX) fmaxX = testP.X;
 	}
+	i32 minY = RoundF32ToI32(fminY);
+	i32 maxY = RoundF32ToI32(fmaxY);
+	i32 minX = RoundF32ToI32(fminX);
+	i32 maxX = RoundF32ToI32(fmaxX);
 	if (minY < 0) minY = 0;
 	if (maxY > bitmap.height) maxY = bitmap.height;
 	if (minX < 0) minX = 0;
@@ -517,12 +521,10 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			V2 position = params.center + call->offset * pixelsPerMeter;
 			RenderBitmap(dstBuffer, *call->bitmap, position);
 #else
-			// TODO: IMPORTANT +1.f shouldn't be here, it is here for now,
-			// because bilinear filter is not correctly sampling all the bitmap (it
-			// leaves last row and last column
-			V2 xAxis = V2{ params.size.X + 1.f, 0 };
-			V2 yAxis =  V2{ 0, params.size.Y + 1.f };
-			V2 origin = params.center - call->bitmap->align;
+			V2 position = params.center + call->offset * pixelsPerMeter;
+			V2 xAxis = V2{ params.size.X, 0 };
+			V2 yAxis =  V2{ 0, params.size.Y };
+			V2 origin = params.center + call->offset * pixelsPerMeter - call->bitmap->align;
 			RenderRectangleSlowly(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, 0, 0, 0, 0);
 #endif
 			relativeRenderAddress += sizeof(RenderCallBitmap);

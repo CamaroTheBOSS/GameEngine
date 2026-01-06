@@ -878,6 +878,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		u32 screenY = 0;
 		u32 absTileZ = 0;
 		RandomSeries series = {};
+#if 1
 		for (u32 screenIndex = 0; screenIndex < 100; screenIndex++) {
 			u32 randomNumber = NextRandom(series);
 #if 1
@@ -950,14 +951,12 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					else if (lvlJustChanged && absTileZ == 1 && tileX == 2 && tileY == 2) {
 						//tileValue = 4; // Ladder down
 					}
-
 					if (tileValue == 2) {
 						AddWall(state, world, absTileX, absTileY, absTileZ);
 					}
 					if (putStairs) {
 						AddStairs(state, world, absTileX, absTileY, absTileZ);
-					}
-					
+					}				
 				}
 			}
 			doorLeft = doorRight;
@@ -981,7 +980,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		AddFamiliar(state, world, 17 / 2, 9 / 2, 0);
 		AddMonster(state, world, 17 / 2, 7, 0);
-
+#endif
 		state->isInitialized = true;
 	}
 	
@@ -1139,7 +1138,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				diff.Y - 0.5f * world.chunkSizeInMeters.Y,
 				// TODO this isn't quite right but gives effect, should be
 				// done differently;
-				0 //-state->cameraPos.offset.Z
+				-state->cameraPos.offset.Z
 			};
 			PushBitmap(renderGroup, &drawBuffer->buffer, chunkLeftUp, V2{ 0, 0 });
 		}
