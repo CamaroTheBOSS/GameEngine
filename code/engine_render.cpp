@@ -400,9 +400,9 @@ void PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thick
 
 internal
 void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 position) {
-	i32 minX = RoundF32ToI32(position.X) - loadedBitmap.alignX;
+	i32 minX = RoundF32ToI32(position.X - loadedBitmap.align.X);
 	i32 maxX = minX + loadedBitmap.width;
-	i32 minY = RoundF32ToI32(position.Y) - loadedBitmap.alignY;
+	i32 minY = RoundF32ToI32(position.Y - loadedBitmap.align.Y);
 	i32 maxY = minY + loadedBitmap.height;
 	i32 offsetX = 0;
 	i32 offsetY = 0;
@@ -462,17 +462,28 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 	}
 }
 
+struct EntityRenderParams {
+	V2 center;
+	V2 size;
+};
 internal
-V2 CalculateRenderingObjectCenter() {
-	/*V3 groundLevel = call->center - 0.5f * V3{ 0, 0, call->rectSize.Z };
-	f32 zFudge = 0.1f * groundLevel.Z;
-	V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
-				  scast(f32, dstBuffer.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - dstBuffer.height / 2.0f - groundLevel.Z * pixelsPerMeter };*/
-	return V2{ 0, 0 };
+EntityRenderParams CalculateEntityRenderParams(V2 screenCenter, V3 entityCenter, V2 size) {
+	// TODO: Shouldn't it be calculated in meters and at the end everything
+	// change to pixelsPerMeter?
+	V3 entityGroundLevel = entityCenter * pixelsPerMeter;
+	f32 zFudge = 1.f + 0.005f * entityGroundLevel.Z;
+	
+	EntityRenderParams result = {};
+	result.center = screenCenter + zFudge * entityGroundLevel.XY + V2{ 0, entityGroundLevel.Z };
+	result.size = zFudge * size * pixelsPerMeter;
+	return result;
 }
 
 internal
 void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
+	V2 screenCenter = { dstBuffer.width / 2.f,
+						dstBuffer.height / 2.f };
+
 	u32 relativeRenderAddress = 0;
 	while (relativeRenderAddress < group.pushBufferSize) {
 		RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + relativeRenderAddress);
@@ -487,17 +498,10 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		} break;
 		case RenderCallType::RenderCallRectangle: {
 			RenderCallRectangle* call = ptrcast(RenderCallRectangle, group.pushBuffer + relativeRenderAddress);
-			V2 screenCenter = { dstBuffer.width / 2.f,
-								dstBuffer.height / 2.f };
-			V3 entityGroundLevel = call->center * pixelsPerMeter; // TODO: This is not ground level?
-			f32 zFudge = 1.f + 0.005f * entityGroundLevel.Z;
-			V2 center = screenCenter;
-			center.X += zFudge * entityGroundLevel.X;
-			center.Y -= zFudge * entityGroundLevel.Y + entityGroundLevel.Z;
-			V2 size = zFudge * call->size * pixelsPerMeter;
-
-			V2 min = center - size / 2.f;
-			V2 max = min + size;
+			EntityRenderParams params = CalculateEntityRenderParams(
+				screenCenter, call->center, call->size);
+			V2 min = params.center - params.size / 2.f;
+			V2 max = min + params.size;
 			RenderRectangle(dstBuffer, min, max, call->color);
 			relativeRenderAddress += sizeof(RenderCallRectangle);
 		} break;
@@ -506,18 +510,12 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			// It should be unified (check groundLevel) which is different from RenderCallRectangle,
 			// also, size is properly changed in RenderCallRectangle and not in RenderCallBitmap
 			RenderCallBitmap* call = ptrcast(RenderCallBitmap, group.pushBuffer + relativeRenderAddress);
-			V3 groundLevel = call->center; // - 0.5f* V3{ 0, 0, call->rectSize.Z };
-			f32 zFudge = 0.1f * groundLevel.Z;
-			V2 center = { (1.f + zFudge) * groundLevel.X * pixelsPerMeter + dstBuffer.width / 2.0f,
-						  scast(f32, dstBuffer.height) - (1.f + zFudge) * groundLevel.Y * pixelsPerMeter - dstBuffer.height / 2.0f - groundLevel.Z * pixelsPerMeter };
-			/*V2 size = { (1.f + zFudge) * call->rectSize.X,
-						(1.f + zFudge) * call->rectSize.Y };*/
-
-			V2 offset = {
-					center.X - call->offset.X * pixelsPerMeter,
-					center.Y + call->offset.Y * pixelsPerMeter
-			};
-			RenderBitmap(dstBuffer, *call->bitmap, offset);
+			V2 bitmapSize = V2{ call->bitmap->width * metersPerPixel,
+								call->bitmap->height * metersPerPixel };
+			EntityRenderParams params = CalculateEntityRenderParams(
+				screenCenter, call->center, bitmapSize);
+			V2 position = params.center + call->offset * pixelsPerMeter;
+			RenderBitmap(dstBuffer, *call->bitmap, position);
 			relativeRenderAddress += sizeof(RenderCallBitmap);
 		} break;
 		case RenderCallType::RenderCallCoordinateSystem: {

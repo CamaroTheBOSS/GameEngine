@@ -23,8 +23,7 @@ struct LoadedBitmap {
 	i32 height;
 	i32 width;
 	i32 pitch;
-	u32 alignX;
-	u32 alignY;
+	V2 align; // NOTE: bottom-up in pixels
 };
 
 struct EnvironmentMap {

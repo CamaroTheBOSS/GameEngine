@@ -63,7 +63,7 @@ void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPositio
 					bmp = state->groundBmps + groundIndex;
 				}
 				position.X += chunkOffsetX * dstBuffer.buffer.width - bmp->width / 2.f;
-				position.Y += -chunkOffsetY * dstBuffer.buffer.height - bmp->height / 2.f;
+				position.Y += chunkOffsetY * dstBuffer.buffer.height - bmp->height / 2.f;
 				RenderBitmap(dstBuffer.buffer, *bmp, position);
 			}
 		}
@@ -71,8 +71,21 @@ void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPositio
 	dstBuffer.pos = chunkPos;
 }
 
+inline
+V2 ToBottomUpAlignment(LoadedBitmap& bitmap, V2 topDownAlign) {
+#if 1
+	V2 result = V2{ topDownAlign.X, 
+		f4(bitmap.height - 1) - topDownAlign.Y };
+#else
+	V2 result = V2{ 0, 0 };
+#endif
+	return result;
+}
+
 internal
-LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char* filename) {
+LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char* filename, 
+	V2 topDownPixelAlign = V2{0, 0})
+{
 #pragma pack(push, 1)
 	struct BmpHeader {
 		u16 signature; // must be 0x42 = BMP
@@ -114,8 +127,9 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 	result.height = header->height;
 	result.width = header->width;
 	Assert((header->bitsPerPixel / 8) == BITMAP_BYTES_PER_PIXEL);
-	result.pitch = -result.width * BITMAP_BYTES_PER_PIXEL;
-	result.data = ptrcast(u32, ptrcast(u8, result.bufferStart) + (result.height - 1) * result.width * BITMAP_BYTES_PER_PIXEL);
+	result.pitch = result.width * BITMAP_BYTES_PER_PIXEL;
+	result.data = ptrcast(u32, result.bufferStart);
+	result.align = ToBottomUpAlignment(result, topDownPixelAlign);
 
 	u32* pixels = ptrcast(u32, result.bufferStart);
 	for (u32 Y = 0; Y < header->height; Y++) {
@@ -841,21 +855,16 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->testNormalMap = MakeSphereNormalMap(state->world.arena, testTextureWidth, testTextureHeight, 1.f);
 		state->testDiffusionTexture = MakeSphereDiffusionTexture(state->world.arena, testTextureWidth, testTextureHeight);
 
-		state->playerMoveAnim[0] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-right.bmp");
-		state->playerMoveAnim[0].alignX = 0;
-		state->playerMoveAnim[0].alignY = 55;
+		V2 playerBitmapsTopDownAlignment = V2{ 20, 42 };
+		state->playerMoveAnim[0] = LoadBmpFile(memory.debugReadEntireFile, 
+			"test/hero-right.bmp", playerBitmapsTopDownAlignment);
+		state->playerMoveAnim[1] = LoadBmpFile(memory.debugReadEntireFile, 
+			"test/hero-left.bmp", playerBitmapsTopDownAlignment);
+		state->playerMoveAnim[2] = LoadBmpFile(memory.debugReadEntireFile, 
+			"test/hero-up.bmp", playerBitmapsTopDownAlignment);
+		state->playerMoveAnim[3] = LoadBmpFile(memory.debugReadEntireFile, 
+			"test/hero-down.bmp", playerBitmapsTopDownAlignment);
 
-		state->playerMoveAnim[1] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-left.bmp");
-		state->playerMoveAnim[1].alignX = 0;
-		state->playerMoveAnim[1].alignY = 55;
-
-		state->playerMoveAnim[2] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-up.bmp");
-		state->playerMoveAnim[2].alignX = 0;
-		state->playerMoveAnim[2].alignY = 55;
-
-		state->playerMoveAnim[3] = LoadBmpFile(memory.debugReadEntireFile, "test/hero-down.bmp");
-		state->playerMoveAnim[3].alignX = 0;
-		state->playerMoveAnim[3].alignY = 55;
 
 		//TODO pixelsPerMeters as world property?
 
@@ -1083,7 +1092,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 	V3 screenSizeInMeters = V3{ f4(bitmap.width), f4(bitmap.height), 0.f } *metersPerPixel;
 	PushClearCall(renderGroup, V4{ 0.5f, 0.5f, 0.5f, 1.f });
-	
+
+#if 1
 	V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
 	Rect3 realCameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, screenSizeInMeters);
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(realCameraBounds));
@@ -1126,12 +1136,16 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			V3 diff = Subtract(world, drawBuffer->pos, state->cameraPos);
 			V3 chunkLeftUp = {
 				diff.X - 0.5f * world.chunkSizeInMeters.X,
-				diff.Y + 0.5f * world.chunkSizeInMeters.Y,
-				0
+				diff.Y - 0.5f * world.chunkSizeInMeters.Y,
+				// TODO this isn't quite right but gives effect, should be
+				// done differently;
+				0 //-state->cameraPos.offset.Z
 			};
 			PushBitmap(renderGroup, &drawBuffer->buffer, chunkLeftUp, 1.f, V2{0, 0});
 		}
 	}
+#endif
+#if 0
 	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
 		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
 			i32 chunkZ = state->cameraPos.chunkZ;
@@ -1141,12 +1155,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			PushRectBorders(renderGroup, diff, state->world.chunkSizeInMeters.XY, V4{1, 0, 0, 1}, 0.05f);
 		}
 	}
+#endif
 	for (u32 entityIndex = 0; entityIndex < simRegion->entityCount; entityIndex++) {
 		Entity* entity = simRegion->entities + entityIndex;
 		if (!entity) {
 			continue;
 		}
 		V3 acceleration = V3{ 0, 0, 0 };
+		V3 groundLevelPos = GetEntityGroundLevel(*entity);
 		switch(entity->type) {
 		case EntityType_Player: {
 			PlayerControls* playerControls = 0;
@@ -1159,18 +1175,18 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 			Assert(playerControls);
 			acceleration = playerControls->acceleration;
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, 1 });
-			PushBitmap(renderGroup, &state->playerMoveAnim[entity->faceDir], entity->pos, 1.f,
-				entity->collision->totalVolume.size.XY / 2.f);
-			RenderHitPoints(renderGroup, *entity, entity->pos, V2{0.f, -0.6f}, 0.1f, 0.2f);
+
+			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, 1 });
+			PushBitmap(renderGroup, &state->playerMoveAnim[entity->faceDir], groundLevelPos, 1.f, V2{0, 0});
+			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f);
 		} break;
 		case EntityType_Wall: {
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, 1 });
+			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, 1 });
 			//PushBitmap(renderGroup, &state->treeBmp, entity->pos, 1.f, V2{0, 0});
 		} break;
 		case EntityType_Stairs: {
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, 1.f });
-			V3 upStairsPos = entity->pos + V3{ 0, 0, entity->collision->totalVolume.size.Z };
+			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, 1.f });
+			V3 upStairsPos = groundLevelPos + V3{ 0, 0, entity->walkableDim.Z };
 			PushRect(renderGroup, upStairsPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 0, 0, 1.f });
 		} break;
 		case EntityType_Familiar: {
@@ -1187,6 +1203,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				}
 			}
 			f32 speed = 50.0f;
+			// TODO: delete this static float
 			static float t = 0.f;
 			if (minDistance > Squared(2.0f)) {
 				acceleration = speed * (minDistanceEntityPos - entity->pos) / SquareRoot(minDistance);
@@ -1194,14 +1211,15 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			acceleration.Z = 10.0f * Sin(6 * t);
 			t += input.dtFrame;
 			acceleration -= 10.0f * entity->vel;
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.f, 0.5f, 0.5f, 1.f });
+			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY,
+				V2{ 0, 0 }, V4{ 0.f, 0.5f, 0.5f, 1.f });
 		} break;
 		case EntityType_Monster: {
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1.f, 0.5f, 0, 1.f });
-			RenderHitPoints(renderGroup, *entity, entity->pos, V2{ 0.f, -0.9f }, 0.1f, 0.2f);
+			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1.f, 0.5f, 0, 1.f });
+			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{ 0.f, -0.9f }, 0.1f, 0.2f);
 		} break;
 		case EntityType_Sword: {
-			PushRect(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V2{0, 0}, V4{0, 0, 0, 1});
+			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{0, 0}, V4{0, 0, 0, 1});
 			entity->timeRemaining -= input.dtFrame;
 			if (entity->distanceRemaining <= 0.f || entity->timeRemaining <= 0.f) {
 				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
@@ -1209,7 +1227,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		} break;
 		case EntityType_Space: {
-			PushRectBorders(renderGroup, entity->pos, entity->collision->totalVolume.size.XY, V4{0, 0, 1, 1}, 0.02f);
+			PushRectBorders(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V4{0, 0, 1, 1}, 0.2f);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
 		}
@@ -1217,7 +1235,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
 	}
-
 #if 0
 	EnvironmentMap* maps[3] = {
 		&tranState->topEnvMap,

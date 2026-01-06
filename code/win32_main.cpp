@@ -447,7 +447,7 @@ void Win32ResizeBitmapMemory(BitmapData& bitmap, int newWidth, int newHeight) {
 
 	globalBitmapInfo.bmiHeader.biSize = sizeof(globalBitmapInfo.bmiHeader);
 	globalBitmapInfo.bmiHeader.biWidth = bitmap.width;
-	globalBitmapInfo.bmiHeader.biHeight = -static_cast<int>(bitmap.height);
+	globalBitmapInfo.bmiHeader.biHeight = static_cast<int>(bitmap.height);
 	globalBitmapInfo.bmiHeader.biPlanes = 1;
 	globalBitmapInfo.bmiHeader.biBitCount = 32;
 	globalBitmapInfo.bmiHeader.biCompression = BI_RGB;
