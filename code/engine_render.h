@@ -13,13 +13,11 @@
 	   is responsible for correctly premultipling all the colors
 */
 
-constexpr f32 pixelsPerMeter = 42.85714f;
-constexpr f32 metersPerPixel = 1.f / pixelsPerMeter;
-
 #define BITMAP_BYTES_PER_PIXEL 4
 struct LoadedBitmap {
 	void* bufferStart;
 	u32* data;
+	f32 heightOverWidth;
 	i32 height;
 	i32 width;
 	i32 pitch;
@@ -73,7 +71,17 @@ struct RenderCallCoordinateSystem {
 	EnvironmentMap* bottomEnvMap;
 };
 
+struct CameraProps {
+	f32 focalLength;
+	f32 distanceToTarget;
+	f32 nearClip;
+};
+
 struct RenderGroup {
+	CameraProps camera;
+	f32 monitorWidth;
+	f32 metersToPixels;
+
 	u8* pushBuffer;
 	u32 pushBufferSize;
 	u32 maxPushBufferSize;

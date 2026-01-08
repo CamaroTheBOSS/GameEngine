@@ -747,8 +747,13 @@ int CALLBACK WinMain(
 	LPSTR cmdLine,
 	int showCmd
 ) {
+#if 1
 	u32 globalBitmapWidth = 960;
 	u32 globalBitmapHeight = 540;
+#else
+	u32 globalBitmapWidth = 1920;
+	u32 globalBitmapHeight = 1080;
+#endif
 	Win32LoadXInput();
 
 	HRESULT hr = CoInitialize(nullptr);

@@ -500,24 +500,20 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 	}
 }
 
-struct EntityRenderParams {
+struct EntityProjectedParams {
 	V2 center;
 	V2 size;
 	bool valid;
 };
 internal
-EntityRenderParams CalculateEntityRenderParams(V2 screenCenter, V3 entityCenter, V2 size) {
-	EntityRenderParams result = {};
-	f32 focalLength = 10.f;
-	f32 distToCamera = 2.f;
-	f32 nearClip = focalLength + 0.2f;
+EntityProjectedParams CalculatePerspectiveProjection(RenderGroup& group, V2 screenCenter, V3 entityCenter, V2 size) {
+	EntityProjectedParams result = {};
 	V3 rawCoords = ToV3(entityCenter.XY, 1.f);
-	f32 denominator = focalLength + distToCamera - entityCenter.Z;
-	if (denominator > nearClip) {
-		V3 projectedCoords = focalLength * rawCoords / denominator;
-
-		result.center = screenCenter + projectedCoords.XY * pixelsPerMeter;
-		result.size = projectedCoords.Z * size * pixelsPerMeter;
+	f32 denominator = group.camera.distanceToTarget - entityCenter.Z;
+	if (denominator > group.camera.nearClip) {
+		V3 projectedCoords = group.camera.focalLength * rawCoords / denominator;
+		result.center = screenCenter + projectedCoords.XY * group.metersToPixels;
+		result.size = projectedCoords.Z * size * group.metersToPixels;
 		result.valid = true;
 	}
 	return result;
@@ -527,7 +523,6 @@ internal
 void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 	V2 screenCenter = { dstBuffer.width / 2.f,
 						dstBuffer.height / 2.f };
-
 	u32 relativeRenderAddress = 0;
 	while (relativeRenderAddress < group.pushBufferSize) {
 		RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + relativeRenderAddress);
@@ -541,7 +536,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		} break;
 		case RenderCallType::RenderCallRectangle: {
 			RenderCallRectangle* call = ptrcast(RenderCallRectangle, group.pushBuffer + relativeRenderAddress);
-			EntityRenderParams params = CalculateEntityRenderParams(
+			EntityProjectedParams params = CalculatePerspectiveProjection(group,
 				screenCenter, call->center, call->size);
 			if (params.valid) {
 				V2 min = params.center - params.size / 2.f;
@@ -555,10 +550,9 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			// It should be unified (check groundLevel) which is different from RenderCallRectangle,
 			// also, size is properly changed in RenderCallRectangle and not in RenderCallBitmap
 			RenderCallBitmap* call = ptrcast(RenderCallBitmap, group.pushBuffer + relativeRenderAddress);
-			V2 bitmapSize = V2{ call->bitmap->width * metersPerPixel,
-								call->bitmap->height * metersPerPixel };
-			EntityRenderParams params = CalculateEntityRenderParams(
-				screenCenter, call->center, bitmapSize);
+			// TODO: Is V2{ 1, call->bitmap->heightOverWidth } correct for bitmaps with more width than height?
+			EntityProjectedParams params = CalculatePerspectiveProjection(group,
+				screenCenter, call->center, V2{ 1, call->bitmap->heightOverWidth });
 			if (params.valid) {
 				V2 xAxis = V2{ params.size.X, 0 };
 				V2 yAxis = V2{ 0, params.size.Y };
@@ -566,7 +560,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 				// TODO: also, if not I need to do the same stuff with offset what I did here
 				V2 alignment = V2{ call->bitmap->align.X / (call->bitmap->width - 1) * xAxis.X,
 								   call->bitmap->align.Y / (call->bitmap->height - 1) * yAxis.Y };
-				V2 origin = params.center + call->offset * pixelsPerMeter - alignment;
+				V2 origin = params.center + call->offset * group.metersToPixels - alignment;
 				RenderRectangleSlowly(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, 0, 0, 0, 0);
 			}
 			relativeRenderAddress += sizeof(RenderCallBitmap);
@@ -598,10 +592,35 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 }
 
 inline
+V2 UnprojectCoords(RenderGroup& group, V2 projectedCoords, f32 atDistanceFromCamera) {
+	V2 worldCoords = atDistanceFromCamera * projectedCoords / group.camera.focalLength;
+	return worldCoords;
+}
+
+inline 
+Rect2 GetRenderRectangleAtDistance(RenderGroup& group, LoadedBitmap& drawBuffer, f32 distance) {
+	V2 screenDim = 0.5f * V2i(drawBuffer.width, drawBuffer.height) / group.metersToPixels;
+	V2 projectedDims = UnprojectCoords(group, screenDim, distance);
+	Rect2 result = GetRectFromCenterDim(V2{ 0, 0 }, projectedDims);
+	return result;
+}
+
+inline 
+Rect2 GetRenderRectangleAtTarget(RenderGroup& group, LoadedBitmap& drawBuffer) {
+	Rect2 result = GetRenderRectangleAtDistance(group, drawBuffer, group.camera.distanceToTarget);
+	return result;
+}
+
+inline
 RenderGroup AllocateRenderGroup(MemoryArena& arena, u32 size) {
 	RenderGroup result = {};
 	result.pushBuffer = PushArray(arena, size, u8);
 	result.maxPushBufferSize = size;
 	result.pushBufferSize = 0;
+	result.monitorWidth = 0.508f;
+	result.metersToPixels = 1920 * result.monitorWidth;
+	result.camera.distanceToTarget = 15.f;
+	result.camera.focalLength = 0.6f;
+	result.camera.nearClip = 0.2f;
 	return result;
 }

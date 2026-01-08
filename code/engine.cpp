@@ -126,6 +126,7 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 	result.bufferStart = ptrcast(void, ptrcast(u8, bmpData.content) + header->bitmapOffset);
 	result.height = header->height;
 	result.width = header->width;
+	result.heightOverWidth = f4(result.height) / f4(result.width);
 	Assert((header->bitsPerPixel / 8) == BITMAP_BYTES_PER_PIXEL);
 	result.pitch = result.width * BITMAP_BYTES_PER_PIXEL;
 	result.data = ptrcast(u32, result.bufferStart);
@@ -719,6 +720,7 @@ LoadedBitmap MakeEmptyBuffer(MemoryArena& arena, u32 width, u32 height) {
 	bmp.bufferStart = ptrcast(void, bmp.data);
 	bmp.height = height;
 	bmp.width = width;
+	bmp.heightOverWidth = f4(height) / f4(width);
 	bmp.pitch = width * BITMAP_BYTES_PER_PIXEL;
 	return bmp;
 }
@@ -746,8 +748,10 @@ void MakeEntityNonSpatial(ProgramState* state, u32 storageEntityIndex, Entity& e
 internal
 V2 MapScreenSpacePosIntoCameraSpace(f32 screenPosX, f32 screenPosY, u32 screenWidth, u32 screenHeight) {
 	V2 pos = {};
+#if 0
 	pos.X = screenWidth * (screenPosX - 0.5f) / pixelsPerMeter;
 	pos.Y = screenHeight * (0.5f - screenPosY) / pixelsPerMeter;
+#endif
 	return pos;
 }
 
@@ -986,12 +990,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			memory.transientMemorySize - sizeof(TransientState)
 		);
 
+#if 0
 		V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
 		for (u32 groundBufferIndex = 0; groundBufferIndex < ArrayCount(tranState->groundBuffers); groundBufferIndex++) {
 			GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
 			groundBuffer->buffer = MakeEmptyBuffer(tranState->arena, RoundF32ToU32(chunkSizePix.X), RoundF32ToU32(chunkSizePix.Y));
 			groundBuffer->pos = NullPosition();
 		}
+#endif
 		tranState->isInitialized = true;
 	}
 
@@ -1084,11 +1090,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	screenBitmap.width = bitmap.width;
 	screenBitmap.data = ptrcast(u32, bitmap.data);
 	screenBitmap.pitch = bitmap.pitch;
-
-	V3 screenSizeInMeters = V3{ f4(bitmap.width), f4(bitmap.height), 0.f } *metersPerPixel;
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
 
 #if 0
+	V3 screenSizeInMeters = V3{ f4(bitmap.width), f4(bitmap.height), 0.f } *metersPerPixel;
 	V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
 	Rect3 realCameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, screenSizeInMeters);
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(realCameraBounds));
@@ -1151,6 +1156,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 #endif
+	Rect2 screenRect = GetRenderRectangleAtTarget(renderGroup, screenBitmap);
+	PushRectBorders(renderGroup, V3{ 0.f, 0.f, 0.f }, GetDim(screenRect), V4{ 1, 1, 0, 1 }, 0.4f);
 	f32 fadeUpStartZ = 0.f * state->world.tileSizeInMeters.Z;
 	f32 fadeUpEndZ = 0.3f * state->world.tileSizeInMeters.Z;
 	f32 fadeDownStartZ = -3.1f * state->world.tileSizeInMeters.Z;

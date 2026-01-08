@@ -462,6 +462,12 @@ struct Rect2 {
 };
 
 inline
+V2 GetDim(Rect2 rect) {
+	V2 result = rect.max - rect.min;
+	return result;
+}
+
+inline
 V2 GetMinCorner(Rect2 rect) {
 	return rect.min;
 }
@@ -491,6 +497,15 @@ Rect2 GetRectFromCenterHalfDim(V2 center, f32 halfDim) {
 	rect.max = V2{
 		center.X + halfDim,
 		center.Y + halfDim
+	};
+	return rect;
+}
+
+inline
+Rect2 GetRectFromCenterHalfDim(V2 center, V2 halfDims) {
+	Rect2 rect{
+		.min = center - halfDims,
+		.max = center + halfDims,
 	};
 	return rect;
 }
@@ -565,6 +580,13 @@ struct Rect3 {
 	V3 min;
 	V3 max;
 };
+
+inline
+V3 GetDim(Rect3 rect) {
+	V3 result = rect.max - rect.min;
+	return result;
+}
+
 
 inline
 V3 GetMinCorner(Rect3 rect) {
