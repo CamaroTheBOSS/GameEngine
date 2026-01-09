@@ -77,11 +77,14 @@ struct CameraProps {
 	f32 nearClip;
 };
 
-struct RenderGroup {
+struct ProjectionProps {
 	CameraProps camera;
 	f32 monitorWidth;
 	f32 metersToPixels;
+};
 
+struct RenderGroup {
+	ProjectionProps projection;
 	u8* pushBuffer;
 	u32 pushBufferSize;
 	u32 maxPushBufferSize;

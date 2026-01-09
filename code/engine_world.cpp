@@ -282,9 +282,9 @@ internal
 void InitializeWorld(World& world) {
 	world.tileCountX = 17;
 	world.tileCountY = 9;
-	world.tileSizeInMeters = V3{ 1.4f , 1.4f, 1.4f };
+	world.tileSizeInMeters = V3{ 1.4f , 1.4f, 2.5f };
 	world.chunkSizeInMeters = V3{
-		CHUNK_DIM_IN_TILES * world.tileSizeInMeters.Z,
+		CHUNK_DIM_IN_TILES * world.tileSizeInMeters.X,
 		CHUNK_DIM_IN_TILES * world.tileSizeInMeters.Y,
 		CHUNK_HEIGHT_IN_TILES * world.tileSizeInMeters.Z
 	};

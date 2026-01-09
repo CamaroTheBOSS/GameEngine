@@ -745,16 +745,6 @@ void MakeEntityNonSpatial(ProgramState* state, u32 storageEntityIndex, Entity& e
 	SetFlag(entity, EntityFlag_NonSpatial);
 }
 
-internal
-V2 MapScreenSpacePosIntoCameraSpace(f32 screenPosX, f32 screenPosY, u32 screenWidth, u32 screenHeight) {
-	V2 pos = {};
-#if 0
-	pos.X = screenWidth * (screenPosX - 0.5f) / pixelsPerMeter;
-	pos.Y = screenHeight * (0.5f - screenPosY) / pixelsPerMeter;
-#endif
-	return pos;
-}
-
 LoadedBitmap MakeSphereNormalMap(MemoryArena& arena, u32 width, u32 height, f32 roughness) {
 	LoadedBitmap result = MakeEmptyBuffer(arena, width, height);
 	u8* row = ptrcast(u8, result.data);
@@ -884,7 +874,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		RandomSeries series = {};
 #if 1
 		for (u32 screenIndex = 0; screenIndex < 100; screenIndex++) {
-#if 0
+#if 1
 			u32 randomNumber = NextRandom(series);
 #else
 			u32 randomNumber = 2;
@@ -1056,7 +1046,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (controller.isMouseLDown && IsFlagSet(*entity->sword, EntityFlag_NonSpatial)) {
 			entity->sword->distanceRemaining = 5.f;
 			entity->sword->timeRemaining = 4.f;
-			V2 mousePos = MapScreenSpacePosIntoCameraSpace(controller.mouseX, controller.mouseY, bitmap.width, bitmap.height);
+
+			ProjectionProps projection = GetStandardProjection(bitmap.width, bitmap.height);
+			V2 screenDim = GetDim(GetRenderRectangleAtTarget(projection, bitmap.width, bitmap.height));
+			V2 mousePos = Hadamard(screenDim, V2{ controller.mouseX, controller.mouseY } - V2{0.5f, 0.5f});
 			f32 mouseVecLength = Length(mousePos);
 			f32 projectileSpeed = 5.f;
 			if (mouseVecLength != 0.f) {
@@ -1083,7 +1076,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 	// TODO: Think about size of the main render group
 	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
-	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, MB(4));
+	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, MB(4), bitmap.width, bitmap.height);
 	
 	LoadedBitmap screenBitmap = {};
 	screenBitmap.height = bitmap.height;
@@ -1156,7 +1149,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 #endif
-	Rect2 screenRect = GetRenderRectangleAtTarget(renderGroup, screenBitmap);
+	Rect2 screenRect = GetRenderRectangleAtTarget(renderGroup.projection, screenBitmap.width, screenBitmap.height);
 	PushRectBorders(renderGroup, V3{ 0.f, 0.f, 0.f }, GetDim(screenRect), V4{ 1, 1, 0, 1 }, 0.4f);
 	f32 fadeUpStartZ = 0.f * state->world.tileSizeInMeters.Z;
 	f32 fadeUpEndZ = 0.3f * state->world.tileSizeInMeters.Z;

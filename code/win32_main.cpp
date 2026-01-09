@@ -639,8 +639,8 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 	POINT point;
 	GetCursorPos(&point);
 	ScreenToClient(state.window, &point);
-	controller.mouseX = scast(f32, point.x - state.bltOffsetX) / state.displayWidth;
-	controller.mouseY = scast(f32, point.y - state.bltOffsetY) / state.displayHeight;
+	controller.mouseX = f4(point.x - state.bltOffsetX) / state.displayWidth;
+	controller.mouseY = 1.f - f4(point.y - state.bltOffsetY) / state.displayHeight;
 	controller.isMouseMDown = GetKeyState(VK_MBUTTON) >> 15;
 	controller.isMouseRDown = GetKeyState(VK_RBUTTON) >> 15;
 	controller.isMouseLDown = GetKeyState(VK_LBUTTON) >> 15;
