@@ -859,9 +859,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->playerMoveAnim[3] = LoadBmpFile(memory.debugReadEntireFile, 
 			"test/hero-down.bmp", playerBitmapsTopDownAlignment);
 
-
-		//TODO pixelsPerMeters as world property?
-
 		bool doorLeft = false;
 		bool doorRight = false;
 		bool doorUp = false;
@@ -1000,15 +997,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 	SetCamera(state);
 	TemporaryMemory simMemory = BeginTempMemory(tranState->arena);
-	V3 cameraBoundsDims = {
-		state->highFreqBoundDim * state->world.tileSizeInMeters.X,
-		state->highFreqBoundDim * state->world.tileSizeInMeters.Y,
-		state->highFreqBoundHeight * state->world.tileSizeInMeters.Z
-	};
-	Rect3 cameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, cameraBoundsDims);
-	cameraBounds.max.Z += state->world.tileSizeInMeters.Z;
-	cameraBounds.min.Z -= 3 * state->world.tileSizeInMeters.Z;
-	SimRegion* simRegion = BeginSimulation(*simMemory.arena, world, state->cameraPos, cameraBounds);
+	ProjectionProps projection = GetStandardProjection(bitmap.width, bitmap.height);
+	Rect2 cameraBounds = GetRenderRectangleAtTarget(projection, bitmap.width, bitmap.height);
+	Rect3 simBounds = ToRect3(cameraBounds, V2{ -3, 1 } *state->world.tileSizeInMeters.Z);
+	SimRegion* simRegion = BeginSimulation(*simMemory.arena, world, state->cameraPos, simBounds);
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
 		Controller& controller = input.controllers[playerIdx]; 
 		PlayerControls& playerControls = state->playerControls[playerIdx];
@@ -1047,7 +1039,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			entity->sword->distanceRemaining = 5.f;
 			entity->sword->timeRemaining = 4.f;
 
-			ProjectionProps projection = GetStandardProjection(bitmap.width, bitmap.height);
 			V2 screenDim = GetDim(GetRenderRectangleAtTarget(projection, bitmap.width, bitmap.height));
 			V2 mousePos = Hadamard(screenDim, V2{ controller.mouseX, controller.mouseY } - V2{0.5f, 0.5f});
 			f32 mouseVecLength = Length(mousePos);
@@ -1077,7 +1068,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	// TODO: Think about size of the main render group
 	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
 	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, MB(4), bitmap.width, bitmap.height);
-	
+	//TODO: This is only for debugging
+	renderGroup.projection.camera.distanceToTarget = 30.f;
+
 	LoadedBitmap screenBitmap = {};
 	screenBitmap.height = bitmap.height;
 	screenBitmap.width = bitmap.width;
@@ -1151,6 +1144,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #endif
 	Rect2 screenRect = GetRenderRectangleAtTarget(renderGroup.projection, screenBitmap.width, screenBitmap.height);
 	PushRectBorders(renderGroup, V3{ 0.f, 0.f, 0.f }, GetDim(screenRect), V4{ 1, 1, 0, 1 }, 0.4f);
+	PushRectBorders(renderGroup, V3{ 0.f, 0.f, 0.f }, GetDim(simBounds).XY, V4{ 1, 0, 0, 1 }, 0.4f);
 	f32 fadeUpStartZ = 0.f * state->world.tileSizeInMeters.Z;
 	f32 fadeUpEndZ = 0.3f * state->world.tileSizeInMeters.Z;
 	f32 fadeDownStartZ = -3.1f * state->world.tileSizeInMeters.Z;

@@ -581,6 +581,14 @@ struct Rect3 {
 	V3 max;
 };
 
+Rect3 ToRect3(Rect2 rect2, V2 minMaxZ) {
+	Rect3 result{
+		.min = ToV3(rect2.min, minMaxZ.E[0]),
+		.max = ToV3(rect2.max, minMaxZ.E[1])
+	};
+	return result;
+}
+
 inline
 V3 GetDim(Rect3 rect) {
 	V3 result = rect.max - rect.min;

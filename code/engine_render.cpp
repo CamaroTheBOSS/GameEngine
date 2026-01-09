@@ -614,13 +614,20 @@ Rect2 GetRenderRectangleAtTarget(ProjectionProps& projection, u32 width, u32 hei
 }
 
 inline
+CameraProps GetStandardCamera() {
+	CameraProps result = {};
+	result.distanceToTarget = 10.f;
+	result.focalLength = 0.7f;
+	result.nearClip = 0.2f;
+	return result;
+}
+
+inline
 ProjectionProps GetStandardProjection(u32 resolutionX, u32 resolutionY) {
 	ProjectionProps result = {};
 	result.monitorWidth = 0.52f;
 	result.metersToPixels = resolutionX * result.monitorWidth;
-	result.camera.distanceToTarget = 10.f;
-	result.camera.focalLength = 0.7f;
-	result.camera.nearClip = 0.2f;
+	result.camera = GetStandardCamera();
 	return result;
 }
 
