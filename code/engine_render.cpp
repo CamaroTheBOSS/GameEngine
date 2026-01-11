@@ -478,17 +478,13 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	color.RGB *= color.A;
 	f32 uCf = 1.f / (Squared(xAxis.X) + Squared(xAxis.Y));
 	f32 vCf = 1.f / (Squared(yAxis.X) + Squared(yAxis.Y));
-	f32 inv255 = 1.f / 255.f;
-	f32 one255 = 255.f;
 	u32 pitch = texture.pitch;
 	u8* textureData = ptrcast(u8, texture.data);
-	// TODO: What with last row and last column?
-	f32 uWidthCf = f4(texture.width - 2);
-	f32 vHeightCf = f4(texture.height - 2);
+
 	__m256 zero = _mm256_set1_ps(0.f);
 	__m256 one = _mm256_set1_ps(1.0f);
-	__m256 o255 = _mm256_set1_ps(255.0f);
-	__m256 inv2554x = _mm256_set1_ps(inv255);
+	__m256 o255 = _mm256_set1_ps(255.f);
+	__m256 inv255wide = _mm256_set1_ps(1.f / 255.f);
 	__m256 uCfx8 = _mm256_set1_ps(uCf);
 	__m256 vCfx8 = _mm256_set1_ps(vCf);
 	__m256 half = _mm256_set1_ps(0.5f);
@@ -498,8 +494,9 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	__m256 xAY = _mm256_set1_ps(xAxis.Y);
 	__m256 yAX = _mm256_set1_ps(yAxis.X);
 	__m256 yAY = _mm256_set1_ps(yAxis.Y);
-	__m256 uWcf = _mm256_set1_ps(uWidthCf);
-	__m256 vHcf = _mm256_set1_ps(vHeightCf);
+	// TODO: What with last row and last column?
+	__m256 uWcf = _mm256_set1_ps(f4(texture.width - 2));
+	__m256 vHcf = _mm256_set1_ps(f4(texture.height - 2));
 	__m256 colorA = _mm256_set1_ps(color.A);
 	__m256 colorR = _mm256_set1_ps(color.R);
 	__m256 colorG = _mm256_set1_ps(color.G);
@@ -510,13 +507,13 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	BEGIN_TIMED_SECTION(FillPixel);
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
-		u32* dstPixelForLoad = ptrcast(u32, row);
+		u32* dstPixelRead = ptrcast(u32, row);
 		__m256 Yx8 = _mm256_setr_m128(_mm_set_ps1(f4(Y)), _mm_set_ps1(f4(Y)));
 		__m256 pointY = _mm256_add_ps(Yx8, half);
 		__m256 dy = _mm256_sub_ps(pointY, originY);
 		for (i32 X = minX; X < maxX; X += 8) {
 			__m256i Xx8i = _mm256_setr_epi32(0, 1, 2, 4, 8, 16, 32, 64);
-			__m256 Xx8 = _mm256_setr_ps(f4(X), f4(X+1), f4(X+2), f4(X+3), f4(X+4), f4(X+5), f4(X+6), f4(X+7));
+			__m256 Xx8 = _mm256_setr_ps(f4(X), f4(X + 1), f4(X + 2), f4(X + 3), f4(X + 4), f4(X + 5), f4(X + 6), f4(X + 7));
 			__m256 pointX = _mm256_add_ps(Xx8, half);
 			__m256 dx = _mm256_sub_ps(pointX, originX);
 
@@ -540,126 +537,124 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256 fX = _mm256_sub_ps(texelX, _mm256_cvtepi32_ps(texelXint));
 			__m256 fY = _mm256_sub_ps(texelY, _mm256_cvtepi32_ps(texelYint));
 
-			__m256 sample00A = _mm256_set1_ps(1.0f);
-			__m256 sample01A = _mm256_set1_ps(1.0f);
-			__m256 sample10A = _mm256_set1_ps(1.0f);
-			__m256 sample11A = _mm256_set1_ps(1.0f);
-
-			__m256 sample00R = _mm256_set1_ps(1.0f);
-			__m256 sample01R = _mm256_set1_ps(1.0f);
-			__m256 sample10R = _mm256_set1_ps(1.0f);
-			__m256 sample11R = _mm256_set1_ps(1.0f);
-
-			__m256 sample00G = _mm256_set1_ps(1.0f);
-			__m256 sample01G = _mm256_set1_ps(1.0f);
-			__m256 sample10G = _mm256_set1_ps(1.0f);
-			__m256 sample11G = _mm256_set1_ps(1.0f);
-
-			__m256 sample00B = _mm256_set1_ps(1.0f);
-			__m256 sample01B = _mm256_set1_ps(1.0f);
-			__m256 sample10B = _mm256_set1_ps(1.0f);
-			__m256 sample11B = _mm256_set1_ps(1.0f);
-
-			__m256 destA = _mm256_set1_ps(1.0f);
-			__m256 destR = _mm256_set1_ps(1.0f);
-			__m256 destG = _mm256_set1_ps(1.0f);
-			__m256 destB = _mm256_set1_ps(1.0f);
-
-			
+			__m256 texelAA = _mm256_set1_ps(0.f);
+			__m256 texelAR = _mm256_set1_ps(0.f);
+			__m256 texelAG = _mm256_set1_ps(0.f);
+			__m256 texelAB = _mm256_set1_ps(0.f);
+			__m256 texelBA = _mm256_set1_ps(0.f);
+			__m256 texelBR = _mm256_set1_ps(0.f);
+			__m256 texelBG = _mm256_set1_ps(0.f);
+			__m256 texelBB = _mm256_set1_ps(0.f);
+			__m256 texelCA = _mm256_set1_ps(0.f);
+			__m256 texelCR = _mm256_set1_ps(0.f);
+			__m256 texelCG = _mm256_set1_ps(0.f);
+			__m256 texelCB = _mm256_set1_ps(0.f);
+			__m256 texelDA = _mm256_set1_ps(0.f);
+			__m256 texelDR = _mm256_set1_ps(0.f);
+			__m256 texelDG = _mm256_set1_ps(0.f);
+			__m256 texelDB = _mm256_set1_ps(0.f);
+			__m256 destA = _mm256_set1_ps(0.f);
+			__m256 destR = _mm256_set1_ps(0.f);
+			__m256 destG = _mm256_set1_ps(0.f);
+			__m256 destB = _mm256_set1_ps(0.f);
 			for (i32 I = 0; I < 8; I++) {
+				i32 XI = X + I;
 				if (E(shouldFill, I)) {
 					// Unpack bilinear sample
 					i32 texelAI = Ei(texelYint, I) * pitch + (Ei(texelXint, I) << 2);
 					u32* texelAPtr = ptrcast(u32, textureData + texelAI);
-					E(sample00A, I) = f4((*texelAPtr >> 24) & 0xFF);
-					E(sample00R, I) = f4((*texelAPtr >> 16) & 0xFF);
-					E(sample00G, I) = f4((*texelAPtr >> 8) & 0xFF);
-					E(sample00B, I) = f4((*texelAPtr >> 0) & 0xFF);
+					E(texelAA, I) = f4((*texelAPtr >> 24) & 0xFF);
+					E(texelAR, I) = f4((*texelAPtr >> 16) & 0xFF);
+					E(texelAG, I) = f4((*texelAPtr >> 8) & 0xFF);
+					E(texelAB, I) = f4((*texelAPtr >> 0) & 0xFF);
 
 					i32 texelBI = Ei(texelYint, I) * pitch + ((Ei(texelXint, I) + 1) << 2);
 					u32* texelBPtr = ptrcast(u32, textureData + texelBI);
-					E(sample01A, I) = f4((*texelBPtr >> 24) & 0xFF);
-					E(sample01R, I) = f4((*texelBPtr >> 16) & 0xFF);
-					E(sample01G, I) = f4((*texelBPtr >> 8) & 0xFF);
-					E(sample01B, I) = f4((*texelBPtr >> 0) & 0xFF);
+					E(texelBA, I) = f4((*texelBPtr >> 24) & 0xFF);
+					E(texelBR, I) = f4((*texelBPtr >> 16) & 0xFF);
+					E(texelBG, I) = f4((*texelBPtr >> 8) & 0xFF);
+					E(texelBB, I) = f4((*texelBPtr >> 0) & 0xFF);
 
 					i32 texelCI = (Ei(texelYint, I) + 1) * pitch + (Ei(texelXint, I) << 2);
 					u32* texelCPtr = ptrcast(u32, textureData + texelCI);
-					E(sample10A, I) = f4((*texelCPtr >> 24) & 0xFF);
-					E(sample10R, I) = f4((*texelCPtr >> 16) & 0xFF);
-					E(sample10G, I) = f4((*texelCPtr >> 8) & 0xFF);
-					E(sample10B, I) = f4((*texelCPtr >> 0) & 0xFF);
+					E(texelCA, I) = f4((*texelCPtr >> 24) & 0xFF);
+					E(texelCR, I) = f4((*texelCPtr >> 16) & 0xFF);
+					E(texelCG, I) = f4((*texelCPtr >> 8) & 0xFF);
+					E(texelCB, I) = f4((*texelCPtr >> 0) & 0xFF);
 
 					i32 texelDI = (Ei(texelYint, I) + 1) * pitch + ((Ei(texelXint, I) + 1) << 2);
 					u32* texelDPtr = ptrcast(u32, textureData + texelDI);
-					E(sample11A, I) = f4((*texelDPtr >> 24) & 0xFF);
-					E(sample11R, I) = f4((*texelDPtr >> 16) & 0xFF);
-					E(sample11G, I) = f4((*texelDPtr >> 8) & 0xFF);
-					E(sample11B, I) = f4((*texelDPtr >> 0) & 0xFF);
+					E(texelDA, I) = f4((*texelDPtr >> 24) & 0xFF);
+					E(texelDR, I) = f4((*texelDPtr >> 16) & 0xFF);
+					E(texelDG, I) = f4((*texelDPtr >> 8) & 0xFF);
+					E(texelDB, I) = f4((*texelDPtr >> 0) & 0xFF);
 
-					E(destA, I) = f4((*dstPixelForLoad >> 24) & 0xFF);
-					E(destR, I) = f4((*dstPixelForLoad >> 16) & 0xFF);
-					E(destG, I) = f4((*dstPixelForLoad >> 8) & 0xFF);
-					E(destB, I) = f4((*dstPixelForLoad >> 0) & 0xFF);
+					// Unpack dest
+					E(destA, I) = f4((*dstPixelRead >> 24) & 0xFF);
+					E(destR, I) = f4((*dstPixelRead >> 16) & 0xFF);
+					E(destG, I) = f4((*dstPixelRead >> 8) & 0xFF);
+					E(destB, I) = f4((*dstPixelRead >> 0) & 0xFF);
+					dstPixelRead++;
 				}
-				dstPixelForLoad++;
 			}
-			// Move from SRGB255 to linear1
-			sample00R = _mm256_mul_ps(inv2554x, sample00R);
-			sample00G = _mm256_mul_ps(inv2554x, sample00G);
-			sample00B = _mm256_mul_ps(inv2554x, sample00B);
-			sample00R = _mm256_mul_ps(sample00R, sample00R);
-			sample00G = _mm256_mul_ps(sample00G, sample00G);
-			sample00B = _mm256_mul_ps(sample00B, sample00B);
-			sample00A = _mm256_mul_ps(inv2554x, sample00A);
 
-			sample01R = _mm256_mul_ps(inv2554x, sample01R);
-			sample01G = _mm256_mul_ps(inv2554x, sample01G);
-			sample01B = _mm256_mul_ps(inv2554x, sample01B);
-			sample01R = _mm256_mul_ps(sample01R, sample01R);
-			sample01G = _mm256_mul_ps(sample01G, sample01G);
-			sample01B = _mm256_mul_ps(sample01B, sample01B);
-			sample01A = _mm256_mul_ps(inv2554x, sample01A);
+			// srgb255 to linear1
+			texelAR = _mm256_mul_ps(inv255wide, texelAR);
+			texelAG = _mm256_mul_ps(inv255wide, texelAG);
+			texelAB = _mm256_mul_ps(inv255wide, texelAB);
+			texelAA = _mm256_mul_ps(inv255wide, texelAA);
+			texelAR = _mm256_mul_ps(texelAR, texelAR);
+			texelAG = _mm256_mul_ps(texelAG, texelAG);
+			texelAB = _mm256_mul_ps(texelAB, texelAB);
 
-			sample10R = _mm256_mul_ps(inv2554x, sample10R);
-			sample10G = _mm256_mul_ps(inv2554x, sample10G);
-			sample10B = _mm256_mul_ps(inv2554x, sample10B);
-			sample10R = _mm256_mul_ps(sample10R, sample10R);
-			sample10G = _mm256_mul_ps(sample10G, sample10G);
-			sample10B = _mm256_mul_ps(sample10B, sample10B);
-			sample10A = _mm256_mul_ps(inv2554x, sample10A);
+			texelBR = _mm256_mul_ps(inv255wide, texelBR);
+			texelBG = _mm256_mul_ps(inv255wide, texelBG);
+			texelBB = _mm256_mul_ps(inv255wide, texelBB);
+			texelBA = _mm256_mul_ps(inv255wide, texelBA);
+			texelBR = _mm256_mul_ps(texelBR, texelBR);
+			texelBG = _mm256_mul_ps(texelBG, texelBG);
+			texelBB = _mm256_mul_ps(texelBB, texelBB);
 
-			sample11R = _mm256_mul_ps(inv2554x, sample11R);
-			sample11G = _mm256_mul_ps(inv2554x, sample11G);
-			sample11B = _mm256_mul_ps(inv2554x, sample11B);
-			sample11R = _mm256_mul_ps(sample11R, sample11R);
-			sample11G = _mm256_mul_ps(sample11G, sample11G);
-			sample11B = _mm256_mul_ps(sample11B, sample11B);
-			sample11A = _mm256_mul_ps(inv2554x, sample11A);
+			texelCR = _mm256_mul_ps(inv255wide, texelCR);
+			texelCG = _mm256_mul_ps(inv255wide, texelCG);
+			texelCB = _mm256_mul_ps(inv255wide, texelCB);
+			texelCA = _mm256_mul_ps(inv255wide, texelCA);
+			texelCR = _mm256_mul_ps(texelCR, texelCR);
+			texelCG = _mm256_mul_ps(texelCG, texelCG);
+			texelCB = _mm256_mul_ps(texelCB, texelCB);
+
+			texelDR = _mm256_mul_ps(inv255wide, texelDR);
+			texelDG = _mm256_mul_ps(inv255wide, texelDG);
+			texelDB = _mm256_mul_ps(inv255wide, texelDB);
+			texelDA = _mm256_mul_ps(inv255wide, texelDA);
+			texelDR = _mm256_mul_ps(texelDR, texelDR);
+			texelDG = _mm256_mul_ps(texelDG, texelDG);
+			texelDB = _mm256_mul_ps(texelDB, texelDB);
 
 			// BILINEAR LERP
-			__m256 texel0001A = _mm256_add_ps(sample00A, _mm256_mul_ps(fX, _mm256_sub_ps(sample01A, sample00A)));
-			__m256 texel0001R = _mm256_add_ps(sample00R, _mm256_mul_ps(fX, _mm256_sub_ps(sample01R, sample00R)));
-			__m256 texel0001G = _mm256_add_ps(sample00G, _mm256_mul_ps(fX, _mm256_sub_ps(sample01G, sample00G)));
-			__m256 texel0001B = _mm256_add_ps(sample00B, _mm256_mul_ps(fX, _mm256_sub_ps(sample01B, sample00B)));
+			__m256 texelABA = _mm256_add_ps(texelAA, _mm256_mul_ps(fX, _mm256_sub_ps(texelBA, texelAA)));
+			__m256 texelABR = _mm256_add_ps(texelAR, _mm256_mul_ps(fX, _mm256_sub_ps(texelBR, texelAR)));
+			__m256 texelABG = _mm256_add_ps(texelAG, _mm256_mul_ps(fX, _mm256_sub_ps(texelBG, texelAG)));
+			__m256 texelABB = _mm256_add_ps(texelAB, _mm256_mul_ps(fX, _mm256_sub_ps(texelBB, texelAB)));
 
-			__m256 texel1011A = _mm256_add_ps(sample10A, _mm256_mul_ps(fX, _mm256_sub_ps(sample10A, sample11A)));
-			__m256 texel1011R = _mm256_add_ps(sample10R, _mm256_mul_ps(fX, _mm256_sub_ps(sample10R, sample11R)));
-			__m256 texel1011G = _mm256_add_ps(sample10G, _mm256_mul_ps(fX, _mm256_sub_ps(sample10G, sample11G)));
-			__m256 texel1011B = _mm256_add_ps(sample10B, _mm256_mul_ps(fX, _mm256_sub_ps(sample10B, sample11B)));
+			__m256 texelCDA = _mm256_add_ps(texelCA, _mm256_mul_ps(fX, _mm256_sub_ps(texelDA, texelCA)));
+			__m256 texelCDR = _mm256_add_ps(texelCR, _mm256_mul_ps(fX, _mm256_sub_ps(texelDR, texelCR)));
+			__m256 texelCDG = _mm256_add_ps(texelCG, _mm256_mul_ps(fX, _mm256_sub_ps(texelDG, texelCG)));
+			__m256 texelCDB = _mm256_add_ps(texelCB, _mm256_mul_ps(fX, _mm256_sub_ps(texelDB, texelCB)));
 
-			__m256 texelA = _mm256_add_ps(texel0001A, _mm256_mul_ps(fY, _mm256_sub_ps(texel1011A, texel0001A)));
-			__m256 texelR = _mm256_add_ps(texel0001R, _mm256_mul_ps(fY, _mm256_sub_ps(texel1011R, texel0001R)));
-			__m256 texelG = _mm256_add_ps(texel0001G, _mm256_mul_ps(fY, _mm256_sub_ps(texel1011G, texel0001G)));
-			__m256 texelB = _mm256_add_ps(texel0001B, _mm256_mul_ps(fY, _mm256_sub_ps(texel1011B, texel0001B)));
+			__m256 texelA = _mm256_add_ps(texelABA, _mm256_mul_ps(fY, _mm256_sub_ps(texelCDA, texelABA)));
+			__m256 texelR = _mm256_add_ps(texelABR, _mm256_mul_ps(fY, _mm256_sub_ps(texelCDR, texelABR)));
+			__m256 texelG = _mm256_add_ps(texelABG, _mm256_mul_ps(fY, _mm256_sub_ps(texelCDG, texelABG)));
+			__m256 texelB = _mm256_add_ps(texelABB, _mm256_mul_ps(fY, _mm256_sub_ps(texelCDB, texelABB)));
 
-			// Modulate color
+			// Color modulation
 			texelA = _mm256_mul_ps(texelA, colorA);
 			texelR = _mm256_mul_ps(texelR, colorR);
 			texelG = _mm256_mul_ps(texelG, colorG);
 			texelB = _mm256_mul_ps(texelB, colorB);
 
 			// Clamp
+
 			texelA = _mm256_max_ps(texelA, zero);
 			texelR = _mm256_max_ps(texelR, zero);
 			texelG = _mm256_max_ps(texelG, zero);
@@ -669,40 +664,38 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			texelG = _mm256_min_ps(texelG, one);
 			texelB = _mm256_min_ps(texelB, one);
 
-			// Move dest from SRGB255 to linear1
-			destR = _mm256_mul_ps(inv2554x, destR);
-			destG = _mm256_mul_ps(inv2554x, destG);
-			destB = _mm256_mul_ps(inv2554x, destB);
+			// Dest from SRGB255 to linear1
+			destR = _mm256_mul_ps(inv255wide, destR);
+			destG = _mm256_mul_ps(inv255wide, destG);
+			destB = _mm256_mul_ps(inv255wide, destB);
+			destA = _mm256_mul_ps(inv255wide, destA);
 			destR = _mm256_mul_ps(destR, destR);
 			destG = _mm256_mul_ps(destG, destG);
 			destB = _mm256_mul_ps(destB, destB);
-			destA = _mm256_mul_ps(inv2554x, destA);
 
 			// Blend output
 			__m256 invAlpha = _mm256_sub_ps(one, texelA);
 			__m256 outputR = _mm256_add_ps(texelR, _mm256_mul_ps(invAlpha, destR));
 			__m256 outputG = _mm256_add_ps(texelG, _mm256_mul_ps(invAlpha, destG));
 			__m256 outputB = _mm256_add_ps(texelB, _mm256_mul_ps(invAlpha, destB));
-			__m256 outputA = _mm256_add_ps(texelA, _mm256_sub_ps(destA, _mm256_mul_ps(texelA, destA)));
+			__m256 outputA = _mm256_add_ps(texelA, _mm256_mul_ps(invAlpha, destA));
 
-			// Move output from linear to srgb255
+			// Back to SRGB255
 			outputR = _mm256_mul_ps(o255, _mm256_sqrt_ps(outputR));
 			outputG = _mm256_mul_ps(o255, _mm256_sqrt_ps(outputG));
 			outputB = _mm256_mul_ps(o255, _mm256_sqrt_ps(outputB));
 			outputA = _mm256_mul_ps(o255, outputA);
 
 			for (i32 I = 0; I < 8; I++) {
-				if (X + I < 10) {
-					int breakHere = 5;
-				}
+				i32 XI = X + I;
 				if (E(shouldFill, I)) {
-
 					*dstPixel = (u4(E(outputA, I) + 0.5f) << 24) |
 						(u4(E(outputR, I) + 0.5f) << 16) |
 						(u4(E(outputG, I) + 0.5f) << 8) |
 						(u4(E(outputB, I) + 0.5f) << 0);
+
+					dstPixel++;
 				}
-				dstPixel++;
 			}
 		}
 		row += bitmap.pitch;
@@ -710,6 +703,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	END_TIMED_SECTION_COUNTED(FillPixel, (maxY - minY) * (maxX - minX));
 	END_TIMED_SECTION(RenderRectangleSlowly);
 }
+
 
 internal
 void PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness) {

@@ -937,7 +937,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					}
 					
 					if (tileValue == 2) {
-						//AddWall(state, world, absTileX, absTileY, absTileZ);
+						AddWall(state, world, absTileX, absTileY, absTileZ);
 					}
 					if (putStairs) {
 						AddStairs(state, world, absTileX, absTileY, absTileZ);
@@ -1185,7 +1185,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		case EntityType_Wall: {
 			const f32 treeHeight = 2.5f * world.tileSizeInMeters.Z;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
-			PushBitmap(renderGroup, &state->treeBmp, groundLevelPos, treeHeight, V2{ 0, 0.1f }, V4{ 1, 1.f, 1.f, layerAlpha });
+			PushBitmap(renderGroup, &state->treeBmp, groundLevelPos, treeHeight, V2{ 0, 0.1f }, V4{ 1, 0.f, 1.f, layerAlpha });
 		} break;
 		case EntityType_Stairs: {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, layerAlpha });
