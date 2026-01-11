@@ -1,6 +1,7 @@
 #pragma once
 #include "engine_common.h"
 #include <intrin.h>
+#include <immintrin.h>
 
 inline
 i32 RoundF32ToI32(f32 value) {

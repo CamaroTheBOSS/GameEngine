@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "engine_render.h"
+#include "engine_intrinsics.h"
 
 #define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType::##type))
 inline
@@ -479,146 +480,161 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	f32 vCf = 1.f / (Squared(yAxis.X) + Squared(yAxis.Y));
 	f32 inv255 = 1.f / 255.f;
 	f32 one255 = 255.f;
+	__m256 uCfx8 = _mm256_setr_m128(_mm_set_ps1(uCf), _mm_set_ps1(uCf));
+	__m256 vCfx8 = _mm256_setr_m128(_mm_set_ps1(vCf), _mm_set_ps1(vCf));
+	__m256 half = _mm256_setr_m128(_mm_set_ps1(0.5f), _mm_set_ps1(0.5f));
+	__m256 originX = _mm256_setr_m128(_mm_set_ps1(origin.X), _mm_set_ps1(origin.X));
+	__m256 originY = _mm256_setr_m128(_mm_set_ps1(origin.Y), _mm_set_ps1(origin.Y));
+	__m256 xAX = _mm256_setr_m128(_mm_set_ps1(xAxis.X), _mm_set_ps1(xAxis.X));
+	__m256 xAY = _mm256_setr_m128(_mm_set_ps1(xAxis.Y), _mm_set_ps1(xAxis.Y));
+	__m256 yAX = _mm256_setr_m128(_mm_set_ps1(yAxis.X), _mm_set_ps1(yAxis.X));
+	__m256 yAY = _mm256_setr_m128(_mm_set_ps1(yAxis.Y), _mm_set_ps1(yAxis.Y));
 	u32 pitch = texture.pitch;
 	u8* textureData = ptrcast(u8, texture.data);
 	// TODO: What with last row and last column?
 	f32 uWidthCf = f4(texture.width - 2);
 	f32 vHeightCf = f4(texture.height - 2);
 	color.RGB *= color.A;
-
+#define E(mm, i) ptrcast(f32, &mm)[i]
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
 	BEGIN_TIMED_SECTION(FillPixel);
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
-		f32 pointY = f4(Y) + 0.5f;
-		f32 dy = pointY - origin.Y;
-		for (i32 X = minX; X < maxX; X++) {
-			f32 pointX = f4(X) + 0.5f;
-			f32 dx = pointX - origin.X;
+		__m256 Yx8 = _mm256_setr_m128(_mm_set_ps1(f4(Y)), _mm_set_ps1(f4(Y)));
+		__m256 pointY = _mm256_add_ps(Yx8, half);
+		__m256 dy = _mm256_sub_ps(pointY, originY);
+		for (i32 X = minX; X < maxX; X += 8) {
+			__m256i Xx8i = _mm256_setr_epi32(0, 1, 2, 4, 8, 16, 32, 64);
+			__m256 Xx8 = _mm256_setr_ps(f4(X), f4(X+1), f4(X+2), f4(X+3), f4(X+4), f4(X+5), f4(X+6), f4(X+7));
+			__m256 pointX = _mm256_add_ps(Xx8, half);
+			__m256 dx = _mm256_sub_ps(pointX, originX);
 
-			f32 u = (dx * xAxis.X + dy * xAxis.Y) * uCf;
-			f32 v = (dx * yAxis.X + dy * yAxis.Y) * vCf;
-			// TODO: U and V values should be clipped 
-			Assert(u >= -0.0012 && u <= 1.0012f);
-			Assert(v >= -0.0012 && v <= 1.0012f);
-			if (u >= 0.f &&
-				u <= 1.f &&
-				v >= 0.f &&
-				u <= 1.f) {
+			__m256 u = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, xAX), _mm256_mul_ps(dy, xAY)), uCfx8);
+			__m256 v = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, yAX), _mm256_mul_ps(dy, yAY)), vCfx8);
+			for (i32 I = 0; I < 8; I++) {
+				i32 XI = X + I;
+				f32 ui = E(u, I);
+				f32 vi = E(v, I);
+				if (ui >= 0.f &&
+					ui <= 1.f &&
+					vi >= 0.f &&
+					vi <= 1.f) {
 
-				// TODO: all v/y components can be computed before X loop
-				f32 texelscX = u * uWidthCf;
-				f32 texelscY = v * vHeightCf;
+					// TODO: all v/y components can be computed before X loop
+					f32 texelscX = ui * uWidthCf;
+					f32 texelscY = vi * vHeightCf;
 
-				i32 texelu4X = u4(texelscX);
-				i32 texelu4Y = u4(texelscY);
+					i32 texelu4X = u4(texelscX);
+					i32 texelu4Y = u4(texelscY);
 
-				f32 fX = texelscX - texelu4X;
-				f32 fY = texelscY - texelu4Y;
+					f32 fX = texelscX - texelu4X;
+					f32 fY = texelscY - texelu4Y;
 
-				// Unpack bilinear sample
-				i32 texelAI = texelu4Y * pitch + (texelu4X << 2);
-				u32* texelAPtr = ptrcast(u32, textureData + texelAI);
-				f32 texelAA = f4((*texelAPtr >> 24) & 0xFF);
-				f32 texelAR = f4((*texelAPtr >> 16) & 0xFF);
-				f32 texelAG = f4((*texelAPtr >> 8) & 0xFF);
-				f32 texelAB = f4((*texelAPtr >> 0) & 0xFF);
+					// Unpack bilinear sample
+					i32 texelAI = texelu4Y * pitch + (texelu4X << 2);
+					u32* texelAPtr = ptrcast(u32, textureData + texelAI);
+					f32 texelAA = f4((*texelAPtr >> 24) & 0xFF);
+					f32 texelAR = f4((*texelAPtr >> 16) & 0xFF);
+					f32 texelAG = f4((*texelAPtr >> 8) & 0xFF);
+					f32 texelAB = f4((*texelAPtr >> 0) & 0xFF);
 
-				i32 texelBI = texelu4Y * pitch + ((texelu4X + 1) << 2);
-				u32* texelBPtr = ptrcast(u32, textureData + texelBI);
-				f32 texelBA = f4((*texelBPtr >> 24) & 0xFF);
-				f32 texelBR = f4((*texelBPtr >> 16) & 0xFF);
-				f32 texelBG = f4((*texelBPtr >> 8) & 0xFF);
-				f32 texelBB = f4((*texelBPtr >> 0) & 0xFF);
+					i32 texelBI = texelu4Y * pitch + ((texelu4X + 1) << 2);
+					u32* texelBPtr = ptrcast(u32, textureData + texelBI);
+					f32 texelBA = f4((*texelBPtr >> 24) & 0xFF);
+					f32 texelBR = f4((*texelBPtr >> 16) & 0xFF);
+					f32 texelBG = f4((*texelBPtr >> 8) & 0xFF);
+					f32 texelBB = f4((*texelBPtr >> 0) & 0xFF);
 
-				i32 texelCI = (texelu4Y + 1) * pitch + (texelu4X << 2);
-				u32* texelCPtr = ptrcast(u32, textureData + texelCI);
-				f32 texelCA = f4((*texelCPtr >> 24) & 0xFF);
-				f32 texelCR = f4((*texelCPtr >> 16) & 0xFF);
-				f32 texelCG = f4((*texelCPtr >> 8) & 0xFF);
-				f32 texelCB = f4((*texelCPtr >> 0) & 0xFF);
+					i32 texelCI = (texelu4Y + 1) * pitch + (texelu4X << 2);
+					u32* texelCPtr = ptrcast(u32, textureData + texelCI);
+					f32 texelCA = f4((*texelCPtr >> 24) & 0xFF);
+					f32 texelCR = f4((*texelCPtr >> 16) & 0xFF);
+					f32 texelCG = f4((*texelCPtr >> 8) & 0xFF);
+					f32 texelCB = f4((*texelCPtr >> 0) & 0xFF);
 
-				i32 texelDI = (texelu4Y + 1) * pitch + ((texelu4X + 1) << 2);
-				u32* texelDPtr = ptrcast(u32, textureData + texelDI);
-				f32 texelDA = f4((*texelDPtr >> 24) & 0xFF);
-				f32 texelDR = f4((*texelDPtr >> 16) & 0xFF);
-				f32 texelDG = f4((*texelDPtr >> 8) & 0xFF);
-				f32 texelDB = f4((*texelDPtr >> 0) & 0xFF);
+					i32 texelDI = (texelu4Y + 1) * pitch + ((texelu4X + 1) << 2);
+					u32* texelDPtr = ptrcast(u32, textureData + texelDI);
+					f32 texelDA = f4((*texelDPtr >> 24) & 0xFF);
+					f32 texelDR = f4((*texelDPtr >> 16) & 0xFF);
+					f32 texelDG = f4((*texelDPtr >> 8) & 0xFF);
+					f32 texelDB = f4((*texelDPtr >> 0) & 0xFF);
 
-				// Move from SRGB255 to linear1
-				texelAR = Squared(inv255 * texelAR);
-				texelAG = Squared(inv255 * texelAG);
-				texelAB = Squared(inv255 * texelAB);
-				texelAA = inv255 * texelAA;
+					// Move from SRGB255 to linear1
+					texelAR = Squared(inv255 * texelAR);
+					texelAG = Squared(inv255 * texelAG);
+					texelAB = Squared(inv255 * texelAB);
+					texelAA = inv255 * texelAA;
 
-				texelBR = Squared(inv255 * texelBR);
-				texelBG = Squared(inv255 * texelBG);
-				texelBB = Squared(inv255 * texelBB);
-				texelBA = inv255 * texelBA;
+					texelBR = Squared(inv255 * texelBR);
+					texelBG = Squared(inv255 * texelBG);
+					texelBB = Squared(inv255 * texelBB);
+					texelBA = inv255 * texelBA;
 
-				texelCR = Squared(inv255 * texelCR);
-				texelCG = Squared(inv255 * texelCG);
-				texelCB = Squared(inv255 * texelCB);
-				texelCA = inv255 * texelCA;
+					texelCR = Squared(inv255 * texelCR);
+					texelCG = Squared(inv255 * texelCG);
+					texelCB = Squared(inv255 * texelCB);
+					texelCA = inv255 * texelCA;
 
-				texelDR = Squared(inv255 * texelDR);
-				texelDG = Squared(inv255 * texelDG);
-				texelDB = Squared(inv255 * texelDB);
-				texelDA = inv255 * texelDA;
+					texelDR = Squared(inv255 * texelDR);
+					texelDG = Squared(inv255 * texelDG);
+					texelDB = Squared(inv255 * texelDB);
+					texelDA = inv255 * texelDA;
 
-				// BILINEAR LERP
-				f32 texelABA = texelAA + fX * (texelBA - texelAA);
-				f32 texelABR = texelAR + fX * (texelBR - texelAR);
-				f32 texelABG = texelAG + fX * (texelBG - texelAG);
-				f32 texelABB = texelAB + fX * (texelBB - texelAB);
+					// BILINEAR LERP
+					f32 texelABA = texelAA + fX * (texelBA - texelAA);
+					f32 texelABR = texelAR + fX * (texelBR - texelAR);
+					f32 texelABG = texelAG + fX * (texelBG - texelAG);
+					f32 texelABB = texelAB + fX * (texelBB - texelAB);
 
-				f32 texelCDA = texelCA + fX * (texelDA - texelCA);
-				f32 texelCDR = texelCR + fX * (texelDR - texelCR);
-				f32 texelCDG = texelCG + fX * (texelDG - texelCG);
-				f32 texelCDB = texelCB + fX * (texelDB - texelCB);
+					f32 texelCDA = texelCA + fX * (texelDA - texelCA);
+					f32 texelCDR = texelCR + fX * (texelDR - texelCR);
+					f32 texelCDG = texelCG + fX * (texelDG - texelCG);
+					f32 texelCDB = texelCB + fX * (texelDB - texelCB);
 
-				f32 texelA = texelABA + fY * (texelCDA - texelABA);
-				f32 texelR = texelABR + fY * (texelCDR - texelABR);
-				f32 texelG = texelABG + fY * (texelCDG - texelABG);
-				f32 texelB = texelABB + fY * (texelCDB - texelABB);
+					f32 texelA = texelABA + fY * (texelCDA - texelABA);
+					f32 texelR = texelABR + fY * (texelCDR - texelABR);
+					f32 texelG = texelABG + fY * (texelCDG - texelABG);
+					f32 texelB = texelABB + fY * (texelCDB - texelABB);
 
-				// Modulate color
-				texelA *= color.A;
-				texelR *= color.R;
-				texelG *= color.G;
-				texelB *= color.B;
+					// Modulate color
+					texelA *= color.A;
+					texelR *= color.R;
+					texelG *= color.G;
+					texelB *= color.B;
 
-				// Unpack dest
-				f32 destA = f4((*dstPixel >> 24) & 0xFF);
-				f32 destR = f4((*dstPixel >> 16) & 0xFF);
-				f32 destG = f4((*dstPixel >> 8) & 0xFF);
-				f32 destB = f4((*dstPixel >> 0) & 0xFF);
+					// Unpack dest
+					f32 destA = f4((*dstPixel >> 24) & 0xFF);
+					f32 destR = f4((*dstPixel >> 16) & 0xFF);
+					f32 destG = f4((*dstPixel >> 8) & 0xFF);
+					f32 destB = f4((*dstPixel >> 0) & 0xFF);
 
-				// Dest from SRGB255 to linear1
-				destR = Squared(inv255 * destR);
-				destG = Squared(inv255 * destG);
-				destB = Squared(inv255 * destB);
-				destA = inv255 * destA;
+					// Dest from SRGB255 to linear1
+					destR = Squared(inv255 * destR);
+					destG = Squared(inv255 * destG);
+					destB = Squared(inv255 * destB);
+					destA = inv255 * destA;
 
-				// Blend output
-				f32 invAlpha = (1 - texelA);
-				f32 outputR = texelR + invAlpha * destR;
-				f32 outputG = texelG + invAlpha * destG;
-				f32 outputB = texelB + invAlpha * destB;
-				f32 outputA = texelA + destA - texelA * destA;
+					// Blend output
+					f32 invAlpha = (1 - texelA);
+					f32 outputR = texelR + invAlpha * destR;
+					f32 outputG = texelG + invAlpha * destG;
+					f32 outputB = texelB + invAlpha * destB;
+					f32 outputA = texelA + destA - texelA * destA;
 
-				// Back to SRGB255
-				outputR = one255 * SquareRoot(outputR);
-				outputG = one255 * SquareRoot(outputG);
-				outputB = one255 * SquareRoot(outputB);
-				outputA = one255 * outputA;
+					// Back to SRGB255
+					outputR = one255 * SquareRoot(outputR);
+					outputG = one255 * SquareRoot(outputG);
+					outputB = one255 * SquareRoot(outputB);
+					outputA = one255 * outputA;
 
-				*dstPixel = (u4(outputA + 0.5f) << 24) |
-							(u4(outputR + 0.5f) << 16) |
-							(u4(outputG + 0.5f) << 8) |
-							(u4(outputB + 0.5f) << 0);
+					*dstPixel = (u4(outputA + 0.5f) << 24) |
+						(u4(outputR + 0.5f) << 16) |
+						(u4(outputG + 0.5f) << 8) |
+						(u4(outputB + 0.5f) << 0);
+				}
+				dstPixel++;
 			}
-			dstPixel++;
+			
 		}
 		row += bitmap.pitch;
 	}
@@ -747,7 +763,9 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			if (params.valid) {
 				V2 min = params.center - params.size / 2.f;
 				V2 max = min + params.size;
+#if 0
 				RenderRectangleTransparent(dstBuffer, min, max, call->color);
+#endif
 			}
 			relativeRenderAddress += sizeof(RenderCallRectangle);
 		} break;
