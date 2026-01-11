@@ -839,7 +839,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		state->groundBmps[1] = LoadBmpFile(memory.debug.readEntireFile, "test/ground1.bmp");
 		state->grassBmps[0] = LoadBmpFile(memory.debug.readEntireFile, "test/grass0.bmp");
 		state->grassBmps[1] = LoadBmpFile(memory.debug.readEntireFile, "test/grass1.bmp");
-		state->treeBmp = LoadBmpFile(memory.debug.readEntireFile, "test/tree3.bmp", V2{0.5f, 0.25f});
+		state->treeBmp = LoadBmpFile(memory.debug.readEntireFile, "test/tree2.bmp", V2{0.5f, 0.25f});
 
 		u32 testTextureWidth = 256;
 		u32 testTextureHeight = 256;
@@ -937,7 +937,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					}
 					
 					if (tileValue == 2) {
-						AddWall(state, world, absTileX, absTileY, absTileZ);
+						//AddWall(state, world, absTileX, absTileY, absTileZ);
 					}
 					if (putStairs) {
 						AddStairs(state, world, absTileX, absTileY, absTileZ);
@@ -962,6 +962,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		AddFamiliar(state, world, 17 / 2, 9 / 2, 0);
 		AddMonster(state, world, 17 / 2, 7, 0);
+		AddWall(state, world, 17 / 2, 4, 0);
 #endif
 		state->isInitialized = true;
 	}
@@ -1182,9 +1183,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 		} break;
 		case EntityType_Wall: {
-			const f32 treeHeight = world.tileSizeInMeters.Z;
+			const f32 treeHeight = 2.5f * world.tileSizeInMeters.Z;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
-			PushBitmap(renderGroup, &state->treeBmp, groundLevelPos, treeHeight, V2{ 0, 0.1f }, V4{ 1, 0.f, 1.f, layerAlpha });
+			PushBitmap(renderGroup, &state->treeBmp, groundLevelPos, treeHeight, V2{ 0, 0.1f }, V4{ 1, 1.f, 1.f, layerAlpha });
 		} break;
 		case EntityType_Stairs: {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, layerAlpha });
