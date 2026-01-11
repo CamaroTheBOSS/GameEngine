@@ -125,6 +125,26 @@ void Win32UnloadGameCode(Win32GameCode& gameCode) {
 }
 
 internal
+void Win32OutputPerformanceCounters(DebugMemory& memory) {
+	char buffer[256] = "Debug Counters:\n";
+	OutputDebugStringA(buffer);
+	for (u32 counterIndex = 0; counterIndex < ArrayCount(memory.performanceCounters); counterIndex++) {
+		DebugPerformanceCounters* counter = memory.performanceCounters + counterIndex;
+		if (counter->counts == 0) {
+			continue;
+		}
+		sprintf_s(buffer, "\t%d:   %dc,  %dn,  %dc/n\n",
+			counterIndex,
+			u4(counter->cycles), 
+			u4(counter->counts), 
+			u4(counter->cycles / counter->counts)
+		);
+		OutputDebugStringA(buffer);
+	}
+
+}
+
+internal
 u64 Win32GetLastWriteTime(const char* filename) {
 	struct _stat64i32 stats;
 	_stat(filename, &stats);
@@ -686,9 +706,9 @@ f32 Win32CalculateTimeElapsed(u64 startTime, u64 endTime) {
 internal
 ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	ProgramMemory programMemory = {};
-	programMemory.debugFreeFile = DebugFreeFile;
-	programMemory.debugReadEntireFile = DebugReadEntireFile;
-	programMemory.debugWriteFile = DebugWriteToFile;
+	programMemory.debug.freeFile = DebugFreeFile;
+	programMemory.debug.readEntireFile = DebugReadEntireFile;
+	programMemory.debug.writeFile = DebugWriteToFile;
 	programMemory.permanentMemorySize = MB(64);
 	programMemory.transientMemorySize = GB(static_cast<u64>(3));
 	programMemory.memoryBlockSize = programMemory.permanentMemorySize + programMemory.transientMemorySize;
@@ -885,7 +905,12 @@ int CALLBACK WinMain(
 		soundData.nChannels = globalSoundData.dataFormat.Format.nChannels;
 
 		// PART: Game main loop
+		ZeroMemory(
+			programMemory.debug.performanceCounters, 
+			ArrayCount(programMemory.debug.performanceCounters) * sizeof(DebugPerformanceCounters)
+		);
 		gameCode.GameMainLoopFrame(programMemory, globalBitmap, soundData, inputData);
+		Win32OutputPerformanceCounters(programMemory.debug);
 
 	
 		// PART: Timing stuff
@@ -912,9 +937,11 @@ int CALLBACK WinMain(
 		float megaCycles = static_cast<float>(rdtscEnd - rdtscStart) / 1'000'000.f;
 		rdtscStart = rdtscEnd;
 		frameStartTime = frameEndTime;
+#if 0
 		char buffer[256];
 		sprintf_s(buffer, "%0.2fms/f,  %0.2ffps/f,  %0.2fMc/f,   frames_av %d\n", msElapsed, fps, megaCycles, framesAvailable);
 		OutputDebugStringA(buffer);
+#endif
 
 		// PART: Displaying window
 		auto dim = GetWindowDimension(window);

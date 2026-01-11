@@ -1,3 +1,4 @@
+#pragma once
 #include "engine_common.h"
 #include "engine_world.h"
 #include "engine_simulation.h"
@@ -62,6 +63,7 @@ struct FileData {
 	u64 size;
 };
 
+//#if HANDMADE_INTERNAL_BUILD TODO: build only in internal build!
 /* Functionalities served by the platform layer for program layer */
 #define DEBUG_READ_ENTIRE_FILE(name) FileData name(const char* filename)
 #define DEBUG_WRITE_FILE(name) bool name(const char* filename, void* buffer, u64 size)
@@ -69,6 +71,28 @@ struct FileData {
 typedef DEBUG_READ_ENTIRE_FILE(debug_read_entire_file);
 typedef DEBUG_WRITE_FILE(debug_write_file);
 typedef DEBUG_FREE_FILE(debug_free_file);
+enum DebugPerformanceCountersType {
+	DPCT_GameMainLoop,
+	DPCT_RenderRectangleSlowly,
+	DPCT_FillPixel
+};
+struct DebugPerformanceCounters {
+	u64 cycles;
+	u64 counts;
+};
+struct DebugMemory {
+	debug_read_entire_file* readEntireFile;
+	debug_write_file* writeFile;
+	debug_free_file* freeFile;
+	DebugPerformanceCounters performanceCounters[256];
+};
+#define BEGIN_TIMED_SECTION(id) u64 startCycleCount_##id = __rdtsc();
+#define END_TIMED_SECTION_COUNTED(id, count) debugGlobalMemory->performanceCounters[DPCT_##id].cycles += __rdtsc() - startCycleCount_##id; \
+	debugGlobalMemory->performanceCounters[DPCT_##id].counts += count
+#define END_TIMED_SECTION(id) END_TIMED_SECTION_COUNTED(id, 1)
+DebugMemory* debugGlobalMemory;
+//#endif
+
 /*----------------------------------------------------------------*/
 struct ProgramMemory {
 	// Platform independent memory arenas
@@ -80,9 +104,7 @@ struct ProgramMemory {
 	u64 transientMemorySize;
 	void* transientMemory;
 
-	debug_read_entire_file* debugReadEntireFile;
-	debug_write_file* debugWriteFile;
-	debug_free_file* debugFreeFile;
+	DebugMemory debug;
 };
 
 struct PlayerControls {

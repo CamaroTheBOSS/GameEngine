@@ -1,4 +1,4 @@
-#include "engine_common.h"
+#include "engine.h"
 #include "engine_render.h"
 
 #define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType::##type))
@@ -24,12 +24,13 @@ RenderCallClear* PushClearCall(RenderGroup& group, V4 color) {
 }
 
 inline
-RenderCallBitmap* PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, V2 offset, V4 color) {
+RenderCallBitmap* PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, V2 offset, V4 color) {
 	RenderCallBitmap* call = PushRenderEntry(group, RenderCallBitmap);
 	call->bitmap = bitmap;
 	call->center = center;
 	call->offset = offset;
 	call->color = color;
+	call->height = height;
 	return call;
 }
 
@@ -69,7 +70,6 @@ V4 SRGB255ToLinear1(V4 input) {
 	result.G = Squared(inv255 * input.G);
 	result.B = Squared(inv255 * input.B);
 	result.A = inv255 * input.A;
-	V4 copy = result;
 	return result;
 }
 
@@ -174,7 +174,7 @@ V4 SampleEnvMap(EnvironmentMap envMap, V2 screenSpaceUV, V3 rayDirection) {
 }
 
 internal
-void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, V4 color) {
+void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color) {
 	i32 minX = RoundF32ToI32(start.X);
 	i32 maxX = RoundF32ToI32(end.X);
 	i32 minY = RoundF32ToI32(start.Y);
@@ -194,21 +194,6 @@ void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, V4 color) {
 	// TODO: Color modulation + premultiplied alpha?
 
 	u8* dstRow = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
-#if 0
-	color.A *= 255.f;
-	u32 colorU32 = (u4(color.A) << 24) +
-		(u4(color.A * color.R) << 16) +
-		(u4(color.A * color.G) << 8) +
-		(u4(color.A * color.B) << 0);
-
-	for (i32 Y = minY; Y < maxY; Y++) {
-		u32* pixel = ptrcast(u32, dstRow);
-		for (i32 X = minX; X < maxX; X++) {
-			*pixel++ = colorU32;
-		}
-		dstRow += bitmap.pitch;
-	}
-#else
 	color.RGB *= color.A;
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, dstRow);
@@ -236,7 +221,39 @@ void RenderRectangle(LoadedBitmap& bitmap, V2 start, V2 end, V4 color) {
 		}
 		dstRow += bitmap.pitch;
 	}
-#endif
+}
+
+
+internal
+void RenderRectangleOpaque(LoadedBitmap& bitmap, V2 start, V2 end, V3 color) {
+	i32 minX = RoundF32ToI32(start.X);
+	i32 maxX = RoundF32ToI32(end.X);
+	i32 minY = RoundF32ToI32(start.Y);
+	i32 maxY = RoundF32ToI32(end.Y);
+	if (minX < 0) {
+		minX = 0;
+	}
+	if (minY < 0) {
+		minY = 0;
+	}
+	if (maxX > scast(i32, bitmap.width)) {
+		maxX = scast(i32, bitmap.width);
+	}
+	if (maxY > scast(i32, bitmap.height)) {
+		maxY = scast(i32, bitmap.height);
+	}
+	u8* dstRow = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	u32 colorU32 = (255 << 24) |
+				   (u4(255.f * color.R + 0.5f) << 16) |
+				   (u4(255.f * color.G + 0.5f) << 8) |
+				   (u4(255.f * color.B + 0.5f) << 0);
+	for (i32 Y = minY; Y < maxY; Y++) {
+		u32* dstPixel = ptrcast(u32, dstRow);
+		for (i32 X = minX; X < maxX; X++) {
+			*dstPixel++ = colorU32;
+		}
+		dstRow += bitmap.pitch;
+	}
 }
 
 
@@ -245,6 +262,7 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 	LoadedBitmap& texture, LoadedBitmap* normalMap, EnvironmentMap* topMap, 
 	EnvironmentMap* middleMap, EnvironmentMap* bottomMap)
 {
+	BEGIN_TIMED_SECTION(RenderRectangleSlowly);
 	u32 colorU32 =  (scast(u32, 255 * color.A) << 24) +
 					(scast(u32, 255 * color.R) << 16) +
 					(scast(u32, 255 * color.G) << 8) +
@@ -285,6 +303,7 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 	f32 testCoefficient = (xAxisLength / yAxisLength);
 	
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	BEGIN_TIMED_SECTION(FillPixel);
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
 		for (i32 X = minX; X < maxX; X++) {
@@ -420,6 +439,191 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 		}
 		row += bitmap.pitch;
 	}
+	END_TIMED_SECTION_COUNTED(FillPixel, (maxY - minY) * (maxX - minX));
+	END_TIMED_SECTION(RenderRectangleSlowly);
+}
+
+internal
+void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color, LoadedBitmap& texture)
+{
+	BEGIN_TIMED_SECTION(RenderRectangleSlowly);
+	V2 points[4] = {
+		origin,
+		origin + xAxis,
+		origin + yAxis,
+		origin + xAxis + yAxis
+	};
+	f32 fminY = F32_MAX;
+	f32 fmaxY = -F32_MAX;
+	f32 fminX = F32_MAX;
+	f32 fmaxX = -F32_MAX;
+	for (u32 pIndex = 0; pIndex < ArrayCount(points); pIndex++) {
+		V2 testP = points[pIndex];
+		if (testP.Y < fminY) fminY = testP.Y;
+		if (testP.Y > fmaxY) fmaxY = testP.Y;
+		if (testP.X < fminX) fminX = testP.X;
+		if (testP.X > fmaxX) fmaxX = testP.X;
+	}
+	i32 minY = RoundF32ToI32(fminY);
+	i32 maxY = RoundF32ToI32(fmaxY);
+	i32 minX = RoundF32ToI32(fminX);
+	i32 maxX = RoundF32ToI32(fmaxX);
+	if (minY < 0) minY = 0;
+	if (maxY > bitmap.height) maxY = bitmap.height;
+	if (minX < 0) minX = 0;
+	if (maxX > bitmap.width) maxX = bitmap.width;
+
+	static_assert(BITMAP_BYTES_PER_PIXEL == 4);
+
+	f32 uCf = 1.f / (Squared(xAxis.X) + Squared(xAxis.Y));
+	f32 vCf = 1.f / (Squared(yAxis.X) + Squared(yAxis.Y));
+	f32 inv255 = 1.f / 255.f;
+	f32 one255 = 255.f;
+	u32 pitch = texture.pitch;
+	u8* textureData = ptrcast(u8, texture.data);
+	// TODO: What with last row and last column?
+	f32 uWidthCf = f4(texture.width - 2);
+	f32 vHeightCf = f4(texture.height - 2);
+	color.RGB *= color.A;
+
+	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	BEGIN_TIMED_SECTION(FillPixel);
+	for (i32 Y = minY; Y < maxY; Y++) {
+		u32* dstPixel = ptrcast(u32, row);
+		f32 pointY = f4(Y) + 0.5f;
+		f32 dy = pointY - origin.Y;
+		for (i32 X = minX; X < maxX; X++) {
+			f32 pointX = f4(X) + 0.5f;
+			f32 dx = pointX - origin.X;
+
+			f32 u = (dx * xAxis.X + dy * xAxis.Y) * uCf;
+			f32 v = (dx * yAxis.X + dy * yAxis.Y) * vCf;
+			// TODO: U and V values should be clipped 
+			Assert(u >= -0.0012 && u <= 1.0012f);
+			Assert(v >= -0.0012 && v <= 1.0012f);
+			if (u >= 0.f &&
+				u <= 1.f &&
+				v >= 0.f &&
+				u <= 1.f) {
+
+				// TODO: all v/y components can be computed before X loop
+				f32 texelscX = u * uWidthCf;
+				f32 texelscY = v * vHeightCf;
+
+				i32 texelu4X = u4(texelscX);
+				i32 texelu4Y = u4(texelscY);
+
+				f32 fX = texelscX - texelu4X;
+				f32 fY = texelscY - texelu4Y;
+
+				// Unpack bilinear sample
+				i32 texelAI = texelu4Y * pitch + (texelu4X << 2);
+				u32* texelAPtr = ptrcast(u32, textureData + texelAI);
+				f32 texelAA = f4((*texelAPtr >> 24) & 0xFF);
+				f32 texelAR = f4((*texelAPtr >> 16) & 0xFF);
+				f32 texelAG = f4((*texelAPtr >> 8) & 0xFF);
+				f32 texelAB = f4((*texelAPtr >> 0) & 0xFF);
+
+				i32 texelBI = texelu4Y * pitch + ((texelu4X + 1) << 2);
+				u32* texelBPtr = ptrcast(u32, textureData + texelBI);
+				f32 texelBA = f4((*texelBPtr >> 24) & 0xFF);
+				f32 texelBR = f4((*texelBPtr >> 16) & 0xFF);
+				f32 texelBG = f4((*texelBPtr >> 8) & 0xFF);
+				f32 texelBB = f4((*texelBPtr >> 0) & 0xFF);
+
+				i32 texelCI = (texelu4Y + 1) * pitch + (texelu4X << 2);
+				u32* texelCPtr = ptrcast(u32, textureData + texelCI);
+				f32 texelCA = f4((*texelCPtr >> 24) & 0xFF);
+				f32 texelCR = f4((*texelCPtr >> 16) & 0xFF);
+				f32 texelCG = f4((*texelCPtr >> 8) & 0xFF);
+				f32 texelCB = f4((*texelCPtr >> 0) & 0xFF);
+
+				i32 texelDI = (texelu4Y + 1) * pitch + ((texelu4X + 1) << 2);
+				u32* texelDPtr = ptrcast(u32, textureData + texelDI);
+				f32 texelDA = f4((*texelDPtr >> 24) & 0xFF);
+				f32 texelDR = f4((*texelDPtr >> 16) & 0xFF);
+				f32 texelDG = f4((*texelDPtr >> 8) & 0xFF);
+				f32 texelDB = f4((*texelDPtr >> 0) & 0xFF);
+
+				// Move from SRGB255 to linear1
+				texelAR = Squared(inv255 * texelAR);
+				texelAG = Squared(inv255 * texelAG);
+				texelAB = Squared(inv255 * texelAB);
+				texelAA = inv255 * texelAA;
+
+				texelBR = Squared(inv255 * texelBR);
+				texelBG = Squared(inv255 * texelBG);
+				texelBB = Squared(inv255 * texelBB);
+				texelBA = inv255 * texelBA;
+
+				texelCR = Squared(inv255 * texelCR);
+				texelCG = Squared(inv255 * texelCG);
+				texelCB = Squared(inv255 * texelCB);
+				texelCA = inv255 * texelCA;
+
+				texelDR = Squared(inv255 * texelDR);
+				texelDG = Squared(inv255 * texelDG);
+				texelDB = Squared(inv255 * texelDB);
+				texelDA = inv255 * texelDA;
+
+				// BILINEAR LERP
+				f32 texelABA = texelAA + fX * (texelBA - texelAA);
+				f32 texelABR = texelAR + fX * (texelBR - texelAR);
+				f32 texelABG = texelAG + fX * (texelBG - texelAG);
+				f32 texelABB = texelAB + fX * (texelBB - texelAB);
+
+				f32 texelCDA = texelCA + fX * (texelDA - texelCA);
+				f32 texelCDR = texelCR + fX * (texelDR - texelCR);
+				f32 texelCDG = texelCG + fX * (texelDG - texelCG);
+				f32 texelCDB = texelCB + fX * (texelDB - texelCB);
+
+				f32 texelA = texelABA + fY * (texelCDA - texelABA);
+				f32 texelR = texelABR + fY * (texelCDR - texelABR);
+				f32 texelG = texelABG + fY * (texelCDG - texelABG);
+				f32 texelB = texelABB + fY * (texelCDB - texelABB);
+
+				// Modulate color
+				texelA *= color.A;
+				texelR *= color.R;
+				texelG *= color.G;
+				texelB *= color.B;
+
+				// Unpack dest
+				f32 destA = f4((*dstPixel >> 24) & 0xFF);
+				f32 destR = f4((*dstPixel >> 16) & 0xFF);
+				f32 destG = f4((*dstPixel >> 8) & 0xFF);
+				f32 destB = f4((*dstPixel >> 0) & 0xFF);
+
+				// Dest from SRGB255 to linear1
+				destR = Squared(inv255 * destR);
+				destG = Squared(inv255 * destG);
+				destB = Squared(inv255 * destB);
+				destA = inv255 * destA;
+
+				// Blend output
+				f32 invAlpha = (1 - texelA);
+				f32 outputR = texelR + invAlpha * destR;
+				f32 outputG = texelG + invAlpha * destG;
+				f32 outputB = texelB + invAlpha * destB;
+				f32 outputA = texelA + destA - texelA * destA;
+
+				// Back to SRGB255
+				outputR = one255 * SquareRoot(outputR);
+				outputG = one255 * SquareRoot(outputG);
+				outputB = one255 * SquareRoot(outputB);
+				outputA = one255 * outputA;
+
+				*dstPixel = (u4(outputA + 0.5f) << 24) |
+							(u4(outputR + 0.5f) << 16) |
+							(u4(outputG + 0.5f) << 8) |
+							(u4(outputB + 0.5f) << 0);
+			}
+			dstPixel++;
+		}
+		row += bitmap.pitch;
+	}
+	END_TIMED_SECTION_COUNTED(FillPixel, (maxY - minY) * (maxX - minX));
+	END_TIMED_SECTION(RenderRectangleSlowly);
 }
 
 internal
@@ -533,7 +737,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		switch (header->type) {
 		case RenderCallType::RenderCallClear: {
 			RenderCallClear* call = ptrcast(RenderCallClear, group.pushBuffer + relativeRenderAddress);
-			RenderRectangle(dstBuffer, V2{ 0, 0 }, V2i(dstBuffer.width, dstBuffer.height), call->color);
+			RenderRectangleTransparent(dstBuffer, V2{ 0, 0 }, V2i(dstBuffer.width, dstBuffer.height), call->color);
 			relativeRenderAddress += sizeof(RenderCallClear);
 		} break;
 		case RenderCallType::RenderCallRectangle: {
@@ -543,7 +747,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			if (params.valid) {
 				V2 min = params.center - params.size / 2.f;
 				V2 max = min + params.size;
-				RenderRectangle(dstBuffer, min, max, call->color);
+				RenderRectangleTransparent(dstBuffer, min, max, call->color);
 			}
 			relativeRenderAddress += sizeof(RenderCallRectangle);
 		} break;
@@ -552,18 +756,18 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			// It should be unified (check groundLevel) which is different from RenderCallRectangle,
 			// also, size is properly changed in RenderCallRectangle and not in RenderCallBitmap
 			RenderCallBitmap* call = ptrcast(RenderCallBitmap, group.pushBuffer + relativeRenderAddress);
-			// TODO: Is V2{ 1, call->bitmap->heightOverWidth } correct for bitmaps with more width than height?
+			V2 sizeInMeters = call->height * V2{ call->bitmap->widthOverHeight, 1 };
 			EntityProjectedParams params = CalculatePerspectiveProjection(group.projection,
-				screenCenter, call->center, V2{ 1, call->bitmap->heightOverWidth });
+				screenCenter, call->center, sizeInMeters);
 			if (params.valid) {
 				V2 xAxis = V2{ params.size.X, 0 };
 				V2 yAxis = V2{ 0, params.size.Y };
-				// TODO: offset seems to be like alignment, should I delete that?
-				// TODO: also, if not I need to do the same stuff with offset what I did here
-				V2 alignment = V2{ call->bitmap->align.X / (call->bitmap->width - 1) * xAxis.X,
-								   call->bitmap->align.Y / (call->bitmap->height - 1) * yAxis.Y };
-				V2 origin = params.center + call->offset * group.projection.metersToPixels - alignment;
+				V2 origin = params.center - Hadamard(call->bitmap->align, params.size);
+#if 0
 				RenderRectangleSlowly(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, 0, 0, 0, 0);
+#else
+				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap);
+#endif
 			}
 			relativeRenderAddress += sizeof(RenderCallBitmap);
 		} break;
@@ -581,10 +785,10 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 				call->origin + call->yAxis,
 				call->origin + call->xAxis + call->yAxis
 			};
-			RenderRectangle(dstBuffer, points[0], points[0] + size, color);
-			RenderRectangle(dstBuffer, points[1], points[1] + size, color);
-			RenderRectangle(dstBuffer, points[2], points[2] + size, color);
-			RenderRectangle(dstBuffer, points[3], points[3] + size, color);
+			RenderRectangleOpaque(dstBuffer, points[0], points[0] + size, color.RGB);
+			RenderRectangleOpaque(dstBuffer, points[1], points[1] + size, color.RGB);
+			RenderRectangleOpaque(dstBuffer, points[2], points[2] + size, color.RGB);
+			RenderRectangleOpaque(dstBuffer, points[3], points[3] + size, color.RGB);
 			relativeRenderAddress += sizeof(RenderCallCoordinateSystem);
 		} break;
 		InvalidDefaultCase;

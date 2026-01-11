@@ -73,18 +73,13 @@ void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPositio
 
 inline
 V2 ToBottomUpAlignment(LoadedBitmap& bitmap, V2 topDownAlign) {
-#if 1
-	V2 result = V2{ topDownAlign.X, 
-		f4(bitmap.height - 1) - topDownAlign.Y };
-#else
-	V2 result = V2{ 0, 0 };
-#endif
+	V2 result = V2{ topDownAlign.X, f4(bitmap.height - 1) - topDownAlign.Y };
 	return result;
 }
 
 internal
 LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char* filename, 
-	V2 topDownPixelAlign = V2{0, 0})
+	V2 bottomUpAlignRatio = V2{0.5f, 0.5f})
 {
 #pragma pack(push, 1)
 	struct BmpHeader {
@@ -126,11 +121,11 @@ LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char
 	result.bufferStart = ptrcast(void, ptrcast(u8, bmpData.content) + header->bitmapOffset);
 	result.height = header->height;
 	result.width = header->width;
-	result.heightOverWidth = f4(result.height) / f4(result.width);
+	result.widthOverHeight = f4(result.width) / f4(result.height);
 	Assert((header->bitsPerPixel / 8) == BITMAP_BYTES_PER_PIXEL);
 	result.pitch = result.width * BITMAP_BYTES_PER_PIXEL;
 	result.data = ptrcast(u32, result.bufferStart);
-	result.align = ToBottomUpAlignment(result, topDownPixelAlign);
+	result.align = bottomUpAlignRatio;
 
 	u32* pixels = ptrcast(u32, result.bufferStart);
 	for (u32 Y = 0; Y < header->height; Y++) {
@@ -720,7 +715,7 @@ LoadedBitmap MakeEmptyBuffer(MemoryArena& arena, u32 width, u32 height) {
 	bmp.bufferStart = ptrcast(void, bmp.data);
 	bmp.height = height;
 	bmp.width = width;
-	bmp.heightOverWidth = f4(height) / f4(width);
+	bmp.widthOverHeight = f4(width) / f4(height);
 	bmp.pitch = width * BITMAP_BYTES_PER_PIXEL;
 	return bmp;
 }
@@ -810,6 +805,8 @@ LoadedBitmap MakeSphereDiffusionTexture(MemoryArena& arena, u32 width, u32 heigh
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
+	debugGlobalMemory = &memory.debug;
+	BEGIN_TIMED_SECTION(GameMainLoop);
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	World& world = state->world;
 	if (!state->isInitialized) {
@@ -838,26 +835,26 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			world, world.tileCountX / 2, world.tileCountY / 2, 0
 		);
 
-		state->groundBmps[0] = LoadBmpFile(memory.debugReadEntireFile, "test/ground0.bmp");
-		state->groundBmps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/ground1.bmp");
-		state->grassBmps[0] = LoadBmpFile(memory.debugReadEntireFile, "test/grass0.bmp");
-		state->grassBmps[1] = LoadBmpFile(memory.debugReadEntireFile, "test/grass1.bmp");
-		state->treeBmp = LoadBmpFile(memory.debugReadEntireFile, "test/tree3.bmp");
+		state->groundBmps[0] = LoadBmpFile(memory.debug.readEntireFile, "test/ground0.bmp");
+		state->groundBmps[1] = LoadBmpFile(memory.debug.readEntireFile, "test/ground1.bmp");
+		state->grassBmps[0] = LoadBmpFile(memory.debug.readEntireFile, "test/grass0.bmp");
+		state->grassBmps[1] = LoadBmpFile(memory.debug.readEntireFile, "test/grass1.bmp");
+		state->treeBmp = LoadBmpFile(memory.debug.readEntireFile, "test/tree3.bmp", V2{0.5f, 0.25f});
 
 		u32 testTextureWidth = 256;
 		u32 testTextureHeight = 256;
 		state->testNormalMap = MakeSphereNormalMap(state->world.arena, testTextureWidth, testTextureHeight, 1.f);
 		state->testDiffusionTexture = MakeSphereDiffusionTexture(state->world.arena, testTextureWidth, testTextureHeight);
 
-		V2 playerBitmapsTopDownAlignment = V2{ 20, 42 };
-		state->playerMoveAnim[0] = LoadBmpFile(memory.debugReadEntireFile, 
-			"test/hero-right.bmp", playerBitmapsTopDownAlignment);
-		state->playerMoveAnim[1] = LoadBmpFile(memory.debugReadEntireFile, 
-			"test/hero-left.bmp", playerBitmapsTopDownAlignment);
-		state->playerMoveAnim[2] = LoadBmpFile(memory.debugReadEntireFile, 
-			"test/hero-up.bmp", playerBitmapsTopDownAlignment);
-		state->playerMoveAnim[3] = LoadBmpFile(memory.debugReadEntireFile, 
-			"test/hero-down.bmp", playerBitmapsTopDownAlignment);
+		V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
+		state->playerMoveAnim[0] = LoadBmpFile(memory.debug.readEntireFile,
+			"test/hero-right.bmp", playerBitmapsAlignment);
+		state->playerMoveAnim[1] = LoadBmpFile(memory.debug.readEntireFile,
+			"test/hero-left.bmp", playerBitmapsAlignment);
+		state->playerMoveAnim[2] = LoadBmpFile(memory.debug.readEntireFile,
+			"test/hero-up.bmp", playerBitmapsAlignment);
+		state->playerMoveAnim[3] = LoadBmpFile(memory.debug.readEntireFile,
+			"test/hero-down.bmp", playerBitmapsAlignment);
 
 		bool doorLeft = false;
 		bool doorRight = false;
@@ -1069,7 +1066,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
 	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, MB(4), bitmap.width, bitmap.height);
 	//TODO: This is only for debugging
-	renderGroup.projection.camera.distanceToTarget = 30.f;
+	//renderGroup.projection.camera.distanceToTarget = 30.f;
 
 	LoadedBitmap screenBitmap = {};
 	screenBitmap.height = bitmap.height;
@@ -1179,14 +1176,15 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 			Assert(playerControls);
 			acceleration = playerControls->acceleration;
-
+			const f32 playerHeight = 1.35f;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, layerAlpha });
-			PushBitmap(renderGroup, &state->playerMoveAnim[entity->faceDir], groundLevelPos, V2{0, 0});
+			PushBitmap(renderGroup, &state->playerMoveAnim[entity->faceDir], groundLevelPos, 1.35f, V2{0, 0});
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 		} break;
 		case EntityType_Wall: {
+			const f32 treeHeight = world.tileSizeInMeters.Z;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
-			//PushBitmap(renderGroup, &state->treeBmp, entity->pos, 1.f, V2{0, 0});
+			PushBitmap(renderGroup, &state->treeBmp, groundLevelPos, treeHeight, V2{ 0, 0.1f }, V4{ 1, 0.f, 1.f, layerAlpha });
 		} break;
 		case EntityType_Stairs: {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, layerAlpha });
@@ -1346,4 +1344,5 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	EndTempMemory(simMemory);
 	CheckArena(tranState->arena);
 	CheckArena(world.arena);
+	END_TIMED_SECTION(GameMainLoop);
 }

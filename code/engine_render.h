@@ -17,7 +17,7 @@
 struct LoadedBitmap {
 	void* bufferStart;
 	u32* data;
-	f32 heightOverWidth;
+	f32 widthOverHeight;
 	i32 height;
 	i32 width;
 	i32 pitch;
@@ -57,6 +57,7 @@ struct RenderCallBitmap {
 	V3 center;
 	V2 offset;
 	V4 color;
+	f32 height;
 };
 
 struct RenderCallCoordinateSystem {
@@ -92,7 +93,7 @@ struct RenderGroup {
 
 /*                Renderer API                  */
 inline RenderCallClear* PushClearCall(RenderGroup& group, V4 color = V4{ 1, 1, 1, 1 });
-inline RenderCallBitmap* PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, 
+inline RenderCallBitmap* PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height,
 	V2 offset, V4 color = V4{1, 1, 1, 1});
 inline RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V2 size, 
 	V2 offset, V4 color = V4{ 1, 1, 1, 1 });
