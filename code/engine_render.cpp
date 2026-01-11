@@ -480,6 +480,13 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	f32 vCf = 1.f / (Squared(yAxis.X) + Squared(yAxis.Y));
 	f32 inv255 = 1.f / 255.f;
 	f32 one255 = 255.f;
+	u32 pitch = texture.pitch;
+	u8* textureData = ptrcast(u8, texture.data);
+	// TODO: What with last row and last column?
+	f32 uWidthCf = f4(texture.width - 2);
+	f32 vHeightCf = f4(texture.height - 2);
+	__m256 zero = _mm256_setr_m128(_mm_set_ps1(0.f), _mm_set_ps1(0.f));
+	__m256 one = _mm256_setr_m128(_mm_set_ps1(1.0f), _mm_set_ps1(1.0f));
 	__m256 uCfx8 = _mm256_setr_m128(_mm_set_ps1(uCf), _mm_set_ps1(uCf));
 	__m256 vCfx8 = _mm256_setr_m128(_mm_set_ps1(vCf), _mm_set_ps1(vCf));
 	__m256 half = _mm256_setr_m128(_mm_set_ps1(0.5f), _mm_set_ps1(0.5f));
@@ -489,13 +496,11 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	__m256 xAY = _mm256_setr_m128(_mm_set_ps1(xAxis.Y), _mm_set_ps1(xAxis.Y));
 	__m256 yAX = _mm256_setr_m128(_mm_set_ps1(yAxis.X), _mm_set_ps1(yAxis.X));
 	__m256 yAY = _mm256_setr_m128(_mm_set_ps1(yAxis.Y), _mm_set_ps1(yAxis.Y));
-	u32 pitch = texture.pitch;
-	u8* textureData = ptrcast(u8, texture.data);
-	// TODO: What with last row and last column?
-	f32 uWidthCf = f4(texture.width - 2);
-	f32 vHeightCf = f4(texture.height - 2);
+	__m256 uWcf = _mm256_setr_m128(_mm_set_ps1(uWidthCf), _mm_set_ps1(uWidthCf));
+	__m256 vHcf = _mm256_setr_m128(_mm_set_ps1(vHeightCf), _mm_set_ps1(vHeightCf));
 	color.RGB *= color.A;
 #define E(mm, i) ptrcast(f32, &mm)[i]
+#define Ei(mm, i) ptrcast(u32, &mm)[i]
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
 	BEGIN_TIMED_SECTION(FillPixel);
 	for (i32 Y = minY; Y < maxY; Y++) {
@@ -511,48 +516,49 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 
 			__m256 u = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, xAX), _mm256_mul_ps(dy, xAY)), uCfx8);
 			__m256 v = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, yAX), _mm256_mul_ps(dy, yAY)), vCfx8);
+			__m256 shouldFill = _mm256_and_ps(
+				_mm256_and_ps(
+					_mm256_cmp_ps(u, zero, _CMP_GE_OQ),
+					_mm256_cmp_ps(u, one, _CMP_LE_OQ)
+				),
+				_mm256_and_ps(
+					_mm256_cmp_ps(v, zero, _CMP_GE_OQ),
+					_mm256_cmp_ps(v, one, _CMP_LE_OQ)
+				)
+			);
+			// TODO: all v/y components can be computed before X loop
+			__m256 texelX = _mm256_mul_ps(u, uWcf);
+			__m256 texelY = _mm256_mul_ps(v, vHcf);
+			__m256i texelXint = _mm256_cvttps_epi32(texelX);
+			__m256i texelYint = _mm256_cvttps_epi32(texelY);
+			__m256 fX = _mm256_sub_ps(texelX, _mm256_cvtepi32_ps(texelXint));
+			__m256 fY = _mm256_sub_ps(texelY, _mm256_cvtepi32_ps(texelYint));
 			for (i32 I = 0; I < 8; I++) {
 				i32 XI = X + I;
-				f32 ui = E(u, I);
-				f32 vi = E(v, I);
-				if (ui >= 0.f &&
-					ui <= 1.f &&
-					vi >= 0.f &&
-					vi <= 1.f) {
-
-					// TODO: all v/y components can be computed before X loop
-					f32 texelscX = ui * uWidthCf;
-					f32 texelscY = vi * vHeightCf;
-
-					i32 texelu4X = u4(texelscX);
-					i32 texelu4Y = u4(texelscY);
-
-					f32 fX = texelscX - texelu4X;
-					f32 fY = texelscY - texelu4Y;
-
+				if (E(shouldFill, I)) {
 					// Unpack bilinear sample
-					i32 texelAI = texelu4Y * pitch + (texelu4X << 2);
+					i32 texelAI = Ei(texelYint, I) * pitch + (Ei(texelXint, I) << 2);
 					u32* texelAPtr = ptrcast(u32, textureData + texelAI);
 					f32 texelAA = f4((*texelAPtr >> 24) & 0xFF);
 					f32 texelAR = f4((*texelAPtr >> 16) & 0xFF);
 					f32 texelAG = f4((*texelAPtr >> 8) & 0xFF);
 					f32 texelAB = f4((*texelAPtr >> 0) & 0xFF);
 
-					i32 texelBI = texelu4Y * pitch + ((texelu4X + 1) << 2);
+					i32 texelBI = Ei(texelYint, I) * pitch + ((Ei(texelXint, I) + 1) << 2);
 					u32* texelBPtr = ptrcast(u32, textureData + texelBI);
 					f32 texelBA = f4((*texelBPtr >> 24) & 0xFF);
 					f32 texelBR = f4((*texelBPtr >> 16) & 0xFF);
 					f32 texelBG = f4((*texelBPtr >> 8) & 0xFF);
 					f32 texelBB = f4((*texelBPtr >> 0) & 0xFF);
 
-					i32 texelCI = (texelu4Y + 1) * pitch + (texelu4X << 2);
+					i32 texelCI = (Ei(texelYint, I) + 1) * pitch + (Ei(texelXint, I) << 2);
 					u32* texelCPtr = ptrcast(u32, textureData + texelCI);
 					f32 texelCA = f4((*texelCPtr >> 24) & 0xFF);
 					f32 texelCR = f4((*texelCPtr >> 16) & 0xFF);
 					f32 texelCG = f4((*texelCPtr >> 8) & 0xFF);
 					f32 texelCB = f4((*texelCPtr >> 0) & 0xFF);
 
-					i32 texelDI = (texelu4Y + 1) * pitch + ((texelu4X + 1) << 2);
+					i32 texelDI = (Ei(texelYint, I) + 1) * pitch + ((Ei(texelXint, I) + 1) << 2);
 					u32* texelDPtr = ptrcast(u32, textureData + texelDI);
 					f32 texelDA = f4((*texelDPtr >> 24) & 0xFF);
 					f32 texelDR = f4((*texelDPtr >> 16) & 0xFF);
@@ -581,20 +587,21 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 					texelDA = inv255 * texelDA;
 
 					// BILINEAR LERP
-					f32 texelABA = texelAA + fX * (texelBA - texelAA);
-					f32 texelABR = texelAR + fX * (texelBR - texelAR);
-					f32 texelABG = texelAG + fX * (texelBG - texelAG);
-					f32 texelABB = texelAB + fX * (texelBB - texelAB);
 
-					f32 texelCDA = texelCA + fX * (texelDA - texelCA);
-					f32 texelCDR = texelCR + fX * (texelDR - texelCR);
-					f32 texelCDG = texelCG + fX * (texelDG - texelCG);
-					f32 texelCDB = texelCB + fX * (texelDB - texelCB);
+					f32 texelABA = texelAA + E(fX, I) * (texelBA - texelAA);
+					f32 texelABR = texelAR + E(fX, I) * (texelBR - texelAR);
+					f32 texelABG = texelAG + E(fX, I) * (texelBG - texelAG);
+					f32 texelABB = texelAB + E(fX, I) * (texelBB - texelAB);
 
-					f32 texelA = texelABA + fY * (texelCDA - texelABA);
-					f32 texelR = texelABR + fY * (texelCDR - texelABR);
-					f32 texelG = texelABG + fY * (texelCDG - texelABG);
-					f32 texelB = texelABB + fY * (texelCDB - texelABB);
+					f32 texelCDA = texelCA + E(fX, I) * (texelDA - texelCA);
+					f32 texelCDR = texelCR + E(fX, I) * (texelDR - texelCR);
+					f32 texelCDG = texelCG + E(fX, I) * (texelDG - texelCG);
+					f32 texelCDB = texelCB + E(fX, I) * (texelDB - texelCB);
+
+					f32 texelA = texelABA + E(fY, I) * (texelCDA - texelABA);
+					f32 texelR = texelABR + E(fY, I) * (texelCDR - texelABR);
+					f32 texelG = texelABG + E(fY, I) * (texelCDG - texelABG);
+					f32 texelB = texelABB + E(fY, I) * (texelCDB - texelABB);
 
 					// Modulate color
 					texelA *= color.A;
