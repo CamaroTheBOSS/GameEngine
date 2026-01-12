@@ -483,6 +483,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 
 	__m256 zero = _mm256_set1_ps(0.f);
 	__m256 one = _mm256_set1_ps(1.0f);
+	__m256i onei = _mm256_set1_epi32(1);
 	__m256 o255 = _mm256_set1_ps(255.f);
 	__m256 inv255wide = _mm256_set1_ps(1.f / 255.f);
 	__m256 uCfx8 = _mm256_set1_ps(uCf);
@@ -501,6 +502,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	__m256 colorR = _mm256_set1_ps(color.R);
 	__m256 colorG = _mm256_set1_ps(color.G);
 	__m256 colorB = _mm256_set1_ps(color.B);
+	__m256i pitchWide = _mm256_set1_epi32(pitch);
 #define E(mm, i) ptrcast(f32, &mm)[i]
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
@@ -562,33 +564,40 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256 destG = _mm256_set1_ps(0.f);
 			__m256 destB = _mm256_set1_ps(0.f);
 			__m256i destARGB = _mm256_set1_epi32(0);
+			
+			__m256i mulY_Pitch = _mm256_mullo_epi32(texelYint, pitchWide);
+			__m256i sliX_2 = _mm256_slli_epi32(texelXint, 2);
+			__m256i mulY_Plus1_Pitch = _mm256_mullo_epi32(_mm256_add_epi32(texelYint, onei), pitchWide);
+			__m256i sliX_Plus1_2 = _mm256_slli_epi32(_mm256_add_epi32(texelXint, onei), 2);
+			__m256i texelAIndexes = _mm256_add_epi32(mulY_Pitch, sliX_2);
+			__m256i texelBIndexes = _mm256_add_epi32(mulY_Pitch, sliX_Plus1_2);
+			__m256i texelCIndexes = _mm256_add_epi32(mulY_Plus1_Pitch, sliX_2);
+			__m256i texelDIndexes = _mm256_add_epi32(mulY_Plus1_Pitch, sliX_Plus1_2);
+
 			for (i32 I = 0; I < 8; I++) {
 				i32 XI = X + I;
 				if (Ei(shouldFill, I)) {
 					// Unpack bilinear sample
-					i32 texelAI = Ei(texelYint, I) * pitch + (Ei(texelXint, I) << 2);
-					u32* texelAPtr = ptrcast(u32, textureData + texelAI);
+					u32* texelAPtr = ptrcast(u32, textureData + Ei(texelAIndexes, I));
 					E(texelAA, I) = f4((*texelAPtr >> 24) & 0xFF);
 					E(texelAR, I) = f4((*texelAPtr >> 16) & 0xFF);
 					E(texelAG, I) = f4((*texelAPtr >> 8) & 0xFF);
 					E(texelAB, I) = f4((*texelAPtr >> 0) & 0xFF);
 
-					i32 texelBI = Ei(texelYint, I) * pitch + ((Ei(texelXint, I) + 1) << 2);
-					u32* texelBPtr = ptrcast(u32, textureData + texelBI);
+					u32* texelBPtr = ptrcast(u32, textureData + Ei(texelBIndexes, I));
 					E(texelBA, I) = f4((*texelBPtr >> 24) & 0xFF);
 					E(texelBR, I) = f4((*texelBPtr >> 16) & 0xFF);
 					E(texelBG, I) = f4((*texelBPtr >> 8) & 0xFF);
 					E(texelBB, I) = f4((*texelBPtr >> 0) & 0xFF);
 
-					i32 texelCI = (Ei(texelYint, I) + 1) * pitch + (Ei(texelXint, I) << 2);
-					u32* texelCPtr = ptrcast(u32, textureData + texelCI);
+					u32* texelCPtr = ptrcast(u32, textureData + Ei(texelCIndexes, I));
 					E(texelCA, I) = f4((*texelCPtr >> 24) & 0xFF);
 					E(texelCR, I) = f4((*texelCPtr >> 16) & 0xFF);
 					E(texelCG, I) = f4((*texelCPtr >> 8) & 0xFF);
 					E(texelCB, I) = f4((*texelCPtr >> 0) & 0xFF);
 
-					i32 texelDI = (Ei(texelYint, I) + 1) * pitch + ((Ei(texelXint, I) + 1) << 2);
-					u32* texelDPtr = ptrcast(u32, textureData + texelDI);
+					
+					u32* texelDPtr = ptrcast(u32, textureData + Ei(texelDIndexes, I));
 					E(texelDA, I) = f4((*texelDPtr >> 24) & 0xFF);
 					E(texelDR, I) = f4((*texelDPtr >> 16) & 0xFF);
 					E(texelDG, I) = f4((*texelDPtr >> 8) & 0xFF);
