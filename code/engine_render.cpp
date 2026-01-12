@@ -480,6 +480,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	f32 vCf = 1.f / (Squared(yAxis.X) + Squared(yAxis.Y));
 	u32 pitch = texture.pitch;
 	u8* textureData = ptrcast(u8, texture.data);
+	int* textureGatherBase = ptrcast(int, textureData);
 
 	__m256 zero = _mm256_set1_ps(0.f);
 	__m256 one = _mm256_set1_ps(1.0f);
@@ -495,6 +496,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	__m256 xAY = _mm256_set1_ps(xAxis.Y);
 	__m256 yAX = _mm256_set1_ps(yAxis.X);
 	__m256 yAY = _mm256_set1_ps(yAxis.Y);
+	__m256i maskFF = _mm256_set1_epi32(0xFF);
 	// TODO: What with last row and last column?
 	__m256 uWcf = _mm256_set1_ps(f4(texture.width - 2));
 	__m256 vHcf = _mm256_set1_ps(f4(texture.height - 2));
@@ -565,6 +567,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256 destB = _mm256_set1_ps(0.f);
 			__m256i destARGB = _mm256_set1_epi32(0);
 			
+			// Calculate memory indicies for gathering bilinear sample
 			__m256i mulY_Pitch = _mm256_mullo_epi32(texelYint, pitchWide);
 			__m256i sliX_2 = _mm256_slli_epi32(texelXint, 2);
 			__m256i mulY_Plus1_Pitch = _mm256_mullo_epi32(_mm256_add_epi32(texelYint, onei), pitchWide);
@@ -574,35 +577,38 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256i texelCIndexes = _mm256_add_epi32(mulY_Plus1_Pitch, sliX_2);
 			__m256i texelDIndexes = _mm256_add_epi32(mulY_Plus1_Pitch, sliX_Plus1_2);
 
+			// Gather ARGB data
+			__m256i texelA_ARGBi = _mm256_i32gather_epi32(textureGatherBase, texelAIndexes, 1);
+			__m256i texelB_ARGBi = _mm256_i32gather_epi32(textureGatherBase, texelBIndexes, 1);
+			__m256i texelC_ARGBi = _mm256_i32gather_epi32(textureGatherBase, texelCIndexes, 1);
+			__m256i texelD_ARGBi = _mm256_i32gather_epi32(textureGatherBase, texelDIndexes, 1);
+
+			// Convert ARGB to individual channels 
+			// TODO: should I use unpacks?
+			texelAA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelA_ARGBi, 24), maskFF));
+			texelAR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelA_ARGBi, 16), maskFF));
+			texelAG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelA_ARGBi, 8), maskFF));
+			texelAB = _mm256_cvtepi32_ps(_mm256_and_si256(texelA_ARGBi, maskFF));
+
+			texelBA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelB_ARGBi, 24), maskFF));
+			texelBR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelB_ARGBi, 16), maskFF));
+			texelBG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelB_ARGBi, 8), maskFF));
+			texelBB = _mm256_cvtepi32_ps(_mm256_and_si256(texelB_ARGBi, maskFF));
+
+			texelCA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelC_ARGBi, 24), maskFF));
+			texelCR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelC_ARGBi, 16), maskFF));
+			texelCG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelC_ARGBi, 8), maskFF));
+			texelCB = _mm256_cvtepi32_ps(_mm256_and_si256(texelC_ARGBi, maskFF));
+
+			texelDA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelD_ARGBi, 24), maskFF));
+			texelDR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelD_ARGBi, 16), maskFF));
+			texelDG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelD_ARGBi, 8), maskFF));
+			texelDB = _mm256_cvtepi32_ps(_mm256_and_si256(texelD_ARGBi, maskFF));
+
+
 			for (i32 I = 0; I < 8; I++) {
 				i32 XI = X + I;
 				if (Ei(shouldFill, I)) {
-					// Unpack bilinear sample
-					u32* texelAPtr = ptrcast(u32, textureData + Ei(texelAIndexes, I));
-					E(texelAA, I) = f4((*texelAPtr >> 24) & 0xFF);
-					E(texelAR, I) = f4((*texelAPtr >> 16) & 0xFF);
-					E(texelAG, I) = f4((*texelAPtr >> 8) & 0xFF);
-					E(texelAB, I) = f4((*texelAPtr >> 0) & 0xFF);
-
-					u32* texelBPtr = ptrcast(u32, textureData + Ei(texelBIndexes, I));
-					E(texelBA, I) = f4((*texelBPtr >> 24) & 0xFF);
-					E(texelBR, I) = f4((*texelBPtr >> 16) & 0xFF);
-					E(texelBG, I) = f4((*texelBPtr >> 8) & 0xFF);
-					E(texelBB, I) = f4((*texelBPtr >> 0) & 0xFF);
-
-					u32* texelCPtr = ptrcast(u32, textureData + Ei(texelCIndexes, I));
-					E(texelCA, I) = f4((*texelCPtr >> 24) & 0xFF);
-					E(texelCR, I) = f4((*texelCPtr >> 16) & 0xFF);
-					E(texelCG, I) = f4((*texelCPtr >> 8) & 0xFF);
-					E(texelCB, I) = f4((*texelCPtr >> 0) & 0xFF);
-
-					
-					u32* texelDPtr = ptrcast(u32, textureData + Ei(texelDIndexes, I));
-					E(texelDA, I) = f4((*texelDPtr >> 24) & 0xFF);
-					E(texelDR, I) = f4((*texelDPtr >> 16) & 0xFF);
-					E(texelDG, I) = f4((*texelDPtr >> 8) & 0xFF);
-					E(texelDB, I) = f4((*texelDPtr >> 0) & 0xFF);
-
 					// Unpack dest
 					E(destA, I) = f4((*dstPixelRead >> 24) & 0xFF);
 					E(destR, I) = f4((*dstPixelRead >> 16) & 0xFF);
@@ -718,7 +724,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256i outputARGB = _mm256_cvtps_epi32(outputB);
 #endif
 
-			
+			// TODO: Use blend instead of masks and check result
 			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputGInt, 8));
 			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputRInt, 16));
 			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputAInt, 24));
