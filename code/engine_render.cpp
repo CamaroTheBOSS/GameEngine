@@ -516,17 +516,21 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256 Xx8 = _mm256_setr_ps(f4(X), f4(X + 1), f4(X + 2), f4(X + 3), f4(X + 4), f4(X + 5), f4(X + 6), f4(X + 7));
 			__m256 pointX = _mm256_add_ps(Xx8, half);
 			__m256 dx = _mm256_sub_ps(pointX, originX);
-
+			if (X > maxX - 8) {
+				int breakHere = 5;
+			}
 			__m256 u = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, xAX), _mm256_mul_ps(dy, xAY)), uCfx8);
 			__m256 v = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, yAX), _mm256_mul_ps(dy, yAY)), vCfx8);
-			__m256 shouldFill = _mm256_and_ps(
+			__m256i shouldFill = _mm256_castps_si256(
 				_mm256_and_ps(
-					_mm256_cmp_ps(u, zero, _CMP_GE_OQ),
-					_mm256_cmp_ps(u, one, _CMP_LE_OQ)
-				),
-				_mm256_and_ps(
-					_mm256_cmp_ps(v, zero, _CMP_GE_OQ),
-					_mm256_cmp_ps(v, one, _CMP_LE_OQ)
+					_mm256_and_ps(
+						_mm256_cmp_ps(u, zero, _CMP_GE_OQ),
+						_mm256_cmp_ps(u, one, _CMP_LE_OQ)
+					),
+					_mm256_and_ps(
+						_mm256_cmp_ps(v, zero, _CMP_GE_OQ),
+						_mm256_cmp_ps(v, one, _CMP_LE_OQ)
+					)
 				)
 			);
 			// TODO: all v/y components can be computed before X loop
@@ -557,9 +561,10 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256 destR = _mm256_set1_ps(0.f);
 			__m256 destG = _mm256_set1_ps(0.f);
 			__m256 destB = _mm256_set1_ps(0.f);
+			__m256i destARGB = _mm256_set1_epi32(0);
 			for (i32 I = 0; I < 8; I++) {
 				i32 XI = X + I;
-				if (E(shouldFill, I)) {
+				if (Ei(shouldFill, I)) {
 					// Unpack bilinear sample
 					i32 texelAI = Ei(texelYint, I) * pitch + (Ei(texelXint, I) << 2);
 					u32* texelAPtr = ptrcast(u32, textureData + texelAI);
@@ -593,9 +598,11 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 					E(destA, I) = f4((*dstPixelRead >> 24) & 0xFF);
 					E(destR, I) = f4((*dstPixelRead >> 16) & 0xFF);
 					E(destG, I) = f4((*dstPixelRead >> 8) & 0xFF);
-					E(destB, I) = f4((*dstPixelRead >> 0) & 0xFF);
-					dstPixelRead++;
+					E(destB, I) = f4((*dstPixelRead >> 0) & 0xFF);				
 				}
+				// On the borders I read outside the buffer when Y is last!
+				Ei(destARGB, I) = *dstPixelRead;
+				dstPixelRead++;
 			}
 
 			// srgb255 to linear1
@@ -686,18 +693,34 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			outputB = _mm256_mul_ps(o255, _mm256_sqrt_ps(outputB));
 			outputA = _mm256_mul_ps(o255, outputA);
 
-			for (i32 I = 0; I < 8; I++) {
-				i32 XI = X + I;
-				if (E(shouldFill, I)) {
-					*dstPixel = (u4(E(outputA, I) + 0.5f) << 24) |
-						(u4(E(outputR, I) + 0.5f) << 16) |
-						(u4(E(outputG, I) + 0.5f) << 8) |
-						(u4(E(outputB, I) + 0.5f) << 0);
+#if 0
+			/*__m256i outputRInt = _mm256_set_epi32(0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8);
+			__m256i outputGInt = _mm256_set_epi32(0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8);
+			__m256i outputAInt = _mm256_set_epi32(0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8);
+			__m256i outputARGB = _mm256_set_epi32(0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8);*/
+			__m256i outputRInt = _mm256_set1_epi32(255);
+			__m256i outputGInt = _mm256_set1_epi32(0);
+			__m256i outputAInt = _mm256_set1_epi32(255);
+			__m256i outputARGB = _mm256_set1_epi32(255);
+#else
+			__m256i outputRInt = _mm256_cvtps_epi32(outputR);
+			__m256i outputGInt = _mm256_cvtps_epi32(outputG);
+			__m256i outputAInt = _mm256_cvtps_epi32(outputA);
+			__m256i outputARGB = _mm256_cvtps_epi32(outputB);
+#endif
 
-					dstPixel++;
-				}
-			}
+			
+			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputGInt, 8));
+			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputRInt, 16));
+			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputAInt, 24));
+			outputARGB = _mm256_add_epi32(
+				_mm256_and_epi32(shouldFill, outputARGB),
+				_mm256_andnot_si256(shouldFill, destARGB)
+			);
+			_mm256_storeu_epi32(ptrcast(__m256, dstPixel), outputARGB);
+			dstPixel += 8;
 		}
+		
 		row += bitmap.pitch;
 	}
 	END_TIMED_SECTION_COUNTED(FillPixel, (maxY - minY) * (maxX - minX));
