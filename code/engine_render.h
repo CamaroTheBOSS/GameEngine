@@ -30,11 +30,11 @@ struct EnvironmentMap {
 	LoadedBitmap LOD[4];
 };
 
-enum class RenderCallType {
-	RenderCallClear,
-	RenderCallRectangle,
-	RenderCallBitmap,
-	RenderCallCoordinateSystem,
+enum RenderCallType {
+	RenderCallType_RenderCallClear,
+	RenderCallType_RenderCallRectangle,
+	RenderCallType_RenderCallBitmap,
+	RenderCallType_RenderCallCoordinateSystem,
 };
 
 struct RenderCallHeader {

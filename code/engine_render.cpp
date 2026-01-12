@@ -2,7 +2,8 @@
 #include "engine_render.h"
 #include "engine_intrinsics.h"
 
-#define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType::##type))
+#define Text(text) text
+#define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType_##type))
 inline
 void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
 	size += sizeof(RenderCallHeader);
@@ -479,9 +480,9 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	f32 uCf = 1.f / (Squared(xAxis.X) + Squared(xAxis.Y));
 	f32 vCf = 1.f / (Squared(yAxis.X) + Squared(yAxis.Y));
 	u32 pitch = texture.pitch;
-	u8* textureData = ptrcast(u8, texture.data);
-	int* textureGatherBase = ptrcast(int, textureData);
+	int* textureGatherBase = ptrcast(int, texture.data);
 
+	__m256i zeroTo7 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
 	__m256 zero = _mm256_set1_ps(0.f);
 	__m256 one = _mm256_set1_ps(1.0f);
 	__m256i onei = _mm256_set1_epi32(1);
@@ -511,18 +512,13 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	BEGIN_TIMED_SECTION(FillPixel);
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
-		u32* dstPixelRead = ptrcast(u32, row);
 		__m256 Yx8 = _mm256_setr_m128(_mm_set_ps1(f4(Y)), _mm_set_ps1(f4(Y)));
-		__m256 pointY = _mm256_add_ps(Yx8, half);
-		__m256 dy = _mm256_sub_ps(pointY, originY);
 		for (i32 X = minX; X < maxX; X += 8) {
-			__m256i Xx8i = _mm256_setr_epi32(0, 1, 2, 4, 8, 16, 32, 64);
 			__m256 Xx8 = _mm256_setr_ps(f4(X), f4(X + 1), f4(X + 2), f4(X + 3), f4(X + 4), f4(X + 5), f4(X + 6), f4(X + 7));
+			__m256 pointY = _mm256_add_ps(Yx8, half);
 			__m256 pointX = _mm256_add_ps(Xx8, half);
 			__m256 dx = _mm256_sub_ps(pointX, originX);
-			if (X > maxX - 8) {
-				int breakHere = 5;
-			}
+			__m256 dy = _mm256_sub_ps(pointY, originY);
 			__m256 u = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, xAX), _mm256_mul_ps(dy, xAY)), uCfx8);
 			__m256 v = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, yAX), _mm256_mul_ps(dy, yAY)), vCfx8);
 			__m256i shouldFill = _mm256_castps_si256(
@@ -544,28 +540,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256i texelYint = _mm256_cvttps_epi32(texelY);
 			__m256 fX = _mm256_sub_ps(texelX, _mm256_cvtepi32_ps(texelXint));
 			__m256 fY = _mm256_sub_ps(texelY, _mm256_cvtepi32_ps(texelYint));
-
-			__m256 texelAA = _mm256_set1_ps(0.f);
-			__m256 texelAR = _mm256_set1_ps(0.f);
-			__m256 texelAG = _mm256_set1_ps(0.f);
-			__m256 texelAB = _mm256_set1_ps(0.f);
-			__m256 texelBA = _mm256_set1_ps(0.f);
-			__m256 texelBR = _mm256_set1_ps(0.f);
-			__m256 texelBG = _mm256_set1_ps(0.f);
-			__m256 texelBB = _mm256_set1_ps(0.f);
-			__m256 texelCA = _mm256_set1_ps(0.f);
-			__m256 texelCR = _mm256_set1_ps(0.f);
-			__m256 texelCG = _mm256_set1_ps(0.f);
-			__m256 texelCB = _mm256_set1_ps(0.f);
-			__m256 texelDA = _mm256_set1_ps(0.f);
-			__m256 texelDR = _mm256_set1_ps(0.f);
-			__m256 texelDG = _mm256_set1_ps(0.f);
-			__m256 texelDB = _mm256_set1_ps(0.f);
-			__m256 destA = _mm256_set1_ps(0.f);
-			__m256 destR = _mm256_set1_ps(0.f);
-			__m256 destG = _mm256_set1_ps(0.f);
-			__m256 destB = _mm256_set1_ps(0.f);
-			__m256i destARGB = _mm256_set1_epi32(0);
 			
 			// Calculate memory indicies for gathering bilinear sample
 			__m256i mulY_Pitch = _mm256_mullo_epi32(texelYint, pitchWide);
@@ -582,43 +556,34 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256i texelB_ARGBi = _mm256_i32gather_epi32(textureGatherBase, texelBIndexes, 1);
 			__m256i texelC_ARGBi = _mm256_i32gather_epi32(textureGatherBase, texelCIndexes, 1);
 			__m256i texelD_ARGBi = _mm256_i32gather_epi32(textureGatherBase, texelDIndexes, 1);
+			__m256i dest_ARGBi = _mm256_i32gather_epi32(ptrcast(int, dstPixel), zeroTo7, 4);
 
 			// Convert ARGB to individual channels 
 			// TODO: should I use unpacks?
-			texelAA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelA_ARGBi, 24), maskFF));
-			texelAR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelA_ARGBi, 16), maskFF));
-			texelAG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelA_ARGBi, 8), maskFF));
-			texelAB = _mm256_cvtepi32_ps(_mm256_and_si256(texelA_ARGBi, maskFF));
+			__m256 texelAA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelA_ARGBi, 24), maskFF));
+			__m256 texelAR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelA_ARGBi, 16), maskFF));
+			__m256 texelAG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelA_ARGBi, 8), maskFF));
+			__m256 texelAB = _mm256_cvtepi32_ps(_mm256_and_si256(texelA_ARGBi, maskFF));
 
-			texelBA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelB_ARGBi, 24), maskFF));
-			texelBR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelB_ARGBi, 16), maskFF));
-			texelBG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelB_ARGBi, 8), maskFF));
-			texelBB = _mm256_cvtepi32_ps(_mm256_and_si256(texelB_ARGBi, maskFF));
+			__m256 texelBA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelB_ARGBi, 24), maskFF));
+			__m256 texelBR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelB_ARGBi, 16), maskFF));
+			__m256 texelBG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelB_ARGBi, 8), maskFF));
+			__m256 texelBB = _mm256_cvtepi32_ps(_mm256_and_si256(texelB_ARGBi, maskFF));
 
-			texelCA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelC_ARGBi, 24), maskFF));
-			texelCR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelC_ARGBi, 16), maskFF));
-			texelCG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelC_ARGBi, 8), maskFF));
-			texelCB = _mm256_cvtepi32_ps(_mm256_and_si256(texelC_ARGBi, maskFF));
+			__m256 texelCA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelC_ARGBi, 24), maskFF));
+			__m256 texelCR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelC_ARGBi, 16), maskFF));
+			__m256 texelCG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelC_ARGBi, 8), maskFF));
+			__m256 texelCB = _mm256_cvtepi32_ps(_mm256_and_si256(texelC_ARGBi, maskFF));
 
-			texelDA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelD_ARGBi, 24), maskFF));
-			texelDR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelD_ARGBi, 16), maskFF));
-			texelDG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelD_ARGBi, 8), maskFF));
-			texelDB = _mm256_cvtepi32_ps(_mm256_and_si256(texelD_ARGBi, maskFF));
+			__m256 texelDA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelD_ARGBi, 24), maskFF));
+			__m256 texelDR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelD_ARGBi, 16), maskFF));
+			__m256 texelDG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(texelD_ARGBi, 8), maskFF));
+			__m256 texelDB = _mm256_cvtepi32_ps(_mm256_and_si256(texelD_ARGBi, maskFF));
 
-
-			for (i32 I = 0; I < 8; I++) {
-				i32 XI = X + I;
-				if (Ei(shouldFill, I)) {
-					// Unpack dest
-					E(destA, I) = f4((*dstPixelRead >> 24) & 0xFF);
-					E(destR, I) = f4((*dstPixelRead >> 16) & 0xFF);
-					E(destG, I) = f4((*dstPixelRead >> 8) & 0xFF);
-					E(destB, I) = f4((*dstPixelRead >> 0) & 0xFF);				
-				}
-				// On the borders I read outside the buffer when Y is last!
-				Ei(destARGB, I) = *dstPixelRead;
-				dstPixelRead++;
-			}
+			__m256 destA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(dest_ARGBi, 24), maskFF));
+			__m256 destR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(dest_ARGBi, 16), maskFF));
+			__m256 destG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(dest_ARGBi, 8), maskFF));
+			__m256 destB = _mm256_cvtepi32_ps(_mm256_and_si256(dest_ARGBi, maskFF));
 
 			// srgb255 to linear1
 			texelAR = _mm256_mul_ps(inv255wide, texelAR);
@@ -729,10 +694,10 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputRInt, 16));
 			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputAInt, 24));
 			outputARGB = _mm256_add_epi32(
-				_mm256_and_epi32(shouldFill, outputARGB),
-				_mm256_andnot_si256(shouldFill, destARGB)
+				_mm256_and_si256(shouldFill, outputARGB),
+				_mm256_andnot_si256(shouldFill, dest_ARGBi)
 			);
-			_mm256_storeu_epi32(ptrcast(__m256, dstPixel), outputARGB);
+			_mm256_storeu_si256(ptrcast(__m256i, dstPixel), outputARGB);
 			dstPixel += 8;
 		}
 		
@@ -852,12 +817,12 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		relativeRenderAddress += sizeof(RenderCallHeader);
 		u32 relativeAddressBeforeSwitchCase = relativeRenderAddress;
 		switch (header->type) {
-		case RenderCallType::RenderCallClear: {
+		case RenderCallType_RenderCallClear: {
 			RenderCallClear* call = ptrcast(RenderCallClear, group.pushBuffer + relativeRenderAddress);
 			RenderRectangleTransparent(dstBuffer, V2{ 0, 0 }, V2i(dstBuffer.width, dstBuffer.height), call->color);
 			relativeRenderAddress += sizeof(RenderCallClear);
 		} break;
-		case RenderCallType::RenderCallRectangle: {
+		case RenderCallType_RenderCallRectangle: {
 			RenderCallRectangle* call = ptrcast(RenderCallRectangle, group.pushBuffer + relativeRenderAddress);
 			EntityProjectedParams params = CalculatePerspectiveProjection(group.projection,
 				screenCenter, call->center, call->size);
@@ -870,7 +835,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			}
 			relativeRenderAddress += sizeof(RenderCallRectangle);
 		} break;
-		case RenderCallType::RenderCallBitmap: {
+		case RenderCallType_RenderCallBitmap: {
 			// TODO: RenderCallBitmap and RenderCallRectangle have different approaches to calculate center
 			// It should be unified (check groundLevel) which is different from RenderCallRectangle,
 			// also, size is properly changed in RenderCallRectangle and not in RenderCallBitmap
@@ -890,7 +855,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 			}
 			relativeRenderAddress += sizeof(RenderCallBitmap);
 		} break;
-		case RenderCallType::RenderCallCoordinateSystem: {
+		case RenderCallType_RenderCallCoordinateSystem: {
 			RenderCallCoordinateSystem* call = ptrcast(RenderCallCoordinateSystem, group.pushBuffer + relativeRenderAddress);
 			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis,
 				call->color, *call->bitmap, call->normalMap, call->topEnvMap,
