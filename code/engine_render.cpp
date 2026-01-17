@@ -829,7 +829,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 #if 0
 				RenderRectangleSlowly(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, 0, 0, 0, 0);
 #else
-				Rect2i clipRect = { 128, 128, 256, 256 };
+				Rect2i clipRect = { 0, 0, 960, 540 };
 				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, false, clipRect);
 				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, true, clipRect);
 #endif
