@@ -467,13 +467,37 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 		if (testP.X < fminX) fminX = testP.X;
 		if (testP.X > fmaxX) fmaxX = testP.X;
 	}
+	// TODO: Allocate aligned!!!
 	clipRect = Intersection(clipRect, { 0, 0, bitmap.width, bitmap.height });
 	Rect2i fillRect;
-	fillRect.minY = RoundF32ToI32(fminY);
-	fillRect.maxY = RoundF32ToI32(fmaxY);
-	fillRect.minX = RoundF32ToI32(fminX);
-	fillRect.maxX = RoundF32ToI32(fmaxX);
+	fillRect.minY = FloorF32ToI32(fminY);
+	fillRect.maxY = CeilF32ToI32(fmaxY) + 1;
+	fillRect.minX = FloorF32ToI32(fminX);
+	fillRect.maxX = CeilF32ToI32(fmaxX) + 1;
 	fillRect = Intersection(fillRect, clipRect);
+	i32 fillWidth = fillRect.maxX - fillRect.minX;
+	i32 fillRectAlignment = fillWidth & 7;
+	__m256i startupClipMask = _mm256_set1_epi8(-1);
+	if (fillRectAlignment) {
+		const i32 alignment = 8 - fillRectAlignment;
+		fillWidth += alignment;
+		fillRect.minX = fillRect.maxX - fillWidth;
+		__m128i startupClipMaskLow = _mm_set1_epi8(-1);
+		__m128i startupClipMaskHigh = _mm_set1_epi8(-1);
+		switch (alignment) {
+			case 1: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 1 * 4); } break;
+			case 2: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 2 * 4); } break;
+			case 3: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 3 * 4); } break;
+			case 4: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 4 * 4); } break;
+			default: { startupClipMaskLow = _mm_set1_epi8(0); } break;
+		}
+		switch (alignment) {
+			case 5: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 1 * 4); } break;
+			case 6: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 2 * 4); } break;
+			case 7: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 3 * 4); } break;
+		}
+		startupClipMask = _mm256_setr_m128i(startupClipMaskLow, startupClipMaskHigh);
+	}
 	i32 minY = fillRect.minY;
 	i32 maxY = fillRect.maxY;
 	i32 minX = fillRect.minX;
@@ -514,22 +538,27 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	__m256 colorB = _mm256_set1_ps(color.B);
 	__m256i pitchWide = _mm256_set1_epi32(pitch);
 	__m256 eight = _mm256_set1_ps(8.f);
+	__m256 dxBase = _mm256_set1_ps(f4(minX) - origin.X);
 #define E(mm, i) ptrcast(f32, &mm)[i]
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
-	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + (maxX - 8) * BITMAP_BYTES_PER_PIXEL;
+	u32 rowAdvance = 2 * bitmap.pitch;
+	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+#if 0
+	// TODO: Check whether this helps
+	i32 alignment = reinterpret_cast<uptr>(row) & 31;
+	row -= alignment;
+#endif
 	BEGIN_TIMED_SECTION(FillPixel);
 	LLVM_MCA_BEGIN(opt_render_rect);
-	for (i32 Y = minY; Y < maxY; Y+=2) {
+	for (i32 Y = minY; Y < maxY; Y += 2) {
 		u32* dstPixel = ptrcast(u32, row);
-		__m256 Yx8 = _mm256_set1_ps(f4(Y) + 0.5f);
-		__m256 Xx8 = _mm256_add_ps(_mm256_setr_ps(0.5f, 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7.5f), _mm256_set1_ps(f4(maxX)));
-		for (i32 X = maxX; X >= minX; X -= 8) {
-			Xx8 = _mm256_sub_ps(Xx8, eight);
-			__m256 dx = _mm256_sub_ps(Xx8, originX);
-			__m256 dy = _mm256_sub_ps(Yx8, originY);
+		__m256 dy = _mm256_set1_ps(f4(Y) + 0.5f - origin.Y);
+		__m256 dx = _mm256_add_ps(dxBase, _mm256_setr_ps(0.5f, 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7.5f));
+		__m256i clipMask = startupClipMask;
+		for (i32 X = minX; X < maxX; X += 8) {
 			__m256 u = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, xAX), _mm256_mul_ps(dy, xAY)), uCfx8);
 			__m256 v = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, yAX), _mm256_mul_ps(dy, yAY)), vCfx8);
-			__m256i shouldFill = _mm256_castps_si256(
+			__m256i writeMask = _mm256_castps_si256(
 				_mm256_and_ps(
 					_mm256_and_ps(
 						_mm256_cmp_ps(u, zero, _CMP_GE_OQ),
@@ -541,6 +570,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 					)
 				)
 			);
+			writeMask = _mm256_and_si256(writeMask, clipMask);
 			__m256 texelX = _mm256_mul_ps(u, uWcf);
 			__m256 texelY = _mm256_mul_ps(v, vHcf);
 			__m256i texelXint = _mm256_cvttps_epi32(texelX);
@@ -668,18 +698,20 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputRInt, 16));
 			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputAInt, 24));
 			outputARGB = _mm256_add_epi32(
-				_mm256_and_si256(shouldFill, outputARGB),
-				_mm256_andnot_si256(shouldFill, dest_ARGBi)
+				_mm256_and_si256(writeMask, outputARGB),
+				_mm256_andnot_si256(writeMask, dest_ARGBi)
 			);
 			_mm256_storeu_si256(ptrcast(__m256i, dstPixel), outputARGB);
-			dstPixel -= 8;
+			dstPixel += 8;
+			dx = _mm256_add_ps(dx, eight);
+			clipMask = _mm256_set1_epi8(-1);
 		}
 		
-		row += 2 * bitmap.pitch;
+		row += rowAdvance;
 	}
 	LLVM_MCA_END(opt_render_rect);
 	u32 pixelCount = 0;
-	if (maxY >= minY && maxX >= minX) {
+	if (maxY > minY && maxX > minX) {
 		pixelCount = ((maxY - minY) * (maxX - minX)) / 2;
 	}
 	END_TIMED_SECTION_COUNTED(FillPixel, pixelCount);
@@ -829,6 +861,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 #if 0
 				RenderRectangleSlowly(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, 0, 0, 0, 0);
 #else
+				//Rect2i clipRect = { 384, 256, 512, 384 };
 				Rect2i clipRect = { 0, 0, 960, 540 };
 				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, false, clipRect);
 				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, true, clipRect);

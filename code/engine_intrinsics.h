@@ -29,6 +29,11 @@ u32 CeilF32ToU32(f32 value) {
 }
 
 inline
+i32 CeilF32ToI32(f32 value) {
+	return i4(ceilf(value));
+}
+
+inline
 f32 Sin(f32 angle) {
 	return sinf(angle);
 }
