@@ -522,8 +522,8 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	for (i32 Y = minY; Y < maxY; Y+=2) {
 		u32* dstPixel = ptrcast(u32, row);
 		__m256 Yx8 = _mm256_set1_ps(f4(Y) + 0.5f);
-		__m256 Xx8 = _mm256_add_ps(_mm256_setr_ps(-7.5f, -6.5f, -5.5f, -4.5f, -3.5f, -2.5f, -1.5f, -0.5f), _mm256_set1_ps(f4(maxX + 8)));
-		for (i32 X = maxX - 8; X >= minX; X -= 8) {
+		__m256 Xx8 = _mm256_add_ps(_mm256_setr_ps(0.5f, 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7.5f), _mm256_set1_ps(f4(maxX)));
+		for (i32 X = maxX; X >= minX; X -= 8) {
 			Xx8 = _mm256_sub_ps(Xx8, eight);
 			__m256 dx = _mm256_sub_ps(Xx8, originX);
 			__m256 dy = _mm256_sub_ps(Yx8, originY);
