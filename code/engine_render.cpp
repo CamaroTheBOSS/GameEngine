@@ -446,7 +446,8 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 }
 
 internal
-void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color, LoadedBitmap& texture)
+void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color, 
+	LoadedBitmap& texture, bool even, Rect2i clipRect)
 {
 	BEGIN_TIMED_SECTION(RenderRectangleOptimized);
 	V2 points[4] = {
@@ -466,14 +467,20 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 		if (testP.X < fminX) fminX = testP.X;
 		if (testP.X > fmaxX) fmaxX = testP.X;
 	}
-	i32 minY = RoundF32ToI32(fminY);
-	i32 maxY = RoundF32ToI32(fmaxY);
-	i32 minX = RoundF32ToI32(fminX);
-	i32 maxX = RoundF32ToI32(fmaxX);
-	if (minY < 0) minY = 0;
-	if (maxY > bitmap.height) maxY = bitmap.height;
-	if (minX < 0) minX = 0;
-	if (maxX > bitmap.width) maxX = bitmap.width;
+	clipRect = Intersection(clipRect, { 0, 0, bitmap.width, bitmap.height });
+	Rect2i fillRect;
+	fillRect.minY = RoundF32ToI32(fminY);
+	fillRect.maxY = RoundF32ToI32(fmaxY);
+	fillRect.minX = RoundF32ToI32(fminX);
+	fillRect.maxX = RoundF32ToI32(fmaxX);
+	fillRect = Intersection(fillRect, clipRect);
+	i32 minY = fillRect.minY;
+	i32 maxY = fillRect.maxY;
+	i32 minX = fillRect.minX;
+	i32 maxX = fillRect.maxX;
+	if (even == (minY & 1)) {
+		minY++;
+	}
 
 	static_assert(BITMAP_BYTES_PER_PIXEL == 4);
 	color.RGB *= color.A;
@@ -509,15 +516,15 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	__m256 eight = _mm256_set1_ps(8.f);
 #define E(mm, i) ptrcast(f32, &mm)[i]
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
-	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + (maxX - 8) * BITMAP_BYTES_PER_PIXEL;
 	BEGIN_TIMED_SECTION(FillPixel);
 	LLVM_MCA_BEGIN(opt_render_rect);
-	for (i32 Y = minY; Y < maxY; Y++) {
+	for (i32 Y = minY; Y < maxY; Y+=2) {
 		u32* dstPixel = ptrcast(u32, row);
 		__m256 Yx8 = _mm256_set1_ps(f4(Y) + 0.5f);
-		__m256 Xx8 = _mm256_add_ps(_mm256_setr_ps(-7.5f, -6.5f, -5.5f, -4.5f, -3.5f, -2.5f, -1.5f, -0.5f), _mm256_set1_ps(f4(minX)));
-		for (i32 X = minX; X < maxX; X += 8) {
-			Xx8 = _mm256_add_ps(Xx8, eight);
+		__m256 Xx8 = _mm256_add_ps(_mm256_setr_ps(-7.5f, -6.5f, -5.5f, -4.5f, -3.5f, -2.5f, -1.5f, -0.5f), _mm256_set1_ps(f4(maxX - 8)));
+		for (i32 X = maxX - 8; X >= minX; X -= 8) {
+			Xx8 = _mm256_sub_ps(Xx8, eight);
 			__m256 dx = _mm256_sub_ps(Xx8, originX);
 			__m256 dy = _mm256_sub_ps(Yx8, originY);
 			__m256 u = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, xAX), _mm256_mul_ps(dy, xAY)), uCfx8);
@@ -651,21 +658,10 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			outputG = _mm256_sqrt_ps(outputG);
 			outputB = _mm256_sqrt_ps(outputB);
 
-#if 0
-			/*__m256i outputRInt = _mm256_set_epi32(0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8);
-			__m256i outputGInt = _mm256_set_epi32(0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8);
-			__m256i outputAInt = _mm256_set_epi32(0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8);
-			__m256i outputARGB = _mm256_set_epi32(0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8);*/
-			__m256i outputRInt = _mm256_set1_epi32(255);
-			__m256i outputGInt = _mm256_set1_epi32(0);
-			__m256i outputAInt = _mm256_set1_epi32(255);
-			__m256i outputARGB = _mm256_set1_epi32(255);
-#else
 			__m256i outputRInt = _mm256_cvtps_epi32(outputR);
 			__m256i outputGInt = _mm256_cvtps_epi32(outputG);
 			__m256i outputAInt = _mm256_cvtps_epi32(outputA);
 			__m256i outputARGB = _mm256_cvtps_epi32(outputB);
-#endif
 
 			// TODO: Use blend instead of masks and check result
 			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputGInt, 8));
@@ -676,13 +672,17 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 				_mm256_andnot_si256(shouldFill, dest_ARGBi)
 			);
 			_mm256_storeu_si256(ptrcast(__m256i, dstPixel), outputARGB);
-			dstPixel += 8;
+			dstPixel -= 8;
 		}
 		
-		row += bitmap.pitch;
+		row += 2 * bitmap.pitch;
 	}
 	LLVM_MCA_END(opt_render_rect);
-	END_TIMED_SECTION_COUNTED(FillPixel, (maxY - minY) * (maxX - minX));
+	u32 pixelCount = 0;
+	if (maxY >= minY && maxX >= minX) {
+		pixelCount = ((maxY - minY) * (maxX - minX)) / 2;
+	}
+	END_TIMED_SECTION_COUNTED(FillPixel, pixelCount);
 	END_TIMED_SECTION(RenderRectangleOptimized);
 }
 
@@ -829,7 +829,9 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 #if 0
 				RenderRectangleSlowly(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, 0, 0, 0, 0);
 #else
-				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap);
+				Rect2i clipRect = { 128, 128, 256, 256 };
+				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, false, clipRect);
+				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, true, clipRect);
 #endif
 			}
 			relativeRenderAddress += sizeof(RenderCallBitmap);

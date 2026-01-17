@@ -456,6 +456,42 @@ f32 Squared(f32 A) {
 	return A * A;
 }
 
+struct Rect2i {
+	i32 minX, minY, maxX, maxY;
+};
+
+inline
+Rect2i InversedInfinityRect2i() {
+	Rect2i result;
+	result.minY = I32_MAX;
+	result.maxY = -I32_MAX;
+	result.minX = I32_MAX;
+	result.maxX = -I32_MAX;
+	return result;
+}
+
+inline
+Rect2i Intersection(Rect2i A, Rect2i B) {
+	Rect2i result;
+	result.minY = Maximum(A.minY, B.minY);
+	result.minX = Maximum(A.minX, B.minX);
+	result.maxY = Minimum(A.maxY, B.maxY);
+	result.maxX = Minimum(A.maxX, B.maxX);
+	return result;
+}
+
+inline
+Rect2i Union(Rect2i A, Rect2i B) {
+	Rect2i result;
+	result.minY = Minimum(A.minY, B.minY);
+	result.minX = Minimum(A.minX, B.minX);
+	result.maxY = Maximum(A.maxY, B.maxY);
+	result.maxX = Maximum(A.maxX, B.maxX);
+	return result;
+}
+
+
+
 struct Rect2 {
 	V2 min;
 	V2 max;
