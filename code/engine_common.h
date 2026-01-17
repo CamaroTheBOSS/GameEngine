@@ -55,7 +55,13 @@
 #define U32_MAX u4(0xFFFFFFFF)
 #define I32_MAX i4(U32_MAX >> 1)
 #define F32_MAX f4(U32_MAX)
-
+#if COMPILER_LLVM == 1
+#define LLVM_MCA_BEGIN(name) __asm volatile("# LLVM-MCA-BEGIN " #name:::"memory");
+#define LLVM_MCA_END(name) __asm volatile("# LLVM-MCA-END " #name:::"memory");
+#else
+	#define LLVM_MCA_BEGIN(name)
+	#define LLVM_MCA_END(name)
+#endif
 
 typedef uint8_t u8;
 typedef uint16_t u16;

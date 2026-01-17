@@ -448,7 +448,7 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 internal
 void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color, LoadedBitmap& texture)
 {
-	BEGIN_TIMED_SECTION(RenderRectangleSlowly);
+	BEGIN_TIMED_SECTION(RenderRectangleOptimized);
 	V2 points[4] = {
 		origin,
 		origin + xAxis,
@@ -511,11 +511,11 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
 	BEGIN_TIMED_SECTION(FillPixel);
-	__asm volatile("# LLVM-MCA-BEGIN routine":::"memory");
+	LLVM_MCA_BEGIN(opt_render_rect);
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
 		__m256 Yx8 = _mm256_set1_ps(f4(Y) + 0.5f);
-		__m256 Xx8 = _mm256_add_ps(_mm256_setr_ps(0.5f, 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7.5f), _mm256_set1_ps(minX - 8));
+		__m256 Xx8 = _mm256_add_ps(_mm256_setr_ps(-7.5f, -6.5f, -5.5f, -4.5f, -3.5f, -2.5f, -1.5f, -0.5f), _mm256_set1_ps(f4(minX)));
 		for (i32 X = minX; X < maxX; X += 8) {
 			Xx8 = _mm256_add_ps(Xx8, eight);
 			__m256 dx = _mm256_sub_ps(Xx8, originX);
@@ -681,9 +681,9 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 		
 		row += bitmap.pitch;
 	}
-	__asm volatile("# LLVM-MCA-END routine":::"memory");
+	LLVM_MCA_END(opt_render_rect);
 	END_TIMED_SECTION_COUNTED(FillPixel, (maxY - minY) * (maxX - minX));
-	END_TIMED_SECTION(RenderRectangleSlowly);
+	END_TIMED_SECTION(RenderRectangleOptimized);
 }
 
 

@@ -74,6 +74,7 @@ typedef DEBUG_FREE_FILE(debug_free_file);
 enum DebugPerformanceCountersType {
 	DPCT_GameMainLoop,
 	DPCT_RenderRectangleSlowly,
+	DPCT_RenderRectangleOptimized,
 	DPCT_FillPixel
 };
 struct DebugPerformanceCounters {
