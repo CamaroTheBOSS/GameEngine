@@ -485,6 +485,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	__m256i zeroTo7 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
 	__m256 zero = _mm256_set1_ps(0.f);
 	__m256 one = _mm256_set1_ps(1.0f);
+	__m256 u16max = _mm256_set1_ps(Squared(255.f));
 	__m256i onei = _mm256_set1_epi32(1);
 	__m256 o255 = _mm256_set1_ps(255.f);
 	__m256 inv255wide = _mm256_set1_ps(1.f / 255.f);
@@ -506,19 +507,20 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	__m256 colorG = _mm256_set1_ps(color.G);
 	__m256 colorB = _mm256_set1_ps(color.B);
 	__m256i pitchWide = _mm256_set1_epi32(pitch);
+	__m256 eight = _mm256_set1_ps(8.f);
 #define E(mm, i) ptrcast(f32, &mm)[i]
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
 	BEGIN_TIMED_SECTION(FillPixel);
+	__asm volatile("# LLVM-MCA-BEGIN routine":::"memory");
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
-		__m256 Yx8 = _mm256_setr_m128(_mm_set_ps1(f4(Y)), _mm_set_ps1(f4(Y)));
+		__m256 Yx8 = _mm256_set1_ps(f4(Y) + 0.5f);
+		__m256 Xx8 = _mm256_add_ps(_mm256_setr_ps(0.5f, 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7.5f), _mm256_set1_ps(minX - 8));
 		for (i32 X = minX; X < maxX; X += 8) {
-			__m256 Xx8 = _mm256_setr_ps(f4(X), f4(X + 1), f4(X + 2), f4(X + 3), f4(X + 4), f4(X + 5), f4(X + 6), f4(X + 7));
-			__m256 pointY = _mm256_add_ps(Yx8, half);
-			__m256 pointX = _mm256_add_ps(Xx8, half);
-			__m256 dx = _mm256_sub_ps(pointX, originX);
-			__m256 dy = _mm256_sub_ps(pointY, originY);
+			Xx8 = _mm256_add_ps(Xx8, eight);
+			__m256 dx = _mm256_sub_ps(Xx8, originX);
+			__m256 dy = _mm256_sub_ps(Yx8, originY);
 			__m256 u = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, xAX), _mm256_mul_ps(dy, xAY)), uCfx8);
 			__m256 v = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, yAX), _mm256_mul_ps(dy, yAY)), vCfx8);
 			__m256i shouldFill = _mm256_castps_si256(
@@ -585,34 +587,22 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256 destG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(dest_ARGBi, 8), maskFF));
 			__m256 destB = _mm256_cvtepi32_ps(_mm256_and_si256(dest_ARGBi, maskFF));
 
-			// srgb255 to linear1
-			texelAR = _mm256_mul_ps(inv255wide, texelAR);
-			texelAG = _mm256_mul_ps(inv255wide, texelAG);
-			texelAB = _mm256_mul_ps(inv255wide, texelAB);
+			// srgb255 to linearRGB255 and linearA1
 			texelAA = _mm256_mul_ps(inv255wide, texelAA);
 			texelAR = _mm256_mul_ps(texelAR, texelAR);
 			texelAG = _mm256_mul_ps(texelAG, texelAG);
 			texelAB = _mm256_mul_ps(texelAB, texelAB);
 
-			texelBR = _mm256_mul_ps(inv255wide, texelBR);
-			texelBG = _mm256_mul_ps(inv255wide, texelBG);
-			texelBB = _mm256_mul_ps(inv255wide, texelBB);
 			texelBA = _mm256_mul_ps(inv255wide, texelBA);
 			texelBR = _mm256_mul_ps(texelBR, texelBR);
 			texelBG = _mm256_mul_ps(texelBG, texelBG);
 			texelBB = _mm256_mul_ps(texelBB, texelBB);
 
-			texelCR = _mm256_mul_ps(inv255wide, texelCR);
-			texelCG = _mm256_mul_ps(inv255wide, texelCG);
-			texelCB = _mm256_mul_ps(inv255wide, texelCB);
 			texelCA = _mm256_mul_ps(inv255wide, texelCA);
 			texelCR = _mm256_mul_ps(texelCR, texelCR);
 			texelCG = _mm256_mul_ps(texelCG, texelCG);
 			texelCB = _mm256_mul_ps(texelCB, texelCB);
 
-			texelDR = _mm256_mul_ps(inv255wide, texelDR);
-			texelDG = _mm256_mul_ps(inv255wide, texelDG);
-			texelDB = _mm256_mul_ps(inv255wide, texelDB);
 			texelDA = _mm256_mul_ps(inv255wide, texelDA);
 			texelDR = _mm256_mul_ps(texelDR, texelDR);
 			texelDG = _mm256_mul_ps(texelDG, texelDG);
@@ -641,21 +631,16 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			texelB = _mm256_mul_ps(texelB, colorB);
 
 			// Clamp
-
 			texelA = _mm256_max_ps(texelA, zero);
 			texelR = _mm256_max_ps(texelR, zero);
 			texelG = _mm256_max_ps(texelG, zero);
 			texelB = _mm256_max_ps(texelB, zero);
 			texelA = _mm256_min_ps(texelA, one);
-			texelR = _mm256_min_ps(texelR, one);
-			texelG = _mm256_min_ps(texelG, one);
-			texelB = _mm256_min_ps(texelB, one);
+			texelR = _mm256_min_ps(texelR, u16max);
+			texelG = _mm256_min_ps(texelG, u16max);
+			texelB = _mm256_min_ps(texelB, u16max);
 
-			// Dest from SRGB255 to linear1
-			destR = _mm256_mul_ps(inv255wide, destR);
-			destG = _mm256_mul_ps(inv255wide, destG);
-			destB = _mm256_mul_ps(inv255wide, destB);
-			destA = _mm256_mul_ps(inv255wide, destA);
+			// Dest from SRGB255 to linear255
 			destR = _mm256_mul_ps(destR, destR);
 			destG = _mm256_mul_ps(destG, destG);
 			destB = _mm256_mul_ps(destB, destB);
@@ -668,10 +653,13 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256 outputA = _mm256_add_ps(texelA, _mm256_mul_ps(invAlpha, destA));
 
 			// Back to SRGB255
-			outputR = _mm256_mul_ps(o255, _mm256_sqrt_ps(outputR));
+			/*outputR = _mm256_mul_ps(o255, _mm256_sqrt_ps(outputR));
 			outputG = _mm256_mul_ps(o255, _mm256_sqrt_ps(outputG));
 			outputB = _mm256_mul_ps(o255, _mm256_sqrt_ps(outputB));
-			outputA = _mm256_mul_ps(o255, outputA);
+			outputA = _mm256_mul_ps(o255, outputA);*/
+			outputR = _mm256_sqrt_ps(outputR);
+			outputG = _mm256_sqrt_ps(outputG);
+			outputB = _mm256_sqrt_ps(outputB);
 
 #if 0
 			/*__m256i outputRInt = _mm256_set_epi32(0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8);
@@ -703,6 +691,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 		
 		row += bitmap.pitch;
 	}
+	__asm volatile("# LLVM-MCA-END routine":::"memory");
 	END_TIMED_SECTION_COUNTED(FillPixel, (maxY - minY) * (maxX - minX));
 	END_TIMED_SECTION(RenderRectangleSlowly);
 }
