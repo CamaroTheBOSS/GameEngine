@@ -491,7 +491,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	__m256 inv255wide = _mm256_set1_ps(1.f / 255.f);
 	__m256 uCfx8 = _mm256_set1_ps(uCf);
 	__m256 vCfx8 = _mm256_set1_ps(vCf);
-	__m256 half = _mm256_set1_ps(0.5f);
 	__m256 originX = _mm256_set1_ps(origin.X);
 	__m256 originY = _mm256_set1_ps(origin.Y);
 	__m256 xAX = _mm256_set1_ps(xAxis.X);
@@ -535,7 +534,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 					)
 				)
 			);
-			// TODO: all v/y components can be computed before X loop
 			__m256 texelX = _mm256_mul_ps(u, uWcf);
 			__m256 texelY = _mm256_mul_ps(v, vHcf);
 			__m256i texelXint = _mm256_cvttps_epi32(texelX);
@@ -587,23 +585,19 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			__m256 destG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(dest_ARGBi, 8), maskFF));
 			__m256 destB = _mm256_cvtepi32_ps(_mm256_and_si256(dest_ARGBi, maskFF));
 
-			// srgb255 to linearRGB255 and linearA1
-			texelAA = _mm256_mul_ps(inv255wide, texelAA);
+			// srgb255 to linear255
 			texelAR = _mm256_mul_ps(texelAR, texelAR);
 			texelAG = _mm256_mul_ps(texelAG, texelAG);
 			texelAB = _mm256_mul_ps(texelAB, texelAB);
 
-			texelBA = _mm256_mul_ps(inv255wide, texelBA);
 			texelBR = _mm256_mul_ps(texelBR, texelBR);
 			texelBG = _mm256_mul_ps(texelBG, texelBG);
 			texelBB = _mm256_mul_ps(texelBB, texelBB);
 
-			texelCA = _mm256_mul_ps(inv255wide, texelCA);
 			texelCR = _mm256_mul_ps(texelCR, texelCR);
 			texelCG = _mm256_mul_ps(texelCG, texelCG);
 			texelCB = _mm256_mul_ps(texelCB, texelCB);
 
-			texelDA = _mm256_mul_ps(inv255wide, texelDA);
 			texelDR = _mm256_mul_ps(texelDR, texelDR);
 			texelDG = _mm256_mul_ps(texelDG, texelDG);
 			texelDB = _mm256_mul_ps(texelDB, texelDB);
@@ -635,7 +629,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			texelR = _mm256_max_ps(texelR, zero);
 			texelG = _mm256_max_ps(texelG, zero);
 			texelB = _mm256_max_ps(texelB, zero);
-			texelA = _mm256_min_ps(texelA, one);
+			texelA = _mm256_min_ps(texelA, o255);
 			texelR = _mm256_min_ps(texelR, u16max);
 			texelG = _mm256_min_ps(texelG, u16max);
 			texelB = _mm256_min_ps(texelB, u16max);
@@ -646,17 +640,13 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			destB = _mm256_mul_ps(destB, destB);
 
 			// Blend output
-			__m256 invAlpha = _mm256_sub_ps(one, texelA);
+			__m256 invAlpha = _mm256_sub_ps(one, _mm256_mul_ps(inv255wide, texelA));
 			__m256 outputR = _mm256_add_ps(texelR, _mm256_mul_ps(invAlpha, destR));
 			__m256 outputG = _mm256_add_ps(texelG, _mm256_mul_ps(invAlpha, destG));
 			__m256 outputB = _mm256_add_ps(texelB, _mm256_mul_ps(invAlpha, destB));
 			__m256 outputA = _mm256_add_ps(texelA, _mm256_mul_ps(invAlpha, destA));
 
 			// Back to SRGB255
-			/*outputR = _mm256_mul_ps(o255, _mm256_sqrt_ps(outputR));
-			outputG = _mm256_mul_ps(o255, _mm256_sqrt_ps(outputG));
-			outputB = _mm256_mul_ps(o255, _mm256_sqrt_ps(outputB));
-			outputA = _mm256_mul_ps(o255, outputA);*/
 			outputR = _mm256_sqrt_ps(outputR);
 			outputG = _mm256_sqrt_ps(outputG);
 			outputB = _mm256_sqrt_ps(outputB);
