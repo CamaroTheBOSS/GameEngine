@@ -867,7 +867,7 @@ int CALLBACK WinMain(
 	LPSTR cmdLine,
 	int showCmd
 ) {
-	HANDLE threads[5] = {};
+	HANDLE threads[11] = {};
 	ThreadData datas[ArrayCount(threads)] = {};
 	u32 initialCount = 0;
 	u32 threadCount = ArrayCount(threads);
@@ -879,7 +879,7 @@ int CALLBACK WinMain(
 		LPVOID params = ptrcast(void, data);
 		threads[threadIndex] = CreateThread(0, 0, Win32ThreadProc, params, 0, ptrcast(DWORD, &data->context.threadId));
 	}
-#if 1
+#if 0
 	u32 globalBitmapWidth = 960;
 	u32 globalBitmapHeight = 540;
 #else
