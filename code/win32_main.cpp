@@ -73,12 +73,13 @@ struct ScreenDimension {
 struct PlatformQueueTask {
 	PlatformQueueCallback callback;
 	void* args;
-	u32 done;
 };
 
 struct PlatformQueue {
 	volatile u32 writeIndex;
 	volatile u32 readIndex;
+	volatile u32 tasksTarget;
+	volatile u32 tasksDone;
 	PlatformQueueTask tasks[256];
 	HANDLE semaphore;
 };
@@ -737,7 +738,7 @@ bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue, ThreadContext& con
 		if (visibleReadIndex == actualReadIndex) {
 			PlatformQueueTask* task = queue->tasks + visibleReadIndex;
 			task->callback(task->args, context);
-			InterlockedExchange(ptrcast(volatile LONG, &task->done), 1);
+			InterlockedIncrement(ptrcast(volatile LONG, &queue->tasksDone));
 		}
 		workDone = true;
 	}
@@ -759,25 +760,20 @@ DWORD Win32ThreadProc(LPVOID params) {
 
 internal
 bool Win32WorkInQueueIsDone(PlatformQueue* queue) {
-	return queue->readIndex == queue->writeIndex;
+	return queue->tasksDone == queue->tasksTarget;
 }
 
 bool Win32PushTask(PlatformQueue* queue, PlatformQueueCallback callback, void* args) {
 	u32 taskIndex = queue->writeIndex;
 	PlatformQueueTask* existingTask = queue->tasks + taskIndex;
-	if (!InterlockedCompareExchange(ptrcast(volatile LONG, &existingTask->done), 0, 0))
-	{
-		Assert(false); // No space for new task!
-		return false;
-	}
 	PlatformQueueTask* newTask = queue->tasks + taskIndex;
 	newTask->callback = callback;
 	newTask->args = args;
-	newTask->done = 0;
 	// TODO: Should I just use InterlockedIncrement()? 
 	_WriteBarrier();
 	_mm_sfence();
 	queue->writeIndex = (taskIndex + 1) % ArrayCount(queue->tasks);
+	queue->tasksTarget++;
 	ReleaseSemaphore(queue->semaphore, 1, 0);
 	return true;
 }
@@ -789,17 +785,17 @@ void Win32WaitForQueueCompletion(PlatformQueue* queue) {
 	while (!Win32WorkInQueueIsDone(queue)) {
 		Win32TryPopAndExecuteTaskFromQueue(queue, context);
 	};
+	int breakHere = 5;
 }
 
 internal
 void InitializeQueue(PlatformQueue& queue, DWORD threadCount) {
-	// TODO: Could it be done better than that? For now it is required to exist, because
-	// I need to check whether specific slot is free or not to avoid overriding task which might be
-	// done in the background!!!
-	for (u32 taskIndex = 0; taskIndex < ArrayCount(queue.tasks); taskIndex++) {
-		PlatformQueueTask* task = queue.tasks + taskIndex;
-		task->done = true;
-	}
+	//// TODO: Could it be done better than that? For now it is required to exist, because
+	//// I need to check whether specific slot is free or not to avoid overriding task which might be
+	//// done in the background!!!
+	//for (u32 taskIndex = 0; taskIndex < ArrayCount(queue.tasks); taskIndex++) {
+	//	PlatformQueueTask* task = queue.tasks + taskIndex;
+	//}
 	queue.semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
 }
 
