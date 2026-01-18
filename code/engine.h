@@ -63,7 +63,6 @@ struct FileData {
 	u64 size;
 };
 
-//#if HANDMADE_INTERNAL_BUILD TODO: build only in internal build!
 /* Functionalities served by the platform layer for program layer */
 #define DEBUG_READ_ENTIRE_FILE(name) FileData name(const char* filename)
 #define DEBUG_WRITE_FILE(name) bool name(const char* filename, void* buffer, u64 size)
@@ -92,7 +91,18 @@ struct DebugMemory {
 	debugGlobalMemory->performanceCounters[DPCT_##id].counts += count
 #define END_TIMED_SECTION(id) END_TIMED_SECTION_COUNTED(id, 1)
 DebugMemory* debugGlobalMemory;
-//#endif
+
+// PlatformQueue
+struct ThreadContext {
+	u32 threadId;
+};
+struct PlatformQueue;
+typedef void (*PlatformQueueCallback)(void* data, ThreadContext& context);
+typedef void(*_PlatformWaitForQueueCompletion)(PlatformQueue* queue);
+typedef bool(*_PlatformPushTaskToQueue)(PlatformQueue* queue, PlatformQueueCallback callback, void* args);
+_PlatformWaitForQueueCompletion PlatformWaitForQueueCompletion;
+_PlatformPushTaskToQueue PlatformPushTaskToQueue;
+
 
 /*----------------------------------------------------------------*/
 struct ProgramMemory {
@@ -105,7 +115,12 @@ struct ProgramMemory {
 	u64 transientMemorySize;
 	void* transientMemory;
 
+	PlatformQueue* highPriorityQueue;
+	PlatformQueue* renderQueue;
+
 	DebugMemory debug;
+	_PlatformWaitForQueueCompletion PlatformWaitForQueueCompletion;
+	_PlatformPushTaskToQueue PlatformPushTaskToQueue;
 };
 
 struct PlayerControls {
@@ -118,6 +133,7 @@ struct ProgramState {
 	f32 highFreqBoundHeight;
 	WorldPosition cameraPos;
 	World world;
+	PlatformQueue* highPriorityQueue;
 	
 	u32 playerEntityIndexes[MAX_CONTROLLERS];
 	PlayerControls playerControls[MAX_CONTROLLERS];
@@ -148,6 +164,7 @@ struct TransientState {
 	MemoryArena arena;
 	GroundBuffer groundBuffers[64];
 	bool isInitialized;
+	PlatformQueue* renderQueue;
 
 	EnvironmentMap topEnvMap;
 	EnvironmentMap middleEnvMap;

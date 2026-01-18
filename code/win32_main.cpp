@@ -70,6 +70,24 @@ struct ScreenDimension {
 	int height;
 };
 
+struct PlatformQueueTask {
+	PlatformQueueCallback callback;
+	void* args;
+	u32 done;
+};
+
+struct PlatformQueue {
+	volatile u32 writeIndex;
+	volatile u32 readIndex;
+	PlatformQueueTask tasks[256];
+	HANDLE semaphore;
+};
+
+struct ThreadData {
+	PlatformQueue* queue;
+	ThreadContext context;
+};
+
 static bool globalRunning;
 static BitmapData globalBitmap;
 static Win32State globalWin32State;
@@ -77,6 +95,8 @@ static BITMAPINFO globalBitmapInfo;
 static SoundRenderData globalSoundData;
 static LARGE_INTEGER globalPerformanceFreq;
 WINDOWPLACEMENT globalWindowPos = { sizeof(globalWindowPos) };
+static PlatformQueue globalHighPriorityQueue = {};
+static PlatformQueue globalRenderQueue = {};
 
 /* Some explanation on this code (for dynamic loading XInputGet/SetState() functions from XInput lib):
 	1. Defines are defining actual signature of these functions
@@ -704,6 +724,86 @@ f32 Win32CalculateTimeElapsed(u64 startTime, u64 endTime) {
 }
 
 internal
+bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue, ThreadContext& context) {
+	bool workDone = false;
+	u32 visibleReadIndex = queue->readIndex;
+	if (visibleReadIndex != queue->writeIndex) {
+		u32 nextReadIndex = (visibleReadIndex + 1) % ArrayCount(queue->tasks);
+		u32 actualReadIndex = InterlockedCompareExchange(
+			ptrcast(volatile LONG, &queue->readIndex),
+			nextReadIndex,
+			visibleReadIndex
+		);
+		if (visibleReadIndex == actualReadIndex) {
+			PlatformQueueTask* task = queue->tasks + visibleReadIndex;
+			task->callback(task->args, context);
+			InterlockedExchange(ptrcast(volatile LONG, &task->done), 1);
+		}
+		workDone = true;
+	}
+	return workDone;
+}
+
+DWORD Win32ThreadProc(LPVOID params) {
+	ThreadData* data = ptrcast(ThreadData, params);
+	PlatformQueue* queue = data->queue;
+	ThreadContext& context = data->context;
+	while (true) {
+		if (!Win32TryPopAndExecuteTaskFromQueue(queue, context)) {
+			WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
+		}
+
+	}
+	return 0;
+}
+
+internal
+bool Win32WorkInQueueIsDone(PlatformQueue* queue) {
+	return queue->readIndex == queue->writeIndex;
+}
+
+bool Win32PushTask(PlatformQueue* queue, PlatformQueueCallback callback, void* args) {
+	u32 taskIndex = queue->writeIndex;
+	PlatformQueueTask* existingTask = queue->tasks + taskIndex;
+	if (!InterlockedCompareExchange(ptrcast(volatile LONG, &existingTask->done), 0, 0))
+	{
+		Assert(false); // No space for new task!
+		return false;
+	}
+	PlatformQueueTask* newTask = queue->tasks + taskIndex;
+	newTask->callback = callback;
+	newTask->args = args;
+	newTask->done = 0;
+	// TODO: Should I just use InterlockedIncrement()? 
+	_WriteBarrier();
+	_mm_sfence();
+	queue->writeIndex = (taskIndex + 1) % ArrayCount(queue->tasks);
+	ReleaseSemaphore(queue->semaphore, 1, 0);
+	return true;
+}
+
+void Win32WaitForQueueCompletion(PlatformQueue* queue) {
+	ThreadContext context = {};
+	// TODO: How to make that more sane?
+	context.threadId = 69;
+	while (!Win32WorkInQueueIsDone(queue)) {
+		Win32TryPopAndExecuteTaskFromQueue(queue, context);
+	};
+}
+
+internal
+void InitializeQueue(PlatformQueue& queue, DWORD threadCount) {
+	// TODO: Could it be done better than that? For now it is required to exist, because
+	// I need to check whether specific slot is free or not to avoid overriding task which might be
+	// done in the background!!!
+	for (u32 taskIndex = 0; taskIndex < ArrayCount(queue.tasks); taskIndex++) {
+		PlatformQueueTask* task = queue.tasks + taskIndex;
+		task->done = true;
+	}
+	queue.semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
+}
+
+internal
 ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	ProgramMemory programMemory = {};
 	programMemory.debug.freeFile = DebugFreeFile;
@@ -733,6 +833,10 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 		MEM_RESERVE | MEM_COMMIT,
 		PAGE_READWRITE
 	);
+	programMemory.PlatformPushTaskToQueue = Win32PushTask;
+	programMemory.PlatformWaitForQueueCompletion = Win32WaitForQueueCompletion;
+	programMemory.highPriorityQueue = &globalHighPriorityQueue;
+	programMemory.renderQueue = &globalRenderQueue;
 	return programMemory;
 }
 
@@ -761,178 +865,24 @@ u64 ConcatenateString(char* first, u64 firstSize, char* second, u64 secondSize, 
 	return length;
 }
 
-struct ThreadContext {
-	u32 threadId;
-};
-
-typedef void (*PlatformQueueCallback)(void* data, ThreadContext& context);
-
-struct PlatformQueueTask {
-	PlatformQueueCallback callback;
-	void* args;
-	u32 done;
-};
-
-struct PlatformQueue {
-	volatile u32 writeIndex;
-	volatile u32 readIndex;
-	PlatformQueueTask tasks[16];
-	HANDLE semaphore;
-};
-
-struct ThreadData {
-	PlatformQueue* queue;
-	ThreadContext context;
-};
-
-struct PrintStringArgs {
-	u32 number;
-};
-
-internal
-void PrintString(void* args, ThreadContext& context) {
-	PrintStringArgs* data = ptrcast(PrintStringArgs, args);
-	char buf[256];
-	sprintf_s(buf, "[Thread %d] START Task with number: %d\n", context.threadId, data->number);
-	OutputDebugStringA(buf);
-	Sleep(1000);
-}
-
-internal
-bool TryPopAndExecuteTaskFromQueue(PlatformQueue* queue, ThreadContext& context) {
-	bool workDone = false;
-	u32 visibleReadIndex = queue->readIndex;
-	if (visibleReadIndex != queue->writeIndex) {
-		u32 nextReadIndex = (visibleReadIndex + 1) % ArrayCount(queue->tasks);
-		u32 actualReadIndex = InterlockedCompareExchange(
-			ptrcast(volatile LONG, &queue->readIndex),
-			nextReadIndex,
-			visibleReadIndex
-		);
-		if (visibleReadIndex == actualReadIndex) {
-			PlatformQueueTask* task = queue->tasks + visibleReadIndex;
-			task->callback(task->args, context);
-			InterlockedExchange(ptrcast(volatile LONG, &task->done), 1);
-		}
-		workDone = true;
-	}
-	return workDone;
-}
-
-DWORD ThreadProc(LPVOID params) {
-	ThreadData* data = ptrcast(ThreadData, params);
-	PlatformQueue* queue = data->queue;
-	ThreadContext& context = data->context;
-	while (true) {
-		if (!TryPopAndExecuteTaskFromQueue(queue, context)) {
-			WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
-		}
-		
-	}
-	return 0;
-}
-
-internal
-bool PushTask(PlatformQueue& queue, PlatformQueueCallback callback, void* args) {
-	u32 taskIndex = queue.writeIndex;
-	PlatformQueueTask* existingTask = queue.tasks + taskIndex;
-	if (!InterlockedCompareExchange(ptrcast(volatile LONG, &existingTask->done), 0, 0)) 
-	{
-		Assert(false); // No space for new task!
-		return false;
-	}
-	PlatformQueueTask* newTask = queue.tasks + taskIndex;
-	newTask->callback = callback;
-	newTask->args = args;
-	newTask->done = 0;
-	// TODO: Should I just use InterlockedIncrement()? 
-	_WriteBarrier();
-	_mm_sfence();
-	queue.writeIndex = (taskIndex + 1) % ArrayCount(queue.tasks);
-	ReleaseSemaphore(queue.semaphore, 1, 0);
-	return true;
-}
-
-internal
-bool WorkInQueueIsDone(PlatformQueue& queue) {
-	return queue.readIndex == queue.writeIndex;
-}
-
-void WaitForQueueCompletion(PlatformQueue& queue) {
-	ThreadContext context = {};
-	context.threadId = 69;
-	while (!WorkInQueueIsDone(queue)) {
-		TryPopAndExecuteTaskFromQueue(&queue, context);
-	};
-}
-
-internal
-void InitializeQueue(PlatformQueue& queue) {
-	// TODO: Could it be done better than that? For now it is required to exist, because
-	// I need to check whether specific slot is free or not to avoid overriding task which might be
-	// done in the background!!!
-	for (u32 taskIndex = 0; taskIndex < ArrayCount(queue.tasks); taskIndex++) {
-		PlatformQueueTask* task = queue.tasks + taskIndex;
-		task->done = true;
-	}
-}
-
-PlatformQueue globalQueue = {};
-
 int CALLBACK WinMain(
 	HINSTANCE instance,
 	HINSTANCE prevInstance,
 	LPSTR cmdLine,
 	int showCmd
 ) {
-	
-	ThreadData datas[5] = {};
 	HANDLE threads[5] = {};
+	ThreadData datas[ArrayCount(threads)] = {};
 	u32 initialCount = 0;
 	u32 threadCount = ArrayCount(threads);
-	InitializeQueue(globalQueue);
-	globalQueue.semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
+	InitializeQueue(globalHighPriorityQueue, threadCount);
+	InitializeQueue(globalRenderQueue, 1);
 	for (u32 threadIndex = 0; threadIndex < ArrayCount(datas); threadIndex++) {
 		ThreadData* data = datas + threadIndex;
-		data->queue = &globalQueue;
+		data->queue = &globalHighPriorityQueue;
 		LPVOID params = ptrcast(void, data);
-		threads[threadIndex] = CreateThread(0, 0, ThreadProc, params, 0, ptrcast(DWORD, &data->context.threadId));
+		threads[threadIndex] = CreateThread(0, 0, Win32ThreadProc, params, 0, ptrcast(DWORD, &data->context.threadId));
 	}
-	PrintStringArgs args[20] = {};
-	for (u32 argsIndex = 0; argsIndex < ArrayCount(args); argsIndex++) {
-		PrintStringArgs* argsEntry = args + argsIndex;
-		argsEntry->number = argsIndex + 1;
-		if ((argsIndex + 1) > 10) {
-			argsEntry->number = argsIndex + 81;
-		}
-	}
-	OutputDebugStringA("Sleeping for 1500ms before adding tasks\n");
-	Sleep(1500);
-	OutputDebugStringA("Adding tasks\n");
-	PushTask(globalQueue, PrintString, &args[0]);
-	PushTask(globalQueue, PrintString, &args[1]);
-	PushTask(globalQueue, PrintString, &args[2]);
-	PushTask(globalQueue, PrintString, &args[3]);
-	PushTask(globalQueue, PrintString, &args[4]);
-	PushTask(globalQueue, PrintString, &args[5]);
-	PushTask(globalQueue, PrintString, &args[6]);
-	PushTask(globalQueue, PrintString, &args[7]);
-	PushTask(globalQueue, PrintString, &args[8]);
-	PushTask(globalQueue, PrintString, &args[9]);
-	Sleep(1500);
-	OutputDebugStringA("Adding tasks 2\n");
-	PushTask(globalQueue, PrintString, &args[10]);
-	PushTask(globalQueue, PrintString, &args[11]);
-	PushTask(globalQueue, PrintString, &args[12]);
-	PushTask(globalQueue, PrintString, &args[13]);
-	PushTask(globalQueue, PrintString, &args[14]);
-	PushTask(globalQueue, PrintString, &args[15]);
-	PushTask(globalQueue, PrintString, &args[16]);
-	PushTask(globalQueue, PrintString, &args[17]);
-	PushTask(globalQueue, PrintString, &args[18]);
-	PushTask(globalQueue, PrintString, &args[19]);
-	WaitForQueueCompletion(globalQueue);
-
 #if 1
 	u32 globalBitmapWidth = 960;
 	u32 globalBitmapHeight = 540;

@@ -964,6 +964,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		AddMonster(state, world, 17 / 2, 7, 0);
 		AddWall(state, world, 17 / 2, 4, 0);
 #endif
+		PlatformPushTaskToQueue = memory.PlatformPushTaskToQueue;
+		PlatformWaitForQueueCompletion = memory.PlatformWaitForQueueCompletion;
+		state->highPriorityQueue = memory.highPriorityQueue;
 		state->isInitialized = true;
 	}
 	
@@ -983,6 +986,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			groundBuffer->pos = NullPosition();
 		}
 #endif
+		tranState->renderQueue = memory.renderQueue;
 		tranState->isInitialized = true;
 	}
 
@@ -1340,7 +1344,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #if 0
 	RenderGroupToBuffer(renderGroup, screenBitmap);
 #else
-	TiledRenderGroupToBuffer(renderGroup, screenBitmap);
+	TiledRenderGroupToBuffer(renderGroup, screenBitmap, state->highPriorityQueue);
 #endif
 
 	EndSimulation(*simRegion, world);

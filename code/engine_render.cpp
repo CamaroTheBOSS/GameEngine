@@ -911,23 +911,39 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i cli
 	}
 }
 
+struct RenderTiledArgs {
+	Rect2i clipRect;
+	RenderGroup* group;
+	LoadedBitmap* dstBuffer;
+};
+
+void RenderTiled(void* data, ThreadContext& context) {
+	RenderTiledArgs* args = ptrcast(RenderTiledArgs, data);
+	RenderGroupToBuffer(*args->group, *args->dstBuffer, args->clipRect, false);
+	RenderGroupToBuffer(*args->group, *args->dstBuffer, args->clipRect, true);
+}
+
 internal
-void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
+void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue) {
 	constexpr u32 tileCountX = 4;
 	constexpr u32 tileCountY = 4;
+	RenderTiledArgs workArgs[tileCountX * tileCountY] = {};
+
 	u32 tileWidth = dstBuffer.width / tileCountX;
 	u32 tileHeight = dstBuffer.height / tileCountY;
 	for (u32 tileY = 0; tileY < tileCountY; tileY++) {
 		for (u32 tileX = 0; tileX < tileCountX; tileX++) {
-			Rect2i clipRect = {};
-			clipRect.minY = tileY * tileHeight + 8;
-			clipRect.maxY = clipRect.minY + tileHeight - 8;
-			clipRect.minX = tileX * tileWidth + 8;
-			clipRect.maxX = clipRect.minX + tileWidth - 8;
-			RenderGroupToBuffer(group, dstBuffer, clipRect, true);
-			RenderGroupToBuffer(group, dstBuffer, clipRect, false);
+			RenderTiledArgs* args = workArgs + tileY * tileCountY + tileX;
+			args->clipRect.minY = tileY * tileHeight + 8;
+			args->clipRect.maxY = args->clipRect.minY + tileHeight - 8;
+			args->clipRect.minX = tileX * tileWidth + 8;
+			args->clipRect.maxX = args->clipRect.minX + tileWidth - 8;
+			args->dstBuffer = &dstBuffer;
+			args->group = &group;
+			PlatformPushTaskToQueue(queue, RenderTiled, args);
 		}
 	}
+	PlatformWaitForQueueCompletion(queue);
 }
 
 internal
