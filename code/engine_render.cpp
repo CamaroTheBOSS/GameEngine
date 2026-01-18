@@ -176,28 +176,50 @@ V4 SampleEnvMap(EnvironmentMap envMap, V2 screenSpaceUV, V3 rayDirection) {
 }
 
 internal
-void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color) {
-	i32 minX = RoundF32ToI32(start.X);
-	i32 maxX = RoundF32ToI32(end.X);
-	i32 minY = RoundF32ToI32(start.Y);
-	i32 maxY = RoundF32ToI32(end.Y);
-	if (minX < 0) {
-		minX = 0;
+void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color, bool even, Rect2i clipRect) {
+	Rect2i fillRect;
+	fillRect.minY = FloorF32ToI32(start.Y);
+	fillRect.maxY = CeilF32ToI32(end.Y) + 1;
+	fillRect.minX = FloorF32ToI32(start.X);
+	fillRect.maxX = CeilF32ToI32(end.X) + 1;
+	clipRect = Intersection(clipRect, { 0, 0, bitmap.width, bitmap.height });
+	fillRect = Intersection(fillRect, clipRect);
+#if 0 // TODO SIMD rectangle drawing
+	i32 fillWidth = fillRect.maxX - fillRect.minX;
+	i32 fillRectAlignment = fillWidth & 7;
+	__m256i startupClipMask = _mm256_set1_epi8(-1);
+	if (fillRectAlignment) {
+		const i32 alignment = 8 - fillRectAlignment;
+		fillWidth += alignment;
+		fillRect.minX = fillRect.maxX - fillWidth;
+		__m128i startupClipMaskLow = _mm_set1_epi8(-1);
+		__m128i startupClipMaskHigh = _mm_set1_epi8(-1);
+		switch (alignment) {
+		case 1: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 1 * 4); } break;
+		case 2: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 2 * 4); } break;
+		case 3: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 3 * 4); } break;
+		case 4: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 4 * 4); } break;
+		default: { startupClipMaskLow = _mm_set1_epi8(0); } break;
+		}
+		switch (alignment) {
+		case 5: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 1 * 4); } break;
+		case 6: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 2 * 4); } break;
+		case 7: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 3 * 4); } break;
+		}
+		startupClipMask = _mm256_setr_m128i(startupClipMaskLow, startupClipMaskHigh);
 	}
-	if (minY < 0) {
-		minY = 0;
+#endif
+	i32 minY = fillRect.minY;
+	i32 maxY = fillRect.maxY;
+	i32 minX = fillRect.minX;
+	i32 maxX = fillRect.maxX;
+	if (even == (minY & 1)) {
+		minY++;
 	}
-	if (maxX > scast(i32, bitmap.width)) {
-		maxX = scast(i32, bitmap.width);
-	}
-	if (maxY > scast(i32, bitmap.height)) {
-		maxY = scast(i32, bitmap.height);
-	}
-	// TODO: Color modulation + premultiplied alpha?
-
 	u8* dstRow = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	u32 rowAdvance = 2 * bitmap.pitch;
 	color.RGB *= color.A;
-	for (i32 Y = minY; Y < maxY; Y++) {
+	for (i32 Y = minY; Y < maxY; Y += 2) {
 		u32* dstPixel = ptrcast(u32, dstRow);
 		for (i32 X = minX; X < maxX; X++) {
 			V4 dest = {
@@ -221,11 +243,12 @@ void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color
 
 			dstPixel++;
 		}
-		dstRow += bitmap.pitch;
+		dstRow += rowAdvance;
 	}
 }
 
 
+// TODO: Do I really need Opaque version for faster rendering when I know alpha is 255.f?
 internal
 void RenderRectangleOpaque(LoadedBitmap& bitmap, V2 start, V2 end, V3 color) {
 	i32 minX = RoundF32ToI32(start.X);
@@ -819,7 +842,7 @@ EntityProjectedParams CalculatePerspectiveProjection(ProjectionProps& projection
 }
 
 internal
-void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
+void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i clipRect, bool even) {
 	V2 screenCenter = { dstBuffer.width / 2.f,
 						dstBuffer.height / 2.f };
 	u32 relativeRenderAddress = 0;
@@ -830,7 +853,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		switch (header->type) {
 		case RenderCallType_RenderCallClear: {
 			RenderCallClear* call = ptrcast(RenderCallClear, group.pushBuffer + relativeRenderAddress);
-			RenderRectangleTransparent(dstBuffer, V2{ 0, 0 }, V2i(dstBuffer.width, dstBuffer.height), call->color);
+			RenderRectangleTransparent(dstBuffer, V2{ 0, 0 }, V2i(dstBuffer.width, dstBuffer.height), call->color, even, clipRect);
 			relativeRenderAddress += sizeof(RenderCallClear);
 		} break;
 		case RenderCallType_RenderCallRectangle: {
@@ -858,14 +881,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 				V2 xAxis = V2{ params.size.X, 0 };
 				V2 yAxis = V2{ 0, params.size.Y };
 				V2 origin = params.center - Hadamard(call->bitmap->align, params.size);
-#if 0
-				RenderRectangleSlowly(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, 0, 0, 0, 0);
-#else
-				//Rect2i clipRect = { 384, 256, 512, 384 };
-				Rect2i clipRect = { 0, 0, 960, 540 };
-				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, false, clipRect);
-				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, true, clipRect);
-#endif
+				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, even, clipRect);
 			}
 			relativeRenderAddress += sizeof(RenderCallBitmap);
 		} break;
@@ -893,6 +909,32 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 		}
 		Assert(relativeAddressBeforeSwitchCase < relativeRenderAddress);
 	}
+}
+
+internal
+void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
+	constexpr u32 tileCountX = 4;
+	constexpr u32 tileCountY = 4;
+	u32 tileWidth = dstBuffer.width / tileCountX;
+	u32 tileHeight = dstBuffer.height / tileCountY;
+	for (u32 tileY = 0; tileY < tileCountY; tileY++) {
+		for (u32 tileX = 0; tileX < tileCountX; tileX++) {
+			Rect2i clipRect = {};
+			clipRect.minY = tileY * tileHeight + 8;
+			clipRect.maxY = clipRect.minY + tileHeight - 8;
+			clipRect.minX = tileX * tileWidth + 8;
+			clipRect.maxX = clipRect.minX + tileWidth - 8;
+			RenderGroupToBuffer(group, dstBuffer, clipRect, true);
+			RenderGroupToBuffer(group, dstBuffer, clipRect, false);
+		}
+	}
+}
+
+internal
+void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
+	Rect2i clipRect = { 0, 0, dstBuffer.width, dstBuffer.height };
+	RenderGroupToBuffer(group, dstBuffer, clipRect, true);
+	RenderGroupToBuffer(group, dstBuffer, clipRect, false);
 }
 
 inline

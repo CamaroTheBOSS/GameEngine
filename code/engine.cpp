@@ -1337,8 +1337,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 #endif
 	
-
+#if 0
 	RenderGroupToBuffer(renderGroup, screenBitmap);
+#else
+	TiledRenderGroupToBuffer(renderGroup, screenBitmap);
+#endif
 
 	EndSimulation(*simRegion, world);
 	EndTempMemory(renderMemory);
