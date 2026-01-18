@@ -789,6 +789,7 @@ struct PrintStringArgs {
 	u32 number;
 };
 
+internal
 void PrintString(void* args, ThreadContext& context) {
 	PrintStringArgs* data = ptrcast(PrintStringArgs, args);
 	char buf[256];
@@ -797,6 +798,7 @@ void PrintString(void* args, ThreadContext& context) {
 	Sleep(1000);
 }
 
+internal
 bool TryPopAndExecuteTaskFromQueue(PlatformQueue* queue, ThreadContext& context) {
 	bool workDone = false;
 	u32 visibleReadIndex = queue->readIndex;
@@ -830,6 +832,7 @@ DWORD ThreadProc(LPVOID params) {
 	return 0;
 }
 
+internal
 bool PushTask(PlatformQueue& queue, PlatformQueueCallback callback, void* args) {
 	u32 taskIndex = queue.writeIndex;
 	PlatformQueueTask* existingTask = queue.tasks + taskIndex;
@@ -850,6 +853,7 @@ bool PushTask(PlatformQueue& queue, PlatformQueueCallback callback, void* args) 
 	return true;
 }
 
+internal
 bool WorkInQueueIsDone(PlatformQueue& queue) {
 	return queue.readIndex == queue.writeIndex;
 }
@@ -862,6 +866,7 @@ void WaitForQueueCompletion(PlatformQueue& queue) {
 	};
 }
 
+internal
 void InitializeQueue(PlatformQueue& queue) {
 	// TODO: Could it be done better than that? For now it is required to exist, because
 	// I need to check whether specific slot is free or not to avoid overriding task which might be
