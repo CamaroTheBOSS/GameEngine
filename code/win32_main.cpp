@@ -761,12 +761,131 @@ u64 ConcatenateString(char* first, u64 firstSize, char* second, u64 secondSize, 
 	return length;
 }
 
+struct PlatformQueueTask {
+	u32 number;
+	u32 done;
+};
+
+struct PlatformQueue {
+	volatile u32 writeIndex;
+	volatile u32 readIndex;
+	PlatformQueueTask tasks[8];
+	HANDLE semaphore;
+};
+
+struct ThreadData {
+	PlatformQueue* queue;
+	u32 threadId;
+};
+
+DWORD ThreadProc(LPVOID params) {
+	ThreadData* data = ptrcast(ThreadData, params);
+	PlatformQueue* queue = data->queue;
+	while (true) {
+		u32 visibleReadIndex = queue->readIndex;
+		if (visibleReadIndex != queue->writeIndex) {
+			u32 nextReadIndex = (visibleReadIndex + 1) % ArrayCount(queue->tasks);
+			u32 actualReadIndex = InterlockedCompareExchange(
+				ptrcast(volatile LONG, &queue->readIndex),
+				nextReadIndex,
+				visibleReadIndex
+			);
+			if (visibleReadIndex == actualReadIndex) {
+				PlatformQueueTask* task = queue->tasks + visibleReadIndex;
+				char buf[256];
+				sprintf_s(buf, "[Thread %d] Task with number: %d\n", data->threadId, task->number);
+				OutputDebugStringA(buf);
+				Sleep(1000);
+				InterlockedExchange(ptrcast(volatile LONG, &task->done), 1);
+			}
+		}
+		else {
+			WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
+		}
+		
+	}
+	return 0;
+}
+
+bool PushTask(PlatformQueue& queue, PlatformQueueTask task) {
+	u32 taskIndex = queue.writeIndex;
+	PlatformQueueTask* existingTask = queue.tasks + taskIndex;
+	if (!InterlockedCompareExchange(ptrcast(volatile LONG, &existingTask->done), 0, 0)) 
+	{
+		Assert(false); // No space for new task!
+		return false;
+	}
+	queue.tasks[taskIndex] = task;
+	// TODO: Should I just use InterlockedIncrement()? 
+	_WriteBarrier();
+	_mm_sfence();
+	queue.writeIndex = (taskIndex + 1) % ArrayCount(queue.tasks);
+	ReleaseSemaphore(queue.semaphore, 1, 0);
+	return true;
+}
+
+void InitializeQueue(PlatformQueue& queue) {
+	// TODO: Could it be done better than that? For now it is required to exist, because
+	// I need to check whether specific slot is free or not to avoid overriding task which might be
+	// done in the background!!!
+	for (u32 taskIndex = 0; taskIndex < ArrayCount(queue.tasks); taskIndex++) {
+		PlatformQueueTask* task = queue.tasks + taskIndex;
+		task->done = true;
+	}
+}
+
+PlatformQueue globalQueue = {};
+
+
+
 int CALLBACK WinMain(
 	HINSTANCE instance,
 	HINSTANCE prevInstance,
 	LPSTR cmdLine,
 	int showCmd
 ) {
+	
+	ThreadData datas[5] = {};
+	HANDLE threads[5] = {};
+	u32 initialCount = 0;
+	u32 threadCount = ArrayCount(threads);
+	InitializeQueue(globalQueue);
+	globalQueue.semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
+	for (u32 threadIndex = 0; threadIndex < ArrayCount(datas); threadIndex++) {
+		ThreadData* data = datas + threadIndex;
+		data->threadId = threadIndex;
+		data->queue = &globalQueue;
+		LPVOID params = ptrcast(void, data);
+		u32 threadId = 0;
+		threads[threadIndex] = CreateThread(0, 0, ThreadProc, params, 0, ptrcast(DWORD, &threadId));
+	}
+	OutputDebugStringA("Sleeping for 1500ms before adding tasks\n");
+	Sleep(1500);
+	OutputDebugStringA("Adding tasks\n");
+	PushTask(globalQueue, PlatformQueueTask{ 1 });
+	PushTask(globalQueue, PlatformQueueTask{ 2 });
+	PushTask(globalQueue, PlatformQueueTask{ 3 });
+	PushTask(globalQueue, PlatformQueueTask{ 4 });
+	PushTask(globalQueue, PlatformQueueTask{ 5 });
+	PushTask(globalQueue, PlatformQueueTask{ 6 });
+	PushTask(globalQueue, PlatformQueueTask{ 7 });
+	PushTask(globalQueue, PlatformQueueTask{ 8 });
+	PushTask(globalQueue, PlatformQueueTask{ 9 });
+	PushTask(globalQueue, PlatformQueueTask{ 10 });
+	Sleep(1500);
+	OutputDebugStringA("Adding tasks 2\n");
+	PushTask(globalQueue, PlatformQueueTask{ 91 });
+	PushTask(globalQueue, PlatformQueueTask{ 92 });
+	PushTask(globalQueue, PlatformQueueTask{ 93 });
+	PushTask(globalQueue, PlatformQueueTask{ 94 });
+	PushTask(globalQueue, PlatformQueueTask{ 95 });
+	PushTask(globalQueue, PlatformQueueTask{ 96 });
+	PushTask(globalQueue, PlatformQueueTask{ 97 });
+	PushTask(globalQueue, PlatformQueueTask{ 98 });
+	PushTask(globalQueue, PlatformQueueTask{ 99 });
+	PushTask(globalQueue, PlatformQueueTask{ 910 });
+	while (true) {};
+
 #if 1
 	u32 globalBitmapWidth = 960;
 	u32 globalBitmapHeight = 540;
@@ -955,6 +1074,5 @@ int CALLBACK WinMain(
 			LPCTSTR errMsg = err.ErrorMessage();
 		}
 	}
-
 	return 0;
 }
