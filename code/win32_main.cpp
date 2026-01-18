@@ -761,45 +761,68 @@ u64 ConcatenateString(char* first, u64 firstSize, char* second, u64 secondSize, 
 	return length;
 }
 
+struct ThreadContext {
+	u32 threadId;
+};
+
+typedef void (*PlatformQueueCallback)(void* data, ThreadContext& context);
+
 struct PlatformQueueTask {
-	u32 number;
+	PlatformQueueCallback callback;
+	void* args;
 	u32 done;
 };
 
 struct PlatformQueue {
 	volatile u32 writeIndex;
 	volatile u32 readIndex;
-	PlatformQueueTask tasks[8];
+	PlatformQueueTask tasks[16];
 	HANDLE semaphore;
 };
 
 struct ThreadData {
 	PlatformQueue* queue;
-	u32 threadId;
+	ThreadContext context;
 };
+
+struct PrintStringArgs {
+	u32 number;
+};
+
+void PrintString(void* args, ThreadContext& context) {
+	PrintStringArgs* data = ptrcast(PrintStringArgs, args);
+	char buf[256];
+	sprintf_s(buf, "[Thread %d] START Task with number: %d\n", context.threadId, data->number);
+	OutputDebugStringA(buf);
+	Sleep(1000);
+}
+
+bool TryPopAndExecuteTaskFromQueue(PlatformQueue* queue, ThreadContext& context) {
+	bool workDone = false;
+	u32 visibleReadIndex = queue->readIndex;
+	if (visibleReadIndex != queue->writeIndex) {
+		u32 nextReadIndex = (visibleReadIndex + 1) % ArrayCount(queue->tasks);
+		u32 actualReadIndex = InterlockedCompareExchange(
+			ptrcast(volatile LONG, &queue->readIndex),
+			nextReadIndex,
+			visibleReadIndex
+		);
+		if (visibleReadIndex == actualReadIndex) {
+			PlatformQueueTask* task = queue->tasks + visibleReadIndex;
+			task->callback(task->args, context);
+			InterlockedExchange(ptrcast(volatile LONG, &task->done), 1);
+		}
+		workDone = true;
+	}
+	return workDone;
+}
 
 DWORD ThreadProc(LPVOID params) {
 	ThreadData* data = ptrcast(ThreadData, params);
 	PlatformQueue* queue = data->queue;
+	ThreadContext& context = data->context;
 	while (true) {
-		u32 visibleReadIndex = queue->readIndex;
-		if (visibleReadIndex != queue->writeIndex) {
-			u32 nextReadIndex = (visibleReadIndex + 1) % ArrayCount(queue->tasks);
-			u32 actualReadIndex = InterlockedCompareExchange(
-				ptrcast(volatile LONG, &queue->readIndex),
-				nextReadIndex,
-				visibleReadIndex
-			);
-			if (visibleReadIndex == actualReadIndex) {
-				PlatformQueueTask* task = queue->tasks + visibleReadIndex;
-				char buf[256];
-				sprintf_s(buf, "[Thread %d] Task with number: %d\n", data->threadId, task->number);
-				OutputDebugStringA(buf);
-				Sleep(1000);
-				InterlockedExchange(ptrcast(volatile LONG, &task->done), 1);
-			}
-		}
-		else {
+		if (!TryPopAndExecuteTaskFromQueue(queue, context)) {
 			WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
 		}
 		
@@ -807,7 +830,7 @@ DWORD ThreadProc(LPVOID params) {
 	return 0;
 }
 
-bool PushTask(PlatformQueue& queue, PlatformQueueTask task) {
+bool PushTask(PlatformQueue& queue, PlatformQueueCallback callback, void* args) {
 	u32 taskIndex = queue.writeIndex;
 	PlatformQueueTask* existingTask = queue.tasks + taskIndex;
 	if (!InterlockedCompareExchange(ptrcast(volatile LONG, &existingTask->done), 0, 0)) 
@@ -815,13 +838,28 @@ bool PushTask(PlatformQueue& queue, PlatformQueueTask task) {
 		Assert(false); // No space for new task!
 		return false;
 	}
-	queue.tasks[taskIndex] = task;
+	PlatformQueueTask* newTask = queue.tasks + taskIndex;
+	newTask->callback = callback;
+	newTask->args = args;
+	newTask->done = 0;
 	// TODO: Should I just use InterlockedIncrement()? 
 	_WriteBarrier();
 	_mm_sfence();
 	queue.writeIndex = (taskIndex + 1) % ArrayCount(queue.tasks);
 	ReleaseSemaphore(queue.semaphore, 1, 0);
 	return true;
+}
+
+bool WorkInQueueIsDone(PlatformQueue& queue) {
+	return queue.readIndex == queue.writeIndex;
+}
+
+void WaitForQueueCompletion(PlatformQueue& queue) {
+	ThreadContext context = {};
+	context.threadId = 69;
+	while (!WorkInQueueIsDone(queue)) {
+		TryPopAndExecuteTaskFromQueue(&queue, context);
+	};
 }
 
 void InitializeQueue(PlatformQueue& queue) {
@@ -835,8 +873,6 @@ void InitializeQueue(PlatformQueue& queue) {
 }
 
 PlatformQueue globalQueue = {};
-
-
 
 int CALLBACK WinMain(
 	HINSTANCE instance,
@@ -853,38 +889,44 @@ int CALLBACK WinMain(
 	globalQueue.semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
 	for (u32 threadIndex = 0; threadIndex < ArrayCount(datas); threadIndex++) {
 		ThreadData* data = datas + threadIndex;
-		data->threadId = threadIndex;
 		data->queue = &globalQueue;
 		LPVOID params = ptrcast(void, data);
-		u32 threadId = 0;
-		threads[threadIndex] = CreateThread(0, 0, ThreadProc, params, 0, ptrcast(DWORD, &threadId));
+		threads[threadIndex] = CreateThread(0, 0, ThreadProc, params, 0, ptrcast(DWORD, &data->context.threadId));
+	}
+	PrintStringArgs args[20] = {};
+	for (u32 argsIndex = 0; argsIndex < ArrayCount(args); argsIndex++) {
+		PrintStringArgs* argsEntry = args + argsIndex;
+		argsEntry->number = argsIndex + 1;
+		if ((argsIndex + 1) > 10) {
+			argsEntry->number = argsIndex + 81;
+		}
 	}
 	OutputDebugStringA("Sleeping for 1500ms before adding tasks\n");
 	Sleep(1500);
 	OutputDebugStringA("Adding tasks\n");
-	PushTask(globalQueue, PlatformQueueTask{ 1 });
-	PushTask(globalQueue, PlatformQueueTask{ 2 });
-	PushTask(globalQueue, PlatformQueueTask{ 3 });
-	PushTask(globalQueue, PlatformQueueTask{ 4 });
-	PushTask(globalQueue, PlatformQueueTask{ 5 });
-	PushTask(globalQueue, PlatformQueueTask{ 6 });
-	PushTask(globalQueue, PlatformQueueTask{ 7 });
-	PushTask(globalQueue, PlatformQueueTask{ 8 });
-	PushTask(globalQueue, PlatformQueueTask{ 9 });
-	PushTask(globalQueue, PlatformQueueTask{ 10 });
+	PushTask(globalQueue, PrintString, &args[0]);
+	PushTask(globalQueue, PrintString, &args[1]);
+	PushTask(globalQueue, PrintString, &args[2]);
+	PushTask(globalQueue, PrintString, &args[3]);
+	PushTask(globalQueue, PrintString, &args[4]);
+	PushTask(globalQueue, PrintString, &args[5]);
+	PushTask(globalQueue, PrintString, &args[6]);
+	PushTask(globalQueue, PrintString, &args[7]);
+	PushTask(globalQueue, PrintString, &args[8]);
+	PushTask(globalQueue, PrintString, &args[9]);
 	Sleep(1500);
 	OutputDebugStringA("Adding tasks 2\n");
-	PushTask(globalQueue, PlatformQueueTask{ 91 });
-	PushTask(globalQueue, PlatformQueueTask{ 92 });
-	PushTask(globalQueue, PlatformQueueTask{ 93 });
-	PushTask(globalQueue, PlatformQueueTask{ 94 });
-	PushTask(globalQueue, PlatformQueueTask{ 95 });
-	PushTask(globalQueue, PlatformQueueTask{ 96 });
-	PushTask(globalQueue, PlatformQueueTask{ 97 });
-	PushTask(globalQueue, PlatformQueueTask{ 98 });
-	PushTask(globalQueue, PlatformQueueTask{ 99 });
-	PushTask(globalQueue, PlatformQueueTask{ 910 });
-	while (true) {};
+	PushTask(globalQueue, PrintString, &args[10]);
+	PushTask(globalQueue, PrintString, &args[11]);
+	PushTask(globalQueue, PrintString, &args[12]);
+	PushTask(globalQueue, PrintString, &args[13]);
+	PushTask(globalQueue, PrintString, &args[14]);
+	PushTask(globalQueue, PrintString, &args[15]);
+	PushTask(globalQueue, PrintString, &args[16]);
+	PushTask(globalQueue, PrintString, &args[17]);
+	PushTask(globalQueue, PrintString, &args[18]);
+	PushTask(globalQueue, PrintString, &args[19]);
+	WaitForQueueCompletion(globalQueue);
 
 #if 1
 	u32 globalBitmapWidth = 960;
