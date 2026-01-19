@@ -493,7 +493,7 @@ void Win32ResizeBitmapMemory(BitmapData& bitmap, int newWidth, int newHeight) {
 	globalBitmapInfo.bmiHeader.biBitCount = 32;
 	globalBitmapInfo.bmiHeader.biCompression = BI_RGB;
 
-	int allocSize = 4 * newWidth * newHeight; // NOTE: align each pixel to DWORD
+	int allocSize = bitmap.pitch * newHeight; // NOTE: align each pixel to DWORD
 	bitmap.data = VirtualAlloc(0, allocSize, MEM_COMMIT, PAGE_READWRITE);
 }
 
@@ -879,7 +879,7 @@ int CALLBACK WinMain(
 		LPVOID params = ptrcast(void, data);
 		threads[threadIndex] = CreateThread(0, 0, Win32ThreadProc, params, 0, ptrcast(DWORD, &data->context.threadId));
 	}
-#if 0
+#if 1
 	u32 globalBitmapWidth = 960;
 	u32 globalBitmapHeight = 540;
 #else

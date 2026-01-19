@@ -724,7 +724,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 				_mm256_and_si256(writeMask, outputARGB),
 				_mm256_andnot_si256(writeMask, dest_ARGBi)
 			);
-			_mm256_storeu_si256(ptrcast(__m256i, dstPixel), outputARGB);
+			_mm256_store_si256(ptrcast(__m256i, dstPixel), outputARGB);
 			dstPixel += 8;
 			dx = _mm256_add_ps(dx, eight);
 			clipMask = _mm256_set1_epi8(-1);
@@ -925,12 +925,13 @@ void RenderTiled(void* data, ThreadContext& context) {
 
 internal
 void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue) {
-	constexpr u32 tileCountX = 4;
-	constexpr u32 tileCountY = 4;
+	constexpr u32 tileCountX = 9;
+	constexpr u32 tileCountY = 9;
 	RenderTiledArgs workArgs[tileCountX * tileCountY] = {};
-
-	u32 tileWidth = dstBuffer.width / tileCountX;
+	Assert((reinterpret_cast<uptr>(dstBuffer.bufferStart) & 31) == 0);
+	u32 tileWidth = AlignUp8(RoundF32ToU32(f4(dstBuffer.width) / tileCountX));
 	u32 tileHeight = dstBuffer.height / tileCountY;
+
 	for (u32 tileY = 0; tileY < tileCountY; tileY++) {
 		for (u32 tileX = 0; tileX < tileCountX; tileX++) {
 			RenderTiledArgs* args = workArgs + tileY * tileCountY + tileX;
