@@ -846,6 +846,9 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 					)
 				)
 			);
+			u = _mm256_min_ps(one, _mm256_max_ps(u, zero));
+			v = _mm256_min_ps(one, _mm256_max_ps(v, zero));
+
 			writeMask = _mm256_and_si256(writeMask, clipMask);
 			__m256 texelX = _mm256_mul_ps(u, uWcf);
 			__m256 texelY = _mm256_mul_ps(v, vHcf);

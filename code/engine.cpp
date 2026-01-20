@@ -806,6 +806,8 @@ LoadedBitmap MakeSphereDiffusionTexture(MemoryArena& arena, u32 width, u32 heigh
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	debugGlobalMemory = &memory.debug;
+	PlatformPushTaskToQueue = memory.PlatformPushTaskToQueue;
+	PlatformWaitForQueueCompletion = memory.PlatformWaitForQueueCompletion;
 	BEGIN_TIMED_SECTION(GameMainLoop);
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	World& world = state->world;
@@ -964,8 +966,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		AddMonster(state, world, 17 / 2, 7, 0);
 		AddWall(state, world, 17 / 2, 4, 0);
 #endif
-		PlatformPushTaskToQueue = memory.PlatformPushTaskToQueue;
-		PlatformWaitForQueueCompletion = memory.PlatformWaitForQueueCompletion;
 		state->highPriorityQueue = memory.highPriorityQueue;
 		state->isInitialized = true;
 	}
@@ -1002,6 +1002,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProjectionProps projection = GetStandardProjection(bitmap.width, bitmap.height);
 	Rect2 cameraBounds = GetRenderRectangleAtTarget(projection, bitmap.width, bitmap.height);
 	Rect3 simBounds = ToRect3(cameraBounds, V2{ -3, 1 } *state->world.tileSizeInMeters.Z);
+	simBounds.max.X += 5.f;
+	simBounds.min.X -= 5.f;
+	simBounds.max.Y += 5.f;
+	simBounds.min.Y -= 5.f;
 	SimRegion* simRegion = BeginSimulation(*simMemory.arena, world, state->cameraPos, simBounds);
 	for (u32 playerIdx = 0; playerIdx < MAX_CONTROLLERS; playerIdx++) {
 		Controller& controller = input.controllers[playerIdx]; 
