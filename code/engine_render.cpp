@@ -230,31 +230,6 @@ void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color
 	fillRect.maxX = CeilF32ToI32(end.X) + 1;
 	clipRect = Intersection(clipRect, { 0, 0, bitmap.width, bitmap.height });
 	fillRect = Intersection(fillRect, clipRect);
-#if 0 // TODO SIMD rectangle drawing
-	i32 fillWidth = fillRect.maxX - fillRect.minX;
-	i32 fillRectAlignment = fillWidth & 7;
-	__m256i startupClipMask = _mm256_set1_epi8(-1);
-	if (fillRectAlignment) {
-		const i32 alignment = 8 - fillRectAlignment;
-		fillWidth += alignment;
-		fillRect.minX = fillRect.maxX - fillWidth;
-		__m128i startupClipMaskLow = _mm_set1_epi8(-1);
-		__m128i startupClipMaskHigh = _mm_set1_epi8(-1);
-		switch (alignment) {
-		case 1: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 1 * 4); } break;
-		case 2: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 2 * 4); } break;
-		case 3: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 3 * 4); } break;
-		case 4: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 4 * 4); } break;
-		default: { startupClipMaskLow = _mm_set1_epi8(0); } break;
-		}
-		switch (alignment) {
-		case 5: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 1 * 4); } break;
-		case 6: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 2 * 4); } break;
-		case 7: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 3 * 4); } break;
-		}
-		startupClipMask = _mm256_setr_m128i(startupClipMaskLow, startupClipMaskHigh);
-	}
-#endif
 	i32 minY = fillRect.minY;
 	i32 maxY = fillRect.maxY;
 	i32 minX = fillRect.minX;
@@ -274,13 +249,18 @@ void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color
 					f4((*dstPixel >> 0) & 0xFF),
 					f4((*dstPixel >> 24) & 0xFF)
 			};
-			dest = SRGB255ToLinear1(dest);
+			f32 inv255 = 1.f / 255.f;
+			dest.R = Squared(inv255 * dest.R);
+			dest.G = Squared(inv255 * dest.G);
+			dest.B = Squared(inv255 * dest.B);
+			dest.A = inv255 * dest.A;
 			V4 output = {
 					color.R + (1 - color.A) * dest.R,
 					color.G + (1 - color.A) * dest.G,
 					color.B + (1 - color.A) * dest.B,
 					color.A + dest.A - color.A * dest.A
 			};
+
 			output = Linear1ToSRGB255(output);
 			*dstPixel = (u4(output.A + 0.5f) << 24) |
 				(u4(output.R + 0.5f) << 16) |
@@ -291,6 +271,211 @@ void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color
 		}
 		dstRow += rowAdvance;
 	}
+}
+
+internal
+void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
+	bool even, Rect2i clipRect)
+{
+	BEGIN_TIMED_SECTION(RenderFilledRectangleOptimized);
+	V2 points[4] = {
+		origin,
+		origin + xAxis,
+		origin + yAxis,
+		origin + xAxis + yAxis
+	};
+	f32 fminY = F32_MAX;
+	f32 fmaxY = -F32_MAX;
+	f32 fminX = F32_MAX;
+	f32 fmaxX = -F32_MAX;
+	for (u32 pIndex = 0; pIndex < ArrayCount(points); pIndex++) {
+		V2 testP = points[pIndex];
+		if (testP.Y < fminY) fminY = testP.Y;
+		if (testP.Y > fmaxY) fmaxY = testP.Y;
+		if (testP.X < fminX) fminX = testP.X;
+		if (testP.X > fmaxX) fmaxX = testP.X;
+	}
+	// TODO: Allocate aligned!!!
+	clipRect = Intersection(clipRect, { 0, 0, bitmap.width, bitmap.height });
+	Rect2i fillRect = {};
+	fillRect.minY = FloorF32ToI32(fminY);
+	fillRect.maxY = CeilF32ToI32(fmaxY) + 1;
+	fillRect.minX = FloorF32ToI32(fminX);
+	fillRect.maxX = CeilF32ToI32(fmaxX) + 1;
+	fillRect = Intersection(fillRect, clipRect);
+	if (!HasArea(fillRect)) {
+		return;
+	}
+	i32 alignedMinX = AlignDown8(fillRect.minX);
+	__m256i startupClipMask = _mm256_set1_epi8(-1);
+	if (fillRect.minX != alignedMinX) {
+		i32 alignment = fillRect.minX - alignedMinX;
+		fillRect.minX = alignedMinX;
+		__m128i startupClipMaskLow = _mm_set1_epi8(-1);
+		__m128i startupClipMaskHigh = _mm_set1_epi8(-1);
+		switch (alignment) {
+		case 1: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 1 * 4); } break;
+		case 2: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 2 * 4); } break;
+		case 3: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 3 * 4); } break;
+		case 4: { startupClipMaskLow = _mm_slli_si128(startupClipMaskLow, 4 * 4); } break;
+		default: { startupClipMaskLow = _mm_set1_epi8(0); } break;
+		}
+		switch (alignment) {
+		case 5: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 1 * 4); } break;
+		case 6: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 2 * 4); } break;
+		case 7: { startupClipMaskHigh = _mm_slli_si128(startupClipMaskHigh, 3 * 4); } break;
+		}
+		startupClipMask = _mm256_setr_m128i(startupClipMaskLow, startupClipMaskHigh);
+	}
+	i32 alignedMaxX = AlignUp8(fillRect.maxX);
+	__m256i endClipMask = _mm256_set1_epi8(-1);
+	if (fillRect.maxX != alignedMaxX) {
+		i32 alignment = alignedMaxX - fillRect.maxX;
+		fillRect.maxX = alignedMaxX;
+		__m128i endClipMaskLow = _mm_set1_epi8(-1);
+		__m128i endClipMaskHigh = _mm_set1_epi8(-1);
+		switch (alignment) {
+		case 1: { endClipMaskHigh = _mm_srli_si128(endClipMaskHigh, 1 * 4); } break;
+		case 2: { endClipMaskHigh = _mm_srli_si128(endClipMaskHigh, 2 * 4); } break;
+		case 3: { endClipMaskHigh = _mm_srli_si128(endClipMaskHigh, 3 * 4); } break;
+		case 4: { endClipMaskHigh = _mm_srli_si128(endClipMaskHigh, 4 * 4); } break;
+		default: { endClipMaskHigh = _mm_set1_epi8(0); } break;
+		}
+		switch (alignment) {
+		case 5: { endClipMaskLow = _mm_srli_si128(endClipMaskLow, 1 * 4); } break;
+		case 6: { endClipMaskLow = _mm_srli_si128(endClipMaskLow, 2 * 4); } break;
+		case 7: { endClipMaskLow = _mm_srli_si128(endClipMaskLow, 3 * 4); } break;
+		}
+		endClipMask = _mm256_setr_m128i(endClipMaskLow, endClipMaskHigh);
+	}
+	i32 minY = fillRect.minY;
+	i32 maxY = fillRect.maxY;
+	i32 minX = fillRect.minX;
+	i32 maxX = fillRect.maxX;
+	if (even == (minY & 1)) {
+		minY++;
+	}
+	// NOTE: Assume aligned X boundaries and proper clipping
+	Assert(((maxX - minX) & 7) == 0);
+	Assert(maxX <= clipRect.maxX);
+	Assert(minX >= clipRect.minX);
+	Assert((minX * BITMAP_BYTES_PER_PIXEL & 31) == 0)
+	i32 packsNum = (maxX - minX) >> 3; // Divide by 8
+
+	static_assert(BITMAP_BYTES_PER_PIXEL == 4);
+	color.RGB *= color.A;
+	f32 uCf = 1.f / (Squared(xAxis.X) + Squared(xAxis.Y));
+	f32 vCf = 1.f / (Squared(yAxis.X) + Squared(yAxis.Y));
+	__m256i zeroTo7 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+	__m256 zero = _mm256_set1_ps(0.f);
+	__m256 one = _mm256_set1_ps(1.0f);
+	__m256 u16max = _mm256_set1_ps(Squared(255.f));
+	__m256i onei = _mm256_set1_epi32(1);
+	__m256 o255 = _mm256_set1_ps(255.f);
+	__m256 inv255wide = _mm256_set1_ps(1.f / 255.f);
+	__m256 uCfx8 = _mm256_set1_ps(uCf);
+	__m256 vCfx8 = _mm256_set1_ps(vCf);
+	__m256 originX = _mm256_set1_ps(origin.X);
+	__m256 originY = _mm256_set1_ps(origin.Y);
+	__m256 xAX = _mm256_set1_ps(xAxis.X);
+	__m256 xAY = _mm256_set1_ps(xAxis.Y);
+	__m256 yAX = _mm256_set1_ps(yAxis.X);
+	__m256 yAY = _mm256_set1_ps(yAxis.Y);
+	__m256i maskFF = _mm256_set1_epi32(0xFF);
+	__m256 colorA = _mm256_mul_ps(o255, _mm256_set1_ps(color.A));
+	__m256 colorR = _mm256_mul_ps(u16max, _mm256_set1_ps(color.R));
+	__m256 colorG = _mm256_mul_ps(u16max, _mm256_set1_ps(color.G));
+	__m256 colorB = _mm256_mul_ps(u16max, _mm256_set1_ps(color.B));
+	__m256 eight = _mm256_set1_ps(8.f);
+	__m256 dxBase = _mm256_set1_ps(f4(minX) - origin.X);
+#define E(mm, i) ptrcast(f32, &mm)[i]
+#define Ei(mm, i) ptrcast(u32, &mm)[i]
+	u32 rowAdvance = 2 * bitmap.pitch;
+	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	BEGIN_TIMED_SECTION(FillPixelRectangleRoutine);
+	LLVM_MCA_BEGIN(opt_render_filled_rect);
+	for (i32 Y = minY; Y < maxY; Y += 2) {
+		u32* dstPixel = ptrcast(u32, row);
+		__m256 dy = _mm256_set1_ps(f4(Y) + 0.5f - origin.Y);
+		__m256 dx = _mm256_add_ps(dxBase, _mm256_setr_ps(0.5f, 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7.5f));
+		__m256i clipMask = startupClipMask;
+		for (i32 iter = 0; iter < packsNum; iter++) {
+			__m256 u = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, xAX), _mm256_mul_ps(dy, xAY)), uCfx8);
+			__m256 v = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, yAX), _mm256_mul_ps(dy, yAY)), vCfx8);
+			__m256i writeMask = _mm256_castps_si256(
+				_mm256_and_ps(
+					_mm256_and_ps(
+						_mm256_cmp_ps(u, zero, _CMP_GE_OQ),
+						_mm256_cmp_ps(u, one, _CMP_LE_OQ)
+					),
+					_mm256_and_ps(
+						_mm256_cmp_ps(v, zero, _CMP_GE_OQ),
+						_mm256_cmp_ps(v, one, _CMP_LE_OQ)
+					)
+				)
+			);
+			writeMask = _mm256_and_si256(writeMask, clipMask);
+
+			// Gather ARGB data
+			__m256i dest_ARGBi = _mm256_i32gather_epi32(ptrcast(int, dstPixel), zeroTo7, 4);
+
+			// Convert ARGB to individual channels 
+			__m256 destA = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(dest_ARGBi, 24), maskFF));
+			__m256 destR = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(dest_ARGBi, 16), maskFF));
+			__m256 destG = _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(dest_ARGBi, 8), maskFF));
+			__m256 destB = _mm256_cvtepi32_ps(_mm256_and_si256(dest_ARGBi, maskFF));
+
+			// Dest from SRGB255 to linear255
+			destR = _mm256_mul_ps(destR, destR);
+			destG = _mm256_mul_ps(destG, destG);
+			destB = _mm256_mul_ps(destB, destB);
+
+			// Blend output
+			__m256 invAlpha = _mm256_sub_ps(one, _mm256_mul_ps(inv255wide, colorA));
+			__m256 outputR = _mm256_add_ps(colorR, _mm256_mul_ps(invAlpha, destR));
+			__m256 outputG = _mm256_add_ps(colorG, _mm256_mul_ps(invAlpha, destG));
+			__m256 outputB = _mm256_add_ps(colorB, _mm256_mul_ps(invAlpha, destB));
+			__m256 outputA = _mm256_add_ps(colorA, _mm256_mul_ps(invAlpha, destA));
+
+			// Back to SRGB255
+			outputR = _mm256_sqrt_ps(outputR);
+			outputG = _mm256_sqrt_ps(outputG);
+			outputB = _mm256_sqrt_ps(outputB);
+
+			__m256i outputRInt = _mm256_cvtps_epi32(outputR);
+			__m256i outputGInt = _mm256_cvtps_epi32(outputG);
+			__m256i outputAInt = _mm256_cvtps_epi32(outputA);
+			__m256i outputARGB = _mm256_cvtps_epi32(outputB);
+
+			// TODO: Use blend instead of masks and check result
+			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputGInt, 8));
+			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputRInt, 16));
+			outputARGB = _mm256_add_epi32(outputARGB, _mm256_slli_epi32(outputAInt, 24));
+
+			outputARGB = _mm256_add_epi32(
+				_mm256_and_si256(writeMask, outputARGB),
+				_mm256_andnot_si256(writeMask, dest_ARGBi)
+			);
+			_mm256_store_si256(ptrcast(__m256i, dstPixel), outputARGB);
+			dstPixel += 8;
+			dx = _mm256_add_ps(dx, eight);
+			if (iter == packsNum - 2) {
+				clipMask = endClipMask;
+			}
+			else {
+				clipMask = _mm256_set1_epi8(-1);
+			}
+		}
+		row += rowAdvance;
+	}
+	LLVM_MCA_END(opt_render_filled_rect);
+	u32 pixelCount = 0;
+	if (maxY > minY && maxX > minX) {
+		pixelCount = ((maxY - minY) * (maxX - minX)) / 2;
+	}
+	// TODO: This counter is not thread safe!
+	END_TIMED_SECTION_COUNTED(FillPixelRectangleRoutine, pixelCount);
+	END_TIMED_SECTION(RenderFilledRectangleOptimized);
 }
 
 
@@ -536,7 +721,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 		if (testP.X < fminX) fminX = testP.X;
 		if (testP.X > fmaxX) fmaxX = testP.X;
 	}
-	// TODO: Allocate aligned!!!
 	clipRect = Intersection(clipRect, { 0, 0, bitmap.width, bitmap.height });
 	Rect2i fillRect = {};
 	fillRect.minY = FloorF32ToI32(fminY);
@@ -544,6 +728,9 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	fillRect.minX = FloorF32ToI32(fminX);
 	fillRect.maxX = CeilF32ToI32(fmaxX) + 1;
 	fillRect = Intersection(fillRect, clipRect);
+	if (!HasArea(fillRect)) {
+		return;
+	}
 	i32 alignedMinX = AlignDown8(fillRect.minX);
 	__m256i startupClipMask = _mm256_set1_epi8(-1);
 	if (fillRect.minX != alignedMinX) {
@@ -597,6 +784,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	Assert(((maxX - minX) & 7) == 0);
 	Assert(maxX <= clipRect.maxX);
 	Assert(minX >= clipRect.minX);
+	Assert((minX * BITMAP_BYTES_PER_PIXEL & 31) == 0);
 	i32 packsNum = (maxX - minX) >> 3; // Divide by 8
 
 	static_assert(BITMAP_BYTES_PER_PIXEL == 4);
@@ -636,12 +824,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
 	u32 rowAdvance = 2 * bitmap.pitch;
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
-	Assert((minX * BITMAP_BYTES_PER_PIXEL & 31) == 0)
-#if 0
-	// TODO: Check whether this helps
-	i32 alignment = reinterpret_cast<uptr>(row) & 31;
-	row -= alignment;
-#endif
 	BEGIN_TIMED_SECTION(FillPixel);
 	LLVM_MCA_BEGIN(opt_render_rect);
 	for (i32 Y = minY; Y < maxY; Y += 2) {
@@ -897,11 +1079,15 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i cli
 		} break;
 		case RenderCallType_RenderCallRectangle: {
 			RenderCallRectangle* call = ptrcast(RenderCallRectangle, group.pushBuffer + relativeRenderAddress);
-
+#if 0
 			V2 min = call->center - call->size / 2.f;
 			V2 max = min + call->size;
-#if 0
-			RenderRectangleTransparent(dstBuffer, min, max, call->color);
+			RenderRectangleTransparent(dstBuffer, min, max, call->color, even, clipRect);
+#else
+			V2 xAxis = V2{ call->size.X, 0 };
+			V2 yAxis = V2{ 0, call->size.Y };
+			V2 origin = call->center - call->size / 2.f;
+			RenderFilledRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, even, clipRect);
 #endif
 			relativeRenderAddress += sizeof(RenderCallRectangle);
 		} break;
@@ -956,8 +1142,8 @@ void RenderTiled(void* data, ThreadContext& context) {
 
 internal
 void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue) {
-	constexpr u32 tileCountX = 7;
-	constexpr u32 tileCountY = 7;
+	constexpr u32 tileCountX = 4;
+	constexpr u32 tileCountY = 4;
 	RenderTiledArgs workArgs[tileCountX * tileCountY] = {};
 	u32 tileWidth = AlignUp8(RoundF32ToU32(f4(dstBuffer.width) / tileCountX));
 	u32 tileHeight = dstBuffer.height / tileCountY;
@@ -991,7 +1177,7 @@ void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Platf
 			args->clipRect.maxX = args->clipRect.minX + tileWidth;
 			args->dstBuffer = &dstBuffer;
 			args->group = &group;
-#if 1 // Switch on = multithreaded rendering
+#if 0 // Switch on = multithreaded rendering
 			PlatformPushTaskToQueue(queue, RenderTiled, args);
 #else
 			ThreadContext context = {};

@@ -461,6 +461,16 @@ struct Rect2i {
 };
 
 inline
+bool HasArea(Rect2i rect) {
+	i32 width = rect.maxX - rect.minX;
+	i32 height = rect.maxY - rect.minY;
+	if (width <= 0 || height <= 0) {
+		return false;
+	}
+	return true;
+}
+
+inline
 Rect2i InversedInfinityRect2i() {
 	Rect2i result;
 	result.minY = I32_MAX;

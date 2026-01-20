@@ -74,7 +74,9 @@ enum DebugPerformanceCountersType {
 	DPCT_GameMainLoop,
 	DPCT_RenderRectangleSlowly,
 	DPCT_RenderRectangleOptimized,
-	DPCT_FillPixel
+	DPCT_RenderFilledRectangleOptimized,
+	DPCT_FillPixel,
+	DPCT_FillPixelRectangleRoutine,
 };
 struct DebugPerformanceCounters {
 	u64 cycles;
