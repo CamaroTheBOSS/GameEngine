@@ -1177,7 +1177,7 @@ void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Platf
 			args->clipRect.maxX = args->clipRect.minX + tileWidth;
 			args->dstBuffer = &dstBuffer;
 			args->group = &group;
-#if 0 // Switch on = multithreaded rendering
+#if 1 // Switch on = multithreaded rendering
 			PlatformPushTaskToQueue(queue, RenderTiled, args);
 #else
 			ThreadContext context = {};

@@ -1341,7 +1341,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 #endif
 	
-#if 1
+#if 0
 	RenderGroupToBuffer(renderGroup, screenBitmap);
 #else
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, state->highPriorityQueue);
