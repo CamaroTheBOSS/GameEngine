@@ -492,7 +492,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	}
 	// TODO: Allocate aligned!!!
 	clipRect = Intersection(clipRect, { 0, 0, bitmap.width, bitmap.height });
-	Rect2i fillRect;
+	Rect2i fillRect = {};
 	fillRect.minY = FloorF32ToI32(fminY);
 	fillRect.maxY = CeilF32ToI32(fmaxY) + 1;
 	fillRect.minX = FloorF32ToI32(fminX);
@@ -566,6 +566,8 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
 	u32 rowAdvance = 2 * bitmap.pitch;
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	// TODO: minX MUST be aligned to 8pixels or 32bytes boundary!
+	Assert((minX * BITMAP_BYTES_PER_PIXEL & 31) == 0)
 #if 0
 	// TODO: Check whether this helps
 	i32 alignment = reinterpret_cast<uptr>(row) & 31;
@@ -925,20 +927,39 @@ void RenderTiled(void* data, ThreadContext& context) {
 
 internal
 void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue) {
-	constexpr u32 tileCountX = 9;
-	constexpr u32 tileCountY = 9;
+	constexpr u32 tileCountX = 7;
+	constexpr u32 tileCountY = 7;
 	RenderTiledArgs workArgs[tileCountX * tileCountY] = {};
-	Assert((reinterpret_cast<uptr>(dstBuffer.bufferStart) & 31) == 0);
 	u32 tileWidth = AlignUp8(RoundF32ToU32(f4(dstBuffer.width) / tileCountX));
 	u32 tileHeight = dstBuffer.height / tileCountY;
+
+	// NOTE: Until buffer is overallocated and I can easly write outside the boundaries of the
+	// buffer, there is a need for some assumptions to make multithreaded tile rendering work:
+	// 1. Tile width MUST be divisible by 8 (for AVX2 wide instructions)
+	// 2. Buffer width MUST be divisible by tile width! (if not, last in row, the smallest buffer width
+	// MUST be divisible by 8)
+	// That means no bizzare resolutions and number of tiles in X. If these constrains are not met,
+	// there is no chance to safely render the tiles, because overdrawing beyond the tile boundaries
+	// might cause data race where 2 neighbour threads reads the same pixels, but in one of them they
+	// are masked and in the second they are actually overriden. Even when masking is provided, there is
+	// no guarrantee that between reading these pixels and writing them back, neighbour thread didn't
+	// change these pixels to something else. If so, masked override will actually change the pixels
+	// which shouldn't happened!
+	Assert((reinterpret_cast<uptr>(dstBuffer.bufferStart) & 31) == 0);
+	Assert((tileWidth & 7) == 0);
+	Assert(((dstBuffer.width % tileWidth) & 7) == 0);
+	// NOTE: These are sanity checks, too many tiles on too small resolutions will cause stupid things like
+	// tasks with zero pixels to draw :)
+	Assert(tileWidth * tileCountX < dstBuffer.width + tileWidth);
+	Assert(tileHeight * tileCountY < dstBuffer.height + tileHeight);
 
 	for (u32 tileY = 0; tileY < tileCountY; tileY++) {
 		for (u32 tileX = 0; tileX < tileCountX; tileX++) {
 			RenderTiledArgs* args = workArgs + tileY * tileCountY + tileX;
-			args->clipRect.minY = tileY * tileHeight + 8;
-			args->clipRect.maxY = args->clipRect.minY + tileHeight - 8;
-			args->clipRect.minX = tileX * tileWidth + 8;
-			args->clipRect.maxX = args->clipRect.minX + tileWidth - 8;
+			args->clipRect.minY = tileY * tileHeight;
+			args->clipRect.maxY = args->clipRect.minY + tileHeight;
+			args->clipRect.minX = tileX * tileWidth;
+			args->clipRect.maxX = args->clipRect.minX + tileWidth;
 			args->dstBuffer = &dstBuffer;
 			args->group = &group;
 			PlatformPushTaskToQueue(queue, RenderTiled, args);

@@ -135,7 +135,6 @@
     <None Include="clang_build.bat" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="clang_asm.bat" />
     <ClCompile Include="engine_intrinsics.h" />
     <ClCompile Include="engine_math.h" />
     <ClCompile Include="engine_rand.cpp" />

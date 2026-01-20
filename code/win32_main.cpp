@@ -773,7 +773,7 @@ bool Win32PushTask(PlatformQueue* queue, PlatformQueueCallback callback, void* a
 	_WriteBarrier();
 	_mm_sfence();
 	queue->writeIndex = (taskIndex + 1) % ArrayCount(queue->tasks);
-	queue->tasksTarget++;
+	queue->tasksTarget = queue->tasksTarget + 1;
 	ReleaseSemaphore(queue->semaphore, 1, 0);
 	return true;
 }

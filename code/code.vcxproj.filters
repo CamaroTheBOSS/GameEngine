@@ -47,9 +47,6 @@
     <ClCompile Include="engine_render.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="clang_asm.bat">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="engine.h">
