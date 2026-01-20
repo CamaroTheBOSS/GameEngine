@@ -2,6 +2,28 @@
 #include "engine_render.h"
 #include "engine_intrinsics.h"
 
+struct EntityProjectedParams {
+	V2 center;
+	V2 size;
+	bool valid;
+};
+
+internal
+EntityProjectedParams CalculatePerspectiveProjection(ProjectionProps& projection,
+	V3 entityCenter, V2 entitySize)
+{
+	EntityProjectedParams result = {};
+	V3 rawCoords = ToV3(entityCenter.XY, 1.f);
+	f32 denominator = projection.camera.distanceToTarget - entityCenter.Z;
+	if (denominator > projection.camera.nearClip) {
+		V3 projectedCoords = projection.camera.focalLength * rawCoords / denominator;
+		result.center = projection.screenCenter + projectedCoords.XY * projection.metersToPixels;
+		result.size = projectedCoords.Z * entitySize * projection.metersToPixels;
+		result.valid = true;
+	}
+	return result;
+}
+
 #define Text(text) text
 #define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType_##type))
 inline
@@ -19,35 +41,59 @@ void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
 }
 
 inline
-RenderCallClear* PushClearCall(RenderGroup& group, V4 color) {
+bool PushClearCall(RenderGroup& group, V4 color) {
 	RenderCallClear* call = PushRenderEntry(group, RenderCallClear);
 	call->color = color;
-	return call;
+	return true;
 }
 
 inline
-RenderCallBitmap* PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, V2 offset, V4 color) {
+bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, V2 offset, V4 color) {
+	V2 sizeUnprojected = height * V2{ bitmap->widthOverHeight, 1 };
+	EntityProjectedParams params = CalculatePerspectiveProjection(group.projection, center, sizeUnprojected);
+	if (!params.valid) {
+		return false;
+	}
 	RenderCallBitmap* call = PushRenderEntry(group, RenderCallBitmap);
 	call->bitmap = bitmap;
-	call->center = center;
+	call->center = params.center;
 	call->offset = offset;
 	call->color = color;
-	call->height = height;
-	return call;
+	call->size = params.size;
+	return true;
 }
 
 inline
-RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
+bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
+	EntityProjectedParams params = CalculatePerspectiveProjection(group.projection, center, size);
+	if (!params.valid) {
+		return false;
+	}
 	RenderCallRectangle* call = PushRenderEntry(group, RenderCallRectangle);
-	call->center = center;
-	call->size = size;
+	call->center = params.center;
+	call->size = params.size;
 	call->offset = offset;
 	call->color = color;
-	return call;
+	return true;
+}
+
+internal
+bool PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness) {
+	V3 basePos = center;
+	basePos.X = center.X - 0.5f * size.X;
+	PushRect(group, basePos, V2{ thickness, size.Y }, V2{ 0, 0 }, color);
+	basePos.X = center.X + 0.5f * size.X;
+	PushRect(group, basePos, V2{ thickness, size.Y }, V2{ 0, 0 }, color);
+	basePos = center;
+	basePos.Y = center.Y - 0.5f * size.Y;
+	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
+	basePos.Y = center.Y + 0.5f * size.Y;
+	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
+	return true;
 }
 
 inline
-RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color,
+bool PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color,
 	LoadedBitmap* bitmap, LoadedBitmap* normalMap, EnvironmentMap* topEnvMap,
 	EnvironmentMap* middleEnvMap, EnvironmentMap* bottomEnvMap)
 {
@@ -61,7 +107,7 @@ RenderCallCoordinateSystem* PushCoordinateSystem(RenderGroup& group, V2 origin, 
 	call->topEnvMap = topEnvMap;
 	call->middleEnvMap = middleEnvMap;
 	call->bottomEnvMap = bottomEnvMap;
-	return call;
+	return true;
 }
 
 inline
@@ -772,21 +818,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	END_TIMED_SECTION(RenderRectangleOptimized);
 }
 
-
-internal
-void PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness) {
-	V3 basePos = center;
-	basePos.X = center.X - 0.5f * size.X;
-	PushRect(group, basePos, V2{ thickness, size.Y }, V2{0, 0}, color);
-	basePos.X = center.X + 0.5f * size.X;
-	PushRect(group, basePos, V2{ thickness, size.Y }, V2{ 0, 0 }, color);
-	basePos = center;
-	basePos.Y = center.Y - 0.5f * size.Y;
-	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
-	basePos.Y = center.Y + 0.5f * size.Y;
-	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
-}
-
 internal
 void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 position) {
 	i32 minX = RoundF32ToI32(position.X);
@@ -851,31 +882,8 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 	}
 }
 
-struct EntityProjectedParams {
-	V2 center;
-	V2 size;
-	bool valid;
-};
-internal
-EntityProjectedParams CalculatePerspectiveProjection(ProjectionProps& projection, 
-	V2 screenCenter, V3 entityCenter, V2 size) 
-{
-	EntityProjectedParams result = {};
-	V3 rawCoords = ToV3(entityCenter.XY, 1.f);
-	f32 denominator = projection.camera.distanceToTarget - entityCenter.Z;
-	if (denominator > projection.camera.nearClip) {
-		V3 projectedCoords = projection.camera.focalLength * rawCoords / denominator;
-		result.center = screenCenter + projectedCoords.XY * projection.metersToPixels;
-		result.size = projectedCoords.Z * size * projection.metersToPixels;
-		result.valid = true;
-	}
-	return result;
-}
-
 internal
 void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i clipRect, bool even) {
-	V2 screenCenter = { dstBuffer.width / 2.f,
-						dstBuffer.height / 2.f };
 	u32 relativeRenderAddress = 0;
 	while (relativeRenderAddress < group.pushBufferSize) {
 		RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + relativeRenderAddress);
@@ -889,15 +897,12 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i cli
 		} break;
 		case RenderCallType_RenderCallRectangle: {
 			RenderCallRectangle* call = ptrcast(RenderCallRectangle, group.pushBuffer + relativeRenderAddress);
-			EntityProjectedParams params = CalculatePerspectiveProjection(group.projection,
-				screenCenter, call->center, call->size);
-			if (params.valid) {
-				V2 min = params.center - params.size / 2.f;
-				V2 max = min + params.size;
+
+			V2 min = call->center - call->size / 2.f;
+			V2 max = min + call->size;
 #if 0
-				RenderRectangleTransparent(dstBuffer, min, max, call->color);
+			RenderRectangleTransparent(dstBuffer, min, max, call->color);
 #endif
-			}
 			relativeRenderAddress += sizeof(RenderCallRectangle);
 		} break;
 		case RenderCallType_RenderCallBitmap: {
@@ -905,15 +910,10 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i cli
 			// It should be unified (check groundLevel) which is different from RenderCallRectangle,
 			// also, size is properly changed in RenderCallRectangle and not in RenderCallBitmap
 			RenderCallBitmap* call = ptrcast(RenderCallBitmap, group.pushBuffer + relativeRenderAddress);
-			V2 sizeInMeters = call->height * V2{ call->bitmap->widthOverHeight, 1 };
-			EntityProjectedParams params = CalculatePerspectiveProjection(group.projection,
-				screenCenter, call->center, sizeInMeters);
-			if (params.valid) {
-				V2 xAxis = V2{ params.size.X, 0 };
-				V2 yAxis = V2{ 0, params.size.Y };
-				V2 origin = params.center - Hadamard(call->bitmap->align, params.size);
-				RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, even, clipRect);
-			}
+			V2 xAxis = V2{ call->size.X, 0 };
+			V2 yAxis = V2{ 0, call->size.Y };
+			V2 origin = call->center - Hadamard(call->bitmap->align, call->size);
+			RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, even, clipRect);
 			relativeRenderAddress += sizeof(RenderCallBitmap);
 		} break;
 		case RenderCallType_RenderCallCoordinateSystem: {
@@ -1043,6 +1043,8 @@ ProjectionProps GetStandardProjection(u32 resolutionX, u32 resolutionY) {
 	ProjectionProps result = {};
 	result.monitorWidth = 0.52f;
 	result.metersToPixels = resolutionX * result.monitorWidth;
+	result.screenCenter = { resolutionX / 2.f,
+							resolutionY / 2.f };
 	result.camera = GetStandardCamera();
 	return result;
 }

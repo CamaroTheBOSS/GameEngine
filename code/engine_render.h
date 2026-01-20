@@ -46,7 +46,7 @@ struct RenderCallClear {
 };
 
 struct RenderCallRectangle {
-	V3 center;
+	V2 center;
 	V2 size;
 	V2 offset;
 	V4 color;
@@ -54,10 +54,10 @@ struct RenderCallRectangle {
 
 struct RenderCallBitmap {
 	LoadedBitmap* bitmap;
-	V3 center;
+	V2 center;
 	V2 offset;
+	V2 size;
 	V4 color;
-	f32 height;
 };
 
 struct RenderCallCoordinateSystem {
@@ -82,6 +82,7 @@ struct ProjectionProps {
 	CameraProps camera;
 	f32 monitorWidth;
 	f32 metersToPixels;
+	V2 screenCenter;
 };
 
 struct RenderGroup {
@@ -92,9 +93,9 @@ struct RenderGroup {
 };
 
 /*                Renderer API                  */
-inline RenderCallClear* PushClearCall(RenderGroup& group, V4 color = V4{ 1, 1, 1, 1 });
-inline RenderCallBitmap* PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height,
+inline bool PushClearCall(RenderGroup& group, V4 color = V4{ 1, 1, 1, 1 });
+inline bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, 
 	V2 offset, V4 color = V4{1, 1, 1, 1});
-inline RenderCallRectangle* PushRect(RenderGroup& group, V3 center, V2 size, 
-	V2 offset, V4 color = V4{ 1, 1, 1, 1 });
+inline bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, 
+	V4 color = V4{ 1, 1, 1, 1 });
 /*                Renderer API                  */
