@@ -89,6 +89,8 @@ struct DebugMemory {
 #define BEGIN_TIMED_SECTION(id) u64 startCycleCount_##id = __rdtsc();
 #define END_TIMED_SECTION_COUNTED(id, count) debugGlobalMemory->performanceCounters[DPCT_##id].cycles += __rdtsc() - startCycleCount_##id; \
 	debugGlobalMemory->performanceCounters[DPCT_##id].counts += count
+#define END_TIMED_SECTION_MULTITHREADED(id, count) InterlockedAdd(ptrcast(volatile long, &debugGlobalMemory->performanceCounters[DPCT_##id].cycles), __rdtsc() - startCycleCount_##id); \
+	InterlockedAdd(ptrcast(volatile long, &debugGlobalMemory->performanceCounters[DPCT_##id].counts), count)
 #define END_TIMED_SECTION(id) END_TIMED_SECTION_COUNTED(id, 1)
 DebugMemory* debugGlobalMemory;
 

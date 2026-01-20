@@ -498,13 +498,11 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	fillRect.minX = FloorF32ToI32(fminX);
 	fillRect.maxX = CeilF32ToI32(fmaxX) + 1;
 	fillRect = Intersection(fillRect, clipRect);
-	i32 fillWidth = fillRect.maxX - fillRect.minX;
-	i32 fillRectAlignment = fillWidth & 7;
+	i32 alignedMinX = AlignDown8(fillRect.minX);
 	__m256i startupClipMask = _mm256_set1_epi8(-1);
-	if (fillRectAlignment) {
-		const i32 alignment = 8 - fillRectAlignment;
-		fillWidth += alignment;
-		fillRect.minX = fillRect.maxX - fillWidth;
+	if (fillRect.minX != alignedMinX) {
+		i32 alignment = fillRect.minX - alignedMinX;
+		fillRect.minX = alignedMinX;
 		__m128i startupClipMaskLow = _mm_set1_epi8(-1);
 		__m128i startupClipMaskHigh = _mm_set1_epi8(-1);
 		switch (alignment) {
@@ -521,6 +519,27 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 		}
 		startupClipMask = _mm256_setr_m128i(startupClipMaskLow, startupClipMaskHigh);
 	}
+	i32 alignedMaxX = AlignUp8(fillRect.maxX);
+	__m256i endClipMask = _mm256_set1_epi8(-1);
+	if (fillRect.maxX != alignedMaxX) {
+		i32 alignment = alignedMaxX - fillRect.maxX;
+		fillRect.maxX = alignedMaxX;
+		__m128i endClipMaskLow = _mm_set1_epi8(-1);
+		__m128i endClipMaskHigh = _mm_set1_epi8(-1);
+		switch (alignment) {
+		case 1: { endClipMaskHigh = _mm_srli_si128(endClipMaskHigh, 1 * 4); } break;
+		case 2: { endClipMaskHigh = _mm_srli_si128(endClipMaskHigh, 2 * 4); } break;
+		case 3: { endClipMaskHigh = _mm_srli_si128(endClipMaskHigh, 3 * 4); } break;
+		case 4: { endClipMaskHigh = _mm_srli_si128(endClipMaskHigh, 4 * 4); } break;
+		default: { endClipMaskHigh = _mm_set1_epi8(0); } break;
+		}
+		switch (alignment) {
+		case 5: { endClipMaskLow = _mm_srli_si128(endClipMaskLow, 1 * 4); } break;
+		case 6: { endClipMaskLow = _mm_srli_si128(endClipMaskLow, 2 * 4); } break;
+		case 7: { endClipMaskLow = _mm_srli_si128(endClipMaskLow, 3 * 4); } break;
+		}
+		endClipMask = _mm256_setr_m128i(endClipMaskLow, endClipMaskHigh);
+	}
 	i32 minY = fillRect.minY;
 	i32 maxY = fillRect.maxY;
 	i32 minX = fillRect.minX;
@@ -528,6 +547,11 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	if (even == (minY & 1)) {
 		minY++;
 	}
+	// NOTE: Assume aligned X boundaries and proper clipping
+	Assert(((maxX - minX) & 7) == 0);
+	Assert(maxX <= clipRect.maxX);
+	Assert(minX >= clipRect.minX);
+	i32 packsNum = (maxX - minX) >> 3; // Divide by 8
 
 	static_assert(BITMAP_BYTES_PER_PIXEL == 4);
 	color.RGB *= color.A;
@@ -566,7 +590,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
 	u32 rowAdvance = 2 * bitmap.pitch;
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
-	// TODO: minX MUST be aligned to 8pixels or 32bytes boundary!
 	Assert((minX * BITMAP_BYTES_PER_PIXEL & 31) == 0)
 #if 0
 	// TODO: Check whether this helps
@@ -580,7 +603,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 		__m256 dy = _mm256_set1_ps(f4(Y) + 0.5f - origin.Y);
 		__m256 dx = _mm256_add_ps(dxBase, _mm256_setr_ps(0.5f, 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7.5f));
 		__m256i clipMask = startupClipMask;
-		for (i32 X = minX; X < maxX; X += 8) {
+		for (i32 iter = 0; iter < packsNum; iter++) {
 			__m256 u = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, xAX), _mm256_mul_ps(dy, xAY)), uCfx8);
 			__m256 v = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, yAX), _mm256_mul_ps(dy, yAY)), vCfx8);
 			__m256i writeMask = _mm256_castps_si256(
@@ -729,7 +752,12 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			_mm256_store_si256(ptrcast(__m256i, dstPixel), outputARGB);
 			dstPixel += 8;
 			dx = _mm256_add_ps(dx, eight);
-			clipMask = _mm256_set1_epi8(-1);
+			if (iter == packsNum - 2) {
+				clipMask = endClipMask;
+			}
+			else {
+				clipMask = _mm256_set1_epi8(-1);
+			}
 		}
 		
 		row += rowAdvance;
@@ -739,6 +767,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	if (maxY > minY && maxX > minX) {
 		pixelCount = ((maxY - minY) * (maxX - minX)) / 2;
 	}
+	// TODO: This counter is not thread safe!
 	END_TIMED_SECTION_COUNTED(FillPixel, pixelCount);
 	END_TIMED_SECTION(RenderRectangleOptimized);
 }
@@ -962,7 +991,12 @@ void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Platf
 			args->clipRect.maxX = args->clipRect.minX + tileWidth;
 			args->dstBuffer = &dstBuffer;
 			args->group = &group;
+#if 1 // Switch on = multithreaded rendering
 			PlatformPushTaskToQueue(queue, RenderTiled, args);
+#else
+			ThreadContext context = {};
+			RenderTiled(args, context);
+#endif
 		}
 	}
 	PlatformWaitForQueueCompletion(queue);

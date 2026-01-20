@@ -55,10 +55,10 @@
 #define U32_MAX u4(0xFFFFFFFF)
 #define I32_MAX i4(U32_MAX >> 1)
 #define F32_MAX f4(U32_MAX)
-#define AlignUp32(expr) (((expr) + 31) & ~31)
-#define AlignUp8(expr) (((expr) + 7) & ~7)
-#define AlignDown32(expr) (((expr) - 31) & ~31)
-#define AlignDown8(expr) (((expr) - 7) & ~7)
+#define AlignUp32(expr) (((expr) + 31) / 32 * 32)
+#define AlignUp8(expr) (((expr) + 7) / 8 * 8)
+#define AlignDown32(expr) ((expr) / 32 * 32))
+#define AlignDown8(expr) ((expr) / 8 * 8)
 #if COMPILER_LLVM == 1
 	#define LLVM_MCA_BEGIN(name) __asm volatile("# LLVM-MCA-BEGIN " #name:::"memory");
 	#define LLVM_MCA_END(name) __asm volatile("# LLVM-MCA-END " #name:::"memory");
