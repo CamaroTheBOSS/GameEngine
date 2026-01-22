@@ -83,6 +83,7 @@ struct ProjectionProps {
 	f32 monitorWidth;
 	f32 metersToPixels;
 	V2 screenCenter;
+	bool orthographic;
 };
 
 struct RenderGroup {

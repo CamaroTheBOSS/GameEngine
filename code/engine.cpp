@@ -39,7 +39,12 @@ void RenderHitPoints(RenderGroup& group, Entity& entity, V3 center, V2 offset, f
 }
 
 internal
-void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos) {
+void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos) {
+	TemporaryMemory renderMemory = BeginTempMemory(arena);
+	RenderGroup renderGroup = AllocateRenderGroup(arena, MB(4), dstBuffer.buffer.width, dstBuffer.buffer.height);
+	f32 pixelsToMeters = 1.f / renderGroup.projection.metersToPixels;
+	renderGroup.projection.metersToPixels = 1.f;
+	MakeOrthographic(renderGroup.projection);
 	for (i32 chunkOffsetY = -1; chunkOffsetY <= 1; chunkOffsetY++) {
 		for (i32 chunkOffsetX = -1; chunkOffsetX <= 1; chunkOffsetX++) {
 			i32 chunkX = chunkPos.chunkX + chunkOffsetX;
@@ -47,10 +52,11 @@ void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPositio
 			i32 chunkZ = chunkPos.chunkZ;
 			u32 seed = 313 * chunkX + 217 * chunkY + 177 * chunkZ;
 			RandomSeries series = RandomSeed(seed);
-			for (u32 bmpIndex = 0; bmpIndex < 100; bmpIndex++) {
-				V2 position = V2{
-					RandomUnilateral(series) * dstBuffer.buffer.width,
-					RandomUnilateral(series) * dstBuffer.buffer.height,
+			for (u32 bmpIndex = 0; bmpIndex < 50; bmpIndex++) {
+				V3 position = V3{
+					RandomBilateral(series) * 0.5f * dstBuffer.buffer.width,
+					RandomBilateral(series) * 0.5f * dstBuffer.buffer.height,
+					0
 				};
 				bool grass = RandomUnilateral(series) > 0.5f;
 				LoadedBitmap* bmp = 0;
@@ -62,12 +68,14 @@ void FillGroundBuffer(ProgramState* state, GroundBuffer& dstBuffer, WorldPositio
 					u32 groundIndex = NextRandom(series) % ArrayCount(state->groundBmps);
 					bmp = state->groundBmps + groundIndex;
 				}
-				position.X += chunkOffsetX * dstBuffer.buffer.width - bmp->width / 2.f;
-				position.Y += chunkOffsetY * dstBuffer.buffer.height - bmp->height / 2.f;
-				RenderBitmap(dstBuffer.buffer, *bmp, position);
+				position.X += chunkOffsetX * dstBuffer.buffer.width;
+				position.Y += chunkOffsetY * dstBuffer.buffer.height;
+				PushBitmap(renderGroup, bmp, position, f4(bmp->height), V2{0, 0});
 			}
 		}
 	}
+	RenderGroupToBuffer(renderGroup, dstBuffer.buffer);
+	EndTempMemory(renderMemory);
 	dstBuffer.pos = chunkPos;
 }
 
@@ -977,15 +985,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			ptrcast(u8, memory.transientMemory) + sizeof(TransientState),
 			memory.transientMemorySize - sizeof(TransientState)
 		);
-
-#if 0
-		V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
 		for (u32 groundBufferIndex = 0; groundBufferIndex < ArrayCount(tranState->groundBuffers); groundBufferIndex++) {
 			GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
-			groundBuffer->buffer = MakeEmptyBuffer(tranState->arena, RoundF32ToU32(chunkSizePix.X), RoundF32ToU32(chunkSizePix.Y));
+			groundBuffer->buffer = MakeEmptyBuffer(tranState->arena, 256, 256);
 			groundBuffer->pos = NullPosition();
 		}
-#endif
 		tranState->renderQueue = memory.renderQueue;
 		tranState->isInitialized = true;
 	}
@@ -1075,7 +1079,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
 	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, MB(4), bitmap.width, bitmap.height);
 	//TODO: This is only for debugging
-	//renderGroup.projection.camera.distanceToTarget = 30.f;
+	renderGroup.projection.camera.distanceToTarget = 3.f;
 
 	LoadedBitmap screenBitmap = {};
 	screenBitmap.height = bitmap.height;
@@ -1084,10 +1088,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	screenBitmap.pitch = bitmap.pitch;
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
 
-#if 0
-	V3 screenSizeInMeters = V3{ f4(bitmap.width), f4(bitmap.height), 0.f } *metersPerPixel;
-	V2 chunkSizePix = world.chunkSizeInMeters.XY * pixelsPerMeter;
-	Rect3 realCameraBounds = GetRectFromCenterDim(V3{ 0, 0, 0 }, screenSizeInMeters);
+	Rect2 groundChunkBounds = GetRenderRectangleAtTarget(renderGroup.projection, bitmap.width, bitmap.height);
+	Rect3 realCameraBounds = ToRect3(groundChunkBounds, V2{0, 0});
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(realCameraBounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(realCameraBounds));
 	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
@@ -1122,21 +1124,15 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 			if (!drawBuffer && furthestBuffer) {
 				WorldPosition chunkPos = CenteredWorldPosition(chunkX, chunkY, chunkZ);
-				FillGroundBuffer(state, *furthestBuffer, chunkPos);
+				FillGroundBuffer(tranState->arena, state, *furthestBuffer, chunkPos);
 				drawBuffer = furthestBuffer;
 			}
 			V3 diff = Subtract(world, drawBuffer->pos, state->cameraPos);
-			V3 chunkLeftUp = {
-				diff.X - 0.5f * world.chunkSizeInMeters.X,
-				diff.Y - 0.5f * world.chunkSizeInMeters.Y,
-				// TODO this isn't quite right but gives effect, should be
-				// done differently;
-				-state->cameraPos.offset.Z
-			};
-			PushBitmap(renderGroup, &drawBuffer->buffer, chunkLeftUp, V2{ 0, 0 });
+			diff -= ToV3(0.5f * state->world.chunkSizeInMeters.XY, 0);
+			PushBitmap(renderGroup, &drawBuffer->buffer, diff, 1.f * state->world.chunkSizeInMeters.Y, V2{ 0, 0 });
 		}
 	}
-#endif
+
 #if 0
 	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
 		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {

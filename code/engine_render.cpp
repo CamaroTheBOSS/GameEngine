@@ -13,14 +13,22 @@ EntityProjectedParams CalculatePerspectiveProjection(ProjectionProps& projection
 	V3 entityCenter, V2 entitySize)
 {
 	EntityProjectedParams result = {};
-	V3 rawCoords = ToV3(entityCenter.XY, 1.f);
-	f32 denominator = projection.camera.distanceToTarget - entityCenter.Z;
-	if (denominator > projection.camera.nearClip) {
-		V3 projectedCoords = projection.camera.focalLength * rawCoords / denominator;
-		result.center = projection.screenCenter + projectedCoords.XY * projection.metersToPixels;
-		result.size = projectedCoords.Z * entitySize * projection.metersToPixels;
+	if (projection.orthographic) {
+		result.center = projection.screenCenter + entityCenter.XY * projection.metersToPixels;
+		result.size = entitySize * projection.metersToPixels;
 		result.valid = true;
 	}
+	else {
+		V3 rawCoords = ToV3(entityCenter.XY, 1.f);
+		f32 denominator = projection.camera.distanceToTarget - entityCenter.Z;
+		if (denominator > projection.camera.nearClip) {
+			V3 projectedCoords = projection.camera.focalLength * rawCoords / denominator;
+			result.center = projection.screenCenter + projectedCoords.XY * projection.metersToPixels;
+			result.size = projectedCoords.Z * entitySize * projection.metersToPixels;
+			result.valid = true;
+		}
+	}
+	
 	return result;
 }
 
@@ -1228,12 +1236,19 @@ CameraProps GetStandardCamera() {
 }
 
 inline
+void MakeOrthographic(ProjectionProps& projection) {
+	projection.orthographic = true;
+	return;
+}
+
+inline
 ProjectionProps GetStandardProjection(u32 resolutionX, u32 resolutionY) {
 	ProjectionProps result = {};
 	result.monitorWidth = 0.52f;
 	result.metersToPixels = resolutionX * result.monitorWidth;
 	result.screenCenter = { resolutionX / 2.f,
 							resolutionY / 2.f };
+	result.orthographic = false;
 	result.camera = GetStandardCamera();
 	return result;
 }
