@@ -42,9 +42,13 @@ internal
 void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos) {
 	TemporaryMemory renderMemory = BeginTempMemory(arena);
 	RenderGroup renderGroup = AllocateRenderGroup(arena, MB(4), dstBuffer.buffer.width, dstBuffer.buffer.height);
-	f32 pixelsToMeters = 1.f / renderGroup.projection.metersToPixels;
-	renderGroup.projection.metersToPixels = 254.f / 256.f;
-	MakeOrthographic(renderGroup.projection);
+	f32 width = state->world.chunkSizeInMeters.X;
+	f32 height = state->world.chunkSizeInMeters.Y;
+	LoadedBitmap& buffer = dstBuffer.buffer;
+	Assert(width == height);
+	f32 metersToPixels = (dstBuffer.buffer.width - 2) / width;
+	renderGroup.projection.metersToPixels = metersToPixels;
+	MakeOrthographic(renderGroup.projection, buffer.width, buffer.height, metersToPixels);
 	for (i32 chunkOffsetY = -1; chunkOffsetY <= 1; chunkOffsetY++) {
 		for (i32 chunkOffsetX = -1; chunkOffsetX <= 1; chunkOffsetX++) {
 			i32 chunkX = chunkPos.chunkX + chunkOffsetX;
@@ -63,8 +67,8 @@ void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dst
 			RandomSeries series = RandomSeed(seed);
 			for (u32 bmpIndex = 0; bmpIndex < 100; bmpIndex++) {
 				V3 position = V3{
-					RandomBilateral(series) * 0.5f * dstBuffer.buffer.width,
-					RandomBilateral(series) * 0.5f * dstBuffer.buffer.height,
+					RandomBilateral(series) * 0.5f * width,
+					RandomBilateral(series) * 0.5f * height,
 					0
 				};
 				bool grass = RandomUnilateral(series) > 0.5f;
@@ -77,9 +81,9 @@ void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dst
 					u32 groundIndex = NextRandom(series) % ArrayCount(state->groundBmps);
 					bmp = state->groundBmps + groundIndex;
 				}
-				position.X += chunkOffsetX * dstBuffer.buffer.width;
-				position.Y += chunkOffsetY * dstBuffer.buffer.height;
-				PushBitmap(renderGroup, bmp, position, f4(bmp->height), V2{0, 0}, color);
+				position.X += chunkOffsetX * width;
+				position.Y += chunkOffsetY * height;
+				PushBitmap(renderGroup, bmp, position, 1.7f, V2{0, 0}, color);
 			}
 		}
 	}

@@ -1237,10 +1237,15 @@ CameraProps GetStandardCamera() {
 }
 
 inline
-void MakeOrthographic(ProjectionProps& projection) {
+void MakeOrthographic(ProjectionProps& projection, u32 widthPix, u32 heightPix, f32 metersToPixels) {
 	projection.orthographic = true;
+	projection.metersToPixels = metersToPixels;
+	projection.screenCenter = { widthPix / 2.f,
+								heightPix / 2.f };
 	return;
 }
+
+
 
 inline
 ProjectionProps GetStandardProjection(u32 resolutionX, u32 resolutionY) {
