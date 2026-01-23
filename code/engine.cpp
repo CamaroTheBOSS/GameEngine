@@ -41,14 +41,13 @@ void RenderHitPoints(RenderGroup& group, Entity& entity, V3 center, V2 offset, f
 internal
 void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos) {
 	TemporaryMemory renderMemory = BeginTempMemory(arena);
-	RenderGroup renderGroup = AllocateRenderGroup(arena, MB(4), dstBuffer.buffer.width, dstBuffer.buffer.height);
+	RenderGroup renderGroup = AllocateRenderGroup(arena, MB(4));
 	f32 width = state->world.chunkSizeInMeters.X;
 	f32 height = state->world.chunkSizeInMeters.Y;
 	LoadedBitmap& buffer = dstBuffer.buffer;
 	Assert(width == height);
 	f32 metersToPixels = (dstBuffer.buffer.width - 2) / width;
-	renderGroup.projection.metersToPixels = metersToPixels;
-	MakeOrthographic(renderGroup.projection, buffer.width, buffer.height, metersToPixels);
+	renderGroup.projection = GetOrtographicProjection(buffer.width, buffer.height, metersToPixels);
 	for (i32 chunkOffsetY = -1; chunkOffsetY <= 1; chunkOffsetY++) {
 		for (i32 chunkOffsetX = -1; chunkOffsetX <= 1; chunkOffsetX++) {
 			i32 chunkX = chunkPos.chunkX + chunkOffsetX;
@@ -87,7 +86,7 @@ void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dst
 			}
 		}
 	}
-	//PushRectBorders(renderGroup, V3{ 0, 0, 0 }, V2i(dstBuffer.buffer.width, dstBuffer.buffer.height), V4{ 0, 1, 0, 1 }, 5.f);
+	//PushRectBorders(renderGroup, V3{ 0, 0, 0 }, V2i(buffer.width, buffer.height), V4{ 0, 1, 0, 1 }, 5.f);
 	RenderGroupToBuffer(renderGroup, dstBuffer.buffer);
 	EndTempMemory(renderMemory);
 	dstBuffer.pos = chunkPos;
@@ -1091,9 +1090,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 	// TODO: Think about size of the main render group
 	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
-	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, MB(4), bitmap.width, bitmap.height);
-	//TODO: This is only for debugging
-	renderGroup.projection.camera.distanceToTarget = 3.f;
+	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, MB(4));
+	renderGroup.projection = GetStandardProjection(bitmap.width, bitmap.height);
+	//NOTE: Change this to change debug view
+	renderGroup.projection.camera.distanceToTarget = 10.f;
 
 	LoadedBitmap screenBitmap = {};
 	screenBitmap.height = bitmap.height;

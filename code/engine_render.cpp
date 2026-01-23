@@ -1237,34 +1237,34 @@ CameraProps GetStandardCamera() {
 }
 
 inline
-void MakeOrthographic(ProjectionProps& projection, u32 widthPix, u32 heightPix, f32 metersToPixels) {
-	projection.orthographic = true;
-	projection.metersToPixels = metersToPixels;
-	projection.screenCenter = { widthPix / 2.f,
-								heightPix / 2.f };
-	return;
-}
-
-
-
-inline
-ProjectionProps GetStandardProjection(u32 resolutionX, u32 resolutionY) {
+ProjectionProps GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 metersToPixels) {
 	ProjectionProps result = {};
 	result.monitorWidth = 0.52f;
-	result.metersToPixels = resolutionX * result.monitorWidth;
-	result.screenCenter = { resolutionX / 2.f,
-							resolutionY / 2.f };
+	result.metersToPixels = metersToPixels;
+	result.screenCenter = { widthPix / 2.f,
+							heightPix / 2.f };
+	result.orthographic = true;
+	result.camera = GetStandardCamera();
+	return result;
+}
+
+inline
+ProjectionProps GetStandardProjection(u32 widthPix, u32 heightPix) {
+	ProjectionProps result = {};
+	result.monitorWidth = 0.52f;
+	result.metersToPixels = widthPix * result.monitorWidth;
+	result.screenCenter = { widthPix / 2.f,
+							heightPix / 2.f };
 	result.orthographic = false;
 	result.camera = GetStandardCamera();
 	return result;
 }
 
 inline
-RenderGroup AllocateRenderGroup(MemoryArena& arena, u32 size, u32 resolutionX, u32 resolutionY) {
+RenderGroup AllocateRenderGroup(MemoryArena& arena, u32 size) {
 	RenderGroup result = {};
 	result.pushBuffer = PushArray(arena, size, u8);
 	result.maxPushBufferSize = size;
 	result.pushBufferSize = 0;
-	result.projection = GetStandardProjection(resolutionX, resolutionY);
 	return result;
 }
