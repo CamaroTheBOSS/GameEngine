@@ -804,6 +804,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 
 	__m256i zeroTo7 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
 	__m256 zero = _mm256_set1_ps(0.f);
+	__m256 half = _mm256_set1_ps(0.5f);
 	__m256 one = _mm256_set1_ps(1.0f);
 	__m256 u16max = _mm256_set1_ps(Squared(255.f));
 	__m256i onei = _mm256_set1_epi32(1);
@@ -836,8 +837,8 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	LLVM_MCA_BEGIN(opt_render_rect);
 	for (i32 Y = minY; Y < maxY; Y += 2) {
 		u32* dstPixel = ptrcast(u32, row);
-		__m256 dy = _mm256_set1_ps(f4(Y) + 0.5f - origin.Y);
-		__m256 dx = _mm256_add_ps(dxBase, _mm256_setr_ps(0.5f, 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7.5f));
+		__m256 dy = _mm256_set1_ps(f4(Y) - origin.Y);
+		__m256 dx = _mm256_add_ps(dxBase, _mm256_setr_ps(0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f));
 		__m256i clipMask = startupClipMask;
 		for (i32 iter = 0; iter < packsNum; iter++) {
 			__m256 u = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(dx, xAX), _mm256_mul_ps(dy, xAY)), uCfx8);
@@ -858,8 +859,8 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 			v = _mm256_min_ps(one, _mm256_max_ps(v, zero));
 
 			writeMask = _mm256_and_si256(writeMask, clipMask);
-			__m256 texelX = _mm256_mul_ps(u, uWcf);
-			__m256 texelY = _mm256_mul_ps(v, vHcf);
+			__m256 texelX = _mm256_add_ps(_mm256_mul_ps(u, uWcf), half);
+			__m256 texelY = _mm256_add_ps(_mm256_mul_ps(v, vHcf), half);
 			__m256i texelXint = _mm256_cvttps_epi32(texelX);
 			__m256i texelYint = _mm256_cvttps_epi32(texelY);
 			__m256 fX = _mm256_sub_ps(texelX, _mm256_cvtepi32_ps(texelXint));

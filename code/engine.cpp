@@ -43,16 +43,25 @@ void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dst
 	TemporaryMemory renderMemory = BeginTempMemory(arena);
 	RenderGroup renderGroup = AllocateRenderGroup(arena, MB(4), dstBuffer.buffer.width, dstBuffer.buffer.height);
 	f32 pixelsToMeters = 1.f / renderGroup.projection.metersToPixels;
-	renderGroup.projection.metersToPixels = 1.f;
+	renderGroup.projection.metersToPixels = 254.f / 256.f;
 	MakeOrthographic(renderGroup.projection);
 	for (i32 chunkOffsetY = -1; chunkOffsetY <= 1; chunkOffsetY++) {
 		for (i32 chunkOffsetX = -1; chunkOffsetX <= 1; chunkOffsetX++) {
 			i32 chunkX = chunkPos.chunkX + chunkOffsetX;
 			i32 chunkY = chunkPos.chunkY + chunkOffsetY;
 			i32 chunkZ = chunkPos.chunkZ;
+#if 1
+			V4 color = V4{ 1, 0, 0, 1 };
+			if (((chunkX % 2) == 1 && (chunkY % 2) == 1) || (((chunkX % 2) == 0) && ((chunkY % 2) == 0))) {
+				color = V4{ 0, 1, 1, 1 };
+			}
+#else
+			V4 color = { 1, 1, 1, 1 };
+#endif
+
 			u32 seed = 313 * chunkX + 217 * chunkY + 177 * chunkZ;
 			RandomSeries series = RandomSeed(seed);
-			for (u32 bmpIndex = 0; bmpIndex < 50; bmpIndex++) {
+			for (u32 bmpIndex = 0; bmpIndex < 100; bmpIndex++) {
 				V3 position = V3{
 					RandomBilateral(series) * 0.5f * dstBuffer.buffer.width,
 					RandomBilateral(series) * 0.5f * dstBuffer.buffer.height,
@@ -70,10 +79,11 @@ void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dst
 				}
 				position.X += chunkOffsetX * dstBuffer.buffer.width;
 				position.Y += chunkOffsetY * dstBuffer.buffer.height;
-				PushBitmap(renderGroup, bmp, position, f4(bmp->height), V2{0, 0});
+				PushBitmap(renderGroup, bmp, position, f4(bmp->height), V2{0, 0}, color);
 			}
 		}
 	}
+	//PushRectBorders(renderGroup, V3{ 0, 0, 0 }, V2i(dstBuffer.buffer.width, dstBuffer.buffer.height), V4{ 0, 1, 0, 1 }, 5.f);
 	RenderGroupToBuffer(renderGroup, dstBuffer.buffer);
 	EndTempMemory(renderMemory);
 	dstBuffer.pos = chunkPos;
@@ -1127,6 +1137,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				FillGroundBuffer(tranState->arena, state, *furthestBuffer, chunkPos);
 				drawBuffer = furthestBuffer;
 			}
+
 			V3 diff = Subtract(world, drawBuffer->pos, state->cameraPos);
 			diff -= ToV3(0.5f * state->world.chunkSizeInMeters.XY, 0);
 			PushBitmap(renderGroup, &drawBuffer->buffer, diff, 1.f * state->world.chunkSizeInMeters.Y, V2{ 0, 0 });
