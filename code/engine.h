@@ -97,11 +97,8 @@ struct DebugMemory {
 DebugMemory* debugGlobalMemory;
 
 // PlatformQueue
-struct ThreadContext {
-	u32 threadId;
-};
 struct PlatformQueue;
-typedef void (*PlatformQueueCallback)(void* data, ThreadContext& context);
+typedef void (*PlatformQueueCallback)(void* data);
 typedef void(*_PlatformWaitForQueueCompletion)(PlatformQueue* queue);
 typedef bool(*_PlatformPushTaskToQueue)(PlatformQueue* queue, PlatformQueueCallback callback, void* args);
 _PlatformWaitForQueueCompletion PlatformWaitForQueueCompletion;
@@ -120,7 +117,7 @@ struct ProgramMemory {
 	void* transientMemory;
 
 	PlatformQueue* highPriorityQueue;
-	PlatformQueue* renderQueue;
+	PlatformQueue* lowPriorityQueue;
 
 	DebugMemory debug;
 	_PlatformWaitForQueueCompletion PlatformWaitForQueueCompletion;
@@ -137,7 +134,6 @@ struct ProgramState {
 	f32 highFreqBoundHeight;
 	WorldPosition cameraPos;
 	World world;
-	PlatformQueue* highPriorityQueue;
 	
 	u32 playerEntityIndexes[MAX_CONTROLLERS];
 	PlayerControls playerControls[MAX_CONTROLLERS];
@@ -168,7 +164,8 @@ struct TransientState {
 	MemoryArena arena;
 	GroundBuffer groundBuffers[64];
 	bool isInitialized;
-	PlatformQueue* renderQueue;
+	PlatformQueue* lowPriorityQueue;
+	PlatformQueue* highPriorityQueue;
 
 	EnvironmentMap topEnvMap;
 	EnvironmentMap middleEnvMap;

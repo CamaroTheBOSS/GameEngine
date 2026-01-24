@@ -39,7 +39,7 @@ void RenderHitPoints(RenderGroup& group, Entity& entity, V3 center, V2 offset, f
 }
 
 internal
-void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos) {
+void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos, PlatformQueue* queue) {
 	TemporaryMemory renderMemory = BeginTempMemory(arena);
 	RenderGroup renderGroup = AllocateRenderGroup(arena, MB(4));
 	f32 width = state->world.chunkSizeInMeters.X;
@@ -48,12 +48,13 @@ void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dst
 	Assert(width == height);
 	f32 metersToPixels = (dstBuffer.buffer.width - 2) / width;
 	renderGroup.projection = GetOrtographicProjection(buffer.width, buffer.height, metersToPixels);
+	PushClearCall(renderGroup, V4{ 1, 0, 1, 1 });
 	for (i32 chunkOffsetY = -1; chunkOffsetY <= 1; chunkOffsetY++) {
 		for (i32 chunkOffsetX = -1; chunkOffsetX <= 1; chunkOffsetX++) {
 			i32 chunkX = chunkPos.chunkX + chunkOffsetX;
 			i32 chunkY = chunkPos.chunkY + chunkOffsetY;
 			i32 chunkZ = chunkPos.chunkZ;
-#if 1
+#if 0
 			V4 color = V4{ 1, 0, 0, 1 };
 			if (((chunkX % 2) == 1 && (chunkY % 2) == 1) || (((chunkX % 2) == 0) && ((chunkY % 2) == 0))) {
 				color = V4{ 0, 1, 1, 1 };
@@ -86,8 +87,7 @@ void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dst
 			}
 		}
 	}
-	//PushRectBorders(renderGroup, V3{ 0, 0, 0 }, V2i(buffer.width, buffer.height), V4{ 0, 1, 0, 1 }, 5.f);
-	RenderGroupToBuffer(renderGroup, dstBuffer.buffer);
+	TiledRenderGroupToBuffer(renderGroup, dstBuffer.buffer, queue);
 	EndTempMemory(renderMemory);
 	dstBuffer.pos = chunkPos;
 }
@@ -732,7 +732,8 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 internal
 LoadedBitmap MakeEmptyBuffer(MemoryArena& arena, u32 width, u32 height) {
 	LoadedBitmap bmp = {};
-	bmp.data = PushArray(arena, width * height, u32);
+	u64 alignment = 32;
+	bmp.data = PushArray(arena, width * height, u32, alignment);
 	bmp.bufferStart = ptrcast(void, bmp.data);
 	bmp.height = height;
 	bmp.width = width;
@@ -987,7 +988,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		AddMonster(state, world, 17 / 2, 7, 0);
 		AddWall(state, world, 17 / 2, 4, 0);
 #endif
-		state->highPriorityQueue = memory.highPriorityQueue;
 		state->isInitialized = true;
 	}
 	
@@ -1003,7 +1003,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			groundBuffer->buffer = MakeEmptyBuffer(tranState->arena, 256, 256);
 			groundBuffer->pos = NullPosition();
 		}
-		tranState->renderQueue = memory.renderQueue;
+		tranState->highPriorityQueue = memory.highPriorityQueue;
+		tranState->lowPriorityQueue = memory.lowPriorityQueue;
 		tranState->isInitialized = true;
 	}
 
@@ -1138,7 +1139,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 			if (!drawBuffer && furthestBuffer) {
 				WorldPosition chunkPos = CenteredWorldPosition(chunkX, chunkY, chunkZ);
-				FillGroundBuffer(tranState->arena, state, *furthestBuffer, chunkPos);
+				FillGroundBuffer(tranState->arena, state, *furthestBuffer, chunkPos, tranState->lowPriorityQueue);
 				drawBuffer = furthestBuffer;
 			}
 
@@ -1359,7 +1360,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #if 0
 	RenderGroupToBuffer(renderGroup, screenBitmap);
 #else
-	TiledRenderGroupToBuffer(renderGroup, screenBitmap, state->highPriorityQueue);
+	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
 #endif
 
 	EndSimulation(*simRegion, world);

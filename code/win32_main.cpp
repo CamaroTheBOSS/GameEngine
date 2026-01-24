@@ -84,11 +84,6 @@ struct PlatformQueue {
 	HANDLE semaphore;
 };
 
-struct ThreadData {
-	PlatformQueue* queue;
-	ThreadContext context;
-};
-
 static bool globalRunning;
 static BitmapData globalBitmap;
 static Win32State globalWin32State;
@@ -97,7 +92,7 @@ static SoundRenderData globalSoundData;
 static LARGE_INTEGER globalPerformanceFreq;
 WINDOWPLACEMENT globalWindowPos = { sizeof(globalWindowPos) };
 static PlatformQueue globalHighPriorityQueue = {};
-static PlatformQueue globalRenderQueue = {};
+static PlatformQueue globalLowPriorityQueue = {};
 
 /* Some explanation on this code (for dynamic loading XInputGet/SetState() functions from XInput lib):
 	1. Defines are defining actual signature of these functions
@@ -725,7 +720,7 @@ f32 Win32CalculateTimeElapsed(u64 startTime, u64 endTime) {
 }
 
 internal
-bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue, ThreadContext& context) {
+bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue) {
 	bool workDone = false;
 	u32 visibleReadIndex = queue->readIndex;
 	if (visibleReadIndex != queue->writeIndex) {
@@ -737,7 +732,7 @@ bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue, ThreadContext& con
 		);
 		if (visibleReadIndex == actualReadIndex) {
 			PlatformQueueTask* task = queue->tasks + visibleReadIndex;
-			task->callback(task->args, context);
+			task->callback(task->args);
 			InterlockedIncrement(ptrcast(volatile LONG, &queue->tasksDone));
 		}
 		workDone = true;
@@ -746,11 +741,9 @@ bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue, ThreadContext& con
 }
 
 DWORD Win32ThreadProc(LPVOID params) {
-	ThreadData* data = ptrcast(ThreadData, params);
-	PlatformQueue* queue = data->queue;
-	ThreadContext& context = data->context;
+	PlatformQueue* queue = ptrcast(PlatformQueue, params);
 	while (true) {
-		if (!Win32TryPopAndExecuteTaskFromQueue(queue, context)) {
+		if (!Win32TryPopAndExecuteTaskFromQueue(queue)) {
 			WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
 		}
 
@@ -779,23 +772,17 @@ bool Win32PushTask(PlatformQueue* queue, PlatformQueueCallback callback, void* a
 }
 
 void Win32WaitForQueueCompletion(PlatformQueue* queue) {
-	ThreadContext context = {};
-	// TODO: How to make that more sane?
-	context.threadId = 69;
 	while (!Win32WorkInQueueIsDone(queue)) {
-		Win32TryPopAndExecuteTaskFromQueue(queue, context);
+		Win32TryPopAndExecuteTaskFromQueue(queue);
 	};
 	int breakHere = 5;
 }
 
 internal
 void InitializeQueue(PlatformQueue& queue, DWORD threadCount) {
-	//// TODO: Could it be done better than that? For now it is required to exist, because
-	//// I need to check whether specific slot is free or not to avoid overriding task which might be
-	//// done in the background!!!
-	//for (u32 taskIndex = 0; taskIndex < ArrayCount(queue.tasks); taskIndex++) {
-	//	PlatformQueueTask* task = queue.tasks + taskIndex;
-	//}
+	for (u32 threadIndex = 0; threadIndex < threadCount; threadIndex++) {
+		CreateThread(0, 0, Win32ThreadProc, &queue, 0, 0);
+	}
 	queue.semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
 }
 
@@ -832,7 +819,7 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.PlatformPushTaskToQueue = Win32PushTask;
 	programMemory.PlatformWaitForQueueCompletion = Win32WaitForQueueCompletion;
 	programMemory.highPriorityQueue = &globalHighPriorityQueue;
-	programMemory.renderQueue = &globalRenderQueue;
+	programMemory.lowPriorityQueue = &globalLowPriorityQueue;
 	return programMemory;
 }
 
@@ -867,18 +854,9 @@ int CALLBACK WinMain(
 	LPSTR cmdLine,
 	int showCmd
 ) {
-	HANDLE threads[11] = {};
-	ThreadData datas[ArrayCount(threads)] = {};
-	u32 initialCount = 0;
-	u32 threadCount = ArrayCount(threads);
-	InitializeQueue(globalHighPriorityQueue, threadCount);
-	InitializeQueue(globalRenderQueue, 1);
-	for (u32 threadIndex = 0; threadIndex < ArrayCount(datas); threadIndex++) {
-		ThreadData* data = datas + threadIndex;
-		data->queue = &globalHighPriorityQueue;
-		LPVOID params = ptrcast(void, data);
-		threads[threadIndex] = CreateThread(0, 0, Win32ThreadProc, params, 0, ptrcast(DWORD, &data->context.threadId));
-	}
+	InitializeQueue(globalHighPriorityQueue, 8);
+	InitializeQueue(globalLowPriorityQueue, 2);
+	
 #if 1
 	u32 globalBitmapWidth = 960;
 	u32 globalBitmapHeight = 540;

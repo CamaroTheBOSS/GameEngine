@@ -53,7 +53,9 @@
 #define Maximum(a, b) ((a) > (b) ? (a) : (b))
 #define MY_MAX_PATH 255
 #define U32_MAX u4(0xFFFFFFFF)
+#define U64_MAX u64(0xFFFFFFFFFFFFFFFF)
 #define I32_MAX i4(U32_MAX >> 1)
+#define I64_MAX i64(U64_MAX >> 1)
 #define F32_MAX f4(U32_MAX)
 #define AlignUp32(expr) (((expr) + 31) / 32 * 32)
 #define AlignUp8(expr) (((expr) + 7) / 8 * 8)
@@ -121,9 +123,20 @@ void EndTempMemory(TemporaryMemory& memory) {
 }
 
 inline
-void* PushSize_(MemoryArena & arena, u64 size) {
-	Assert(arena.used + size <= arena.capacity);
-	void* ptr = arena.data + arena.used;
+void* PushSize_(MemoryArena & arena, u64 size, u64 alignment = 4) {
+	u64 alignMask = alignment - 1;
+	Assert((alignment & alignMask) == 0);
+	u64 basePtr = reinterpret_cast<uptr>(arena.data) + arena.used;
+	u64 alignmentOffset = (alignment - (basePtr & alignMask)) & alignMask;
+	if (alignmentOffset) {
+		int breakhere = 5;
+	}
+	size += alignmentOffset;
+	if (arena.used + size > arena.capacity) {
+		Assert(false);
+		return 0;
+	}
+	void* ptr = arena.data + arena.used + alignmentOffset;
 	arena.used += size;
 	return ptr;
 }
@@ -141,5 +154,5 @@ void CheckArena(MemoryArena& arena) {
 }
 
 #define ZeroStruct(obj) ZeroSize_(ptrcast(u8, &obj), sizeof(obj))
-#define PushStructSize(arena, type) ptrcast(type, PushSize_(arena, sizeof(type)))
-#define PushArray(arena, length, type) ptrcast(type, PushSize_(arena, (length) * sizeof(type)))
+#define PushStructSize(arena, type, ...) ptrcast(type, PushSize_(arena, sizeof(type), ##__VA_ARGS__))
+#define PushArray(arena, length, type, ...) ptrcast(type, PushSize_(arena, (length) * sizeof(type), ##__VA_ARGS__))

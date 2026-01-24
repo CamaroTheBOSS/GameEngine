@@ -1146,7 +1146,7 @@ struct RenderTiledArgs {
 	LoadedBitmap* dstBuffer;
 };
 
-void RenderTiled(void* data, ThreadContext& context) {
+void RenderTiled(void* data) {
 	RenderTiledArgs* args = ptrcast(RenderTiledArgs, data);
 	RenderGroupToBuffer(*args->group, *args->dstBuffer, args->clipRect, false);
 	RenderGroupToBuffer(*args->group, *args->dstBuffer, args->clipRect, true);
@@ -1192,8 +1192,7 @@ void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Platf
 #if 1 // Switch on = multithreaded rendering
 			PlatformPushTaskToQueue(queue, RenderTiled, args);
 #else
-			ThreadContext context = {};
-			RenderTiled(args, context);
+			RenderTiled(args);
 #endif
 		}
 	}
