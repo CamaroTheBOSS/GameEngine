@@ -93,10 +93,47 @@ struct RenderGroup {
 	u32 maxPushBufferSize;
 };
 
+enum AssetTypeID {
+	Asset_Null,
+
+	Asset_Tree,
+	Asset_Player,
+	Asset_Grass,
+	Asset_Ground,
+
+	Asset_Count
+};
+
+enum class AssetState {
+	NotReady,
+	Pending,
+	Ready
+};
+
+struct Asset {
+	LoadedBitmap bitmap;
+	AssetState state;
+};
+
+struct TransientState;
+struct Assets {
+	MemoryArena arena;
+	TransientState* tranState;
+
+	Asset assets[Asset_Count];
+
+	LoadedBitmap treeBmp;
+	LoadedBitmap playerMoveAnim[4];
+	LoadedBitmap groundBmps[2];
+	LoadedBitmap grassBmps[2];
+};
+
 /*                Renderer API                  */
 inline bool PushClearCall(RenderGroup& group, V4 color = V4{ 1, 1, 1, 1 });
 inline bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, 
 	V2 offset, V4 color = V4{1, 1, 1, 1});
+inline bool PushBitmap(RenderGroup& group, Assets& assets, AssetTypeID id, V3 center, 
+	f32 height, V2 offset, V4 color);
 inline bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, 
 	V4 color = V4{ 1, 1, 1, 1 });
 /*                Renderer API                  */

@@ -32,92 +32,6 @@ EntityProjectedParams CalculatePerspectiveProjection(ProjectionProps& projection
 	return result;
 }
 
-#define Text(text) text
-#define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType_##type))
-inline
-void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
-	size += sizeof(RenderCallHeader);
-	Assert(group.pushBufferSize + size <= group.maxPushBufferSize);
-	if (group.pushBufferSize + size > group.maxPushBufferSize) {
-		return 0;
-	}
-	RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + group.pushBufferSize);
-	header->type = type;
-	void* result = (header + 1);
-	group.pushBufferSize += size;
-	return result;
-}
-
-inline
-bool PushClearCall(RenderGroup& group, V4 color) {
-	RenderCallClear* call = PushRenderEntry(group, RenderCallClear);
-	call->color = color;
-	return true;
-}
-
-inline
-bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, V2 offset, V4 color) {
-	V2 sizeUnprojected = height * V2{ bitmap->widthOverHeight, 1 };
-	EntityProjectedParams params = CalculatePerspectiveProjection(group.projection, center, sizeUnprojected);
-	if (!params.valid) {
-		return false;
-	}
-	RenderCallBitmap* call = PushRenderEntry(group, RenderCallBitmap);
-	call->bitmap = bitmap;
-	call->center = params.center;
-	call->offset = offset;
-	call->color = color;
-	call->size = params.size;
-	return true;
-}
-
-inline
-bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
-	EntityProjectedParams params = CalculatePerspectiveProjection(group.projection, center, size);
-	if (!params.valid) {
-		return false;
-	}
-	RenderCallRectangle* call = PushRenderEntry(group, RenderCallRectangle);
-	call->center = params.center;
-	call->size = params.size;
-	call->offset = offset;
-	call->color = color;
-	return true;
-}
-
-internal
-bool PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness) {
-	V3 basePos = center;
-	basePos.X = center.X - 0.5f * size.X;
-	PushRect(group, basePos, V2{ thickness, size.Y }, V2{ 0, 0 }, color);
-	basePos.X = center.X + 0.5f * size.X;
-	PushRect(group, basePos, V2{ thickness, size.Y }, V2{ 0, 0 }, color);
-	basePos = center;
-	basePos.Y = center.Y - 0.5f * size.Y;
-	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
-	basePos.Y = center.Y + 0.5f * size.Y;
-	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
-	return true;
-}
-
-inline
-bool PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color,
-	LoadedBitmap* bitmap, LoadedBitmap* normalMap, EnvironmentMap* topEnvMap,
-	EnvironmentMap* middleEnvMap, EnvironmentMap* bottomEnvMap)
-{
-	RenderCallCoordinateSystem* call = PushRenderEntry(group, RenderCallCoordinateSystem);
-	call->origin = origin;
-	call->xAxis = xAxis;
-	call->yAxis = yAxis;
-	call->color = color;
-	call->bitmap = bitmap;
-	call->normalMap = normalMap;
-	call->topEnvMap = topEnvMap;
-	call->middleEnvMap = middleEnvMap;
-	call->bottomEnvMap = bottomEnvMap;
-	return true;
-}
-
 inline
 V4 SRGB255ToLinear1(V4 input) {
 	V4 result = {};
@@ -1266,4 +1180,259 @@ RenderGroup AllocateRenderGroup(MemoryArena& arena, u32 size) {
 	result.maxPushBufferSize = size;
 	result.pushBufferSize = 0;
 	return result;
+}
+
+inline
+TaskWithMemory* TryBeginBackgroundTask(TransientState* tranState) {
+	TaskWithMemory* result = 0;
+	for (u32 taskIndex = 0; taskIndex < ArrayCount(tranState->tasks); taskIndex++) {
+		TaskWithMemory* task = tranState->tasks + taskIndex;
+		if (AtomicCompareExchange(&task->done, 0, 1)) {
+			CheckArena(task->arena);
+			task->memory = BeginTempMemory(task->arena);
+			result = task;
+			break;
+		}
+	}
+	return result;
+}
+
+inline
+void EndBackgroundTask(TaskWithMemory* task) {
+	EndTempMemory(task->memory);
+	WriteCompilatorFence;
+	task->done = true;
+}
+
+internal
+LoadedBitmap LoadBmpFile(const char* filename, V2 bottomUpAlignRatio = V2{ 0.5f, 0.5f })
+{
+#pragma pack(push, 1)
+	struct BmpHeader {
+		u16 signature; // must be 0x42 = BMP
+		u32 fileSize;
+		u32 reservedZeros;
+		u32 bitmapOffset; // where pixels starts
+		u32 headerSize;
+		u32 width;
+		u32 height;
+		u16 planes;
+		u16 bitsPerPixel;
+		u32 compression;
+		u32 imageSize;
+		u32 resolutionPixPerMeterX;
+		u32 resolutionPixPerMeterY;
+		u32 colorsUsed;
+		u32 ColorsImportant;
+		u32 redMask;
+		u32 greenMask;
+		u32 blueMask;
+		u32 alphaMask;
+	};
+#pragma pack(pop)
+
+	FileData bmpData = debugGlobalMemory->readEntireFile(filename);
+	if (!bmpData.content) {
+		return {};
+	}
+	BmpHeader* header = ptrcast(BmpHeader, bmpData.content);
+	Assert(header->compression == 3);
+	Assert(header->bitsPerPixel == 32);
+	u32 redShift = LeastSignificantHighBit(header->redMask).index;
+	u32 greenShift = LeastSignificantHighBit(header->greenMask).index;
+	u32 blueShift = LeastSignificantHighBit(header->blueMask).index;
+	u32 alphaShift = LeastSignificantHighBit(header->alphaMask).index;
+
+	LoadedBitmap result = {};
+	result.bufferStart = ptrcast(void, ptrcast(u8, bmpData.content) + header->bitmapOffset);
+	result.height = header->height;
+	result.width = header->width;
+	result.widthOverHeight = f4(result.width) / f4(result.height);
+	Assert((header->bitsPerPixel / 8) == BITMAP_BYTES_PER_PIXEL);
+	result.pitch = result.width * BITMAP_BYTES_PER_PIXEL;
+	result.data = ptrcast(u32, result.bufferStart);
+	result.align = bottomUpAlignRatio;
+
+	u32* pixels = ptrcast(u32, result.bufferStart);
+	for (u32 Y = 0; Y < header->height; Y++) {
+		for (u32 X = 0; X < header->width; X++) {
+			V4 texel = {
+				f4((*pixels >> redShift) & 0xFF),
+				f4((*pixels >> greenShift) & 0xFF),
+				f4((*pixels >> blueShift) & 0xFF),
+				f4((*pixels >> alphaShift) & 0xFF),
+			};
+			texel = SRGB255ToLinear1(texel);
+			texel.RGB *= texel.A;
+			texel = Linear1ToSRGB255(texel);
+			*pixels++ = (u4(texel.A + 0.5f) << 24) +
+				(u4(texel.R + 0.5f) << 16) +
+				(u4(texel.G + 0.5f) << 8) +
+				(u4(texel.B + 0.5f) << 0);
+		}
+	}
+
+	return result;
+}
+
+struct LoadBitmapTaskArgs {
+	const char* filename;
+	Asset* asset;
+	V2 alignment;
+	TaskWithMemory* task;
+};
+
+internal
+void LoadBitmapBackgroundTask(void* data) {
+	LoadBitmapTaskArgs* args = ptrcast(LoadBitmapTaskArgs, data);
+	args->asset->bitmap = LoadBmpFile(args->filename, args->alignment);
+	WriteCompilatorFence;
+	args->asset->state = AssetState::Ready;
+	EndBackgroundTask(args->task);
+}
+
+inline
+Asset* GetAsset(Assets& assets, AssetTypeID id) {
+	Asset* asset = &assets.assets[id];
+	return asset;
+}
+
+internal
+bool LoadBitmap(Assets& assets, AssetTypeID id) {
+	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
+	Asset& asset = assets.assets[id];
+	if (!task || asset.state == AssetState::Pending) {
+		return false;
+	}
+	LoadBitmapTaskArgs* args = PushStructSize(task->arena, LoadBitmapTaskArgs);
+	args->asset = &asset;
+	args->task = task;
+	args->alignment = V2{ 0.5f, 0.5f };
+	switch (id) {
+	case Asset_Tree: {
+		args->filename = "test/tree2.bmp";
+		args->alignment = V2{ 0.5f, 0.25f };
+	} break;
+				   InvalidDefaultCase;
+	}
+	asset.state = AssetState::Pending;
+	WriteCompilatorFence;
+	PlatformPushTaskToQueue(assets.tranState->lowPriorityQueue, LoadBitmapBackgroundTask, args);
+	return true;
+}
+
+internal
+void AllocateAssets(TransientState* tranState) {
+	Assets& assets = tranState->assets;
+	SubArena(assets.arena, tranState->arena, MB(12));
+	assets.tranState = tranState;
+	assets.groundBmps[0] = LoadBmpFile("test/ground0.bmp");
+	assets.groundBmps[1] = LoadBmpFile("test/ground1.bmp");
+	assets.grassBmps[0] = LoadBmpFile("test/grass0.bmp");
+	assets.grassBmps[1] = LoadBmpFile("test/grass1.bmp");
+	assets.treeBmp = LoadBmpFile("test/tree2.bmp", V2{ 0.5f, 0.25f });
+
+	V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
+	assets.playerMoveAnim[0] = LoadBmpFile("test/hero-right.bmp", playerBitmapsAlignment);
+	assets.playerMoveAnim[1] = LoadBmpFile("test/hero-left.bmp", playerBitmapsAlignment);
+	assets.playerMoveAnim[2] = LoadBmpFile("test/hero-up.bmp", playerBitmapsAlignment);
+	assets.playerMoveAnim[3] = LoadBmpFile("test/hero-down.bmp", playerBitmapsAlignment);
+}
+
+#define Text(text) text
+#define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType_##type))
+inline
+void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
+	size += sizeof(RenderCallHeader);
+	Assert(group.pushBufferSize + size <= group.maxPushBufferSize);
+	if (group.pushBufferSize + size > group.maxPushBufferSize) {
+		return 0;
+	}
+	RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + group.pushBufferSize);
+	header->type = type;
+	void* result = (header + 1);
+	group.pushBufferSize += size;
+	return result;
+}
+
+inline
+bool PushClearCall(RenderGroup& group, V4 color) {
+	RenderCallClear* call = PushRenderEntry(group, RenderCallClear);
+	call->color = color;
+	return true;
+}
+
+inline
+bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, V2 offset, V4 color) {
+	V2 sizeUnprojected = height * V2{ bitmap->widthOverHeight, 1 };
+	EntityProjectedParams params = CalculatePerspectiveProjection(group.projection, center, sizeUnprojected);
+	if (!params.valid) {
+		return false;
+	}
+	RenderCallBitmap* call = PushRenderEntry(group, RenderCallBitmap);
+	call->bitmap = bitmap;
+	call->center = params.center;
+	call->offset = offset;
+	call->color = color;
+	call->size = params.size;
+	return true;
+}
+
+inline
+bool PushBitmap(RenderGroup& group, Assets& assets, AssetTypeID id, V3 center, f32 height, V2 offset, V4 color) {
+	Asset* asset = GetAsset(assets, id);
+	if (asset && asset->state == AssetState::Ready) {
+		PushBitmap(group, &asset->bitmap, center, height, offset, color);
+	}
+	else {
+		LoadBitmap(assets, id);
+	}
+	return true;
+}
+
+inline
+bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
+	EntityProjectedParams params = CalculatePerspectiveProjection(group.projection, center, size);
+	if (!params.valid) {
+		return false;
+	}
+	RenderCallRectangle* call = PushRenderEntry(group, RenderCallRectangle);
+	call->center = params.center;
+	call->size = params.size;
+	call->offset = offset;
+	call->color = color;
+	return true;
+}
+
+internal
+bool PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness) {
+	V3 basePos = center;
+	basePos.X = center.X - 0.5f * size.X;
+	PushRect(group, basePos, V2{ thickness, size.Y }, V2{ 0, 0 }, color);
+	basePos.X = center.X + 0.5f * size.X;
+	PushRect(group, basePos, V2{ thickness, size.Y }, V2{ 0, 0 }, color);
+	basePos = center;
+	basePos.Y = center.Y - 0.5f * size.Y;
+	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
+	basePos.Y = center.Y + 0.5f * size.Y;
+	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
+	return true;
+}
+
+inline
+bool PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 color,
+	LoadedBitmap* bitmap, LoadedBitmap* normalMap, EnvironmentMap* topEnvMap,
+	EnvironmentMap* middleEnvMap, EnvironmentMap* bottomEnvMap)
+{
+	RenderCallCoordinateSystem* call = PushRenderEntry(group, RenderCallCoordinateSystem);
+	call->origin = origin;
+	call->xAxis = xAxis;
+	call->yAxis = yAxis;
+	call->color = color;
+	call->bitmap = bitmap;
+	call->normalMap = normalMap;
+	call->topEnvMap = topEnvMap;
+	call->middleEnvMap = middleEnvMap;
+	call->bottomEnvMap = bottomEnvMap;
+	return true;
 }

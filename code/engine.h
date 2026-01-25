@@ -138,10 +138,6 @@ struct ProgramState {
 	u32 playerEntityIndexes[MAX_CONTROLLERS];
 	PlayerControls playerControls[MAX_CONTROLLERS];
 	u32 cameraEntityIndex;
-	LoadedBitmap playerMoveAnim[4];
-	LoadedBitmap groundBmps[2];
-	LoadedBitmap grassBmps[2];
-	LoadedBitmap treeBmp;
 
 	CollisionVolumeGroup* wallCollision;
 	CollisionVolumeGroup* playerCollision;
@@ -180,6 +176,7 @@ struct TransientState {
 	PlatformQueue* lowPriorityQueue;
 	PlatformQueue* highPriorityQueue;
 	TaskWithMemory tasks[4];
+	Assets assets;
 
 	EnvironmentMap topEnvMap;
 	EnvironmentMap middleEnvMap;

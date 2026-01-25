@@ -151,6 +151,7 @@ void* PushSize_(MemoryArena & arena, u64 size, u64 alignment = 4) {
 
 inline
 void SubArena(MemoryArena& subArena, MemoryArena& arena, u64 size, u64 alignment = 4) {
+	Assert(subArena.capacity == 0);
 	void* data = PushSize_(arena, size, alignment);
 	InitializeArena(subArena, data, size);
 }

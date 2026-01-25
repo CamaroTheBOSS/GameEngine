@@ -38,28 +38,6 @@ void RenderHitPoints(RenderGroup& group, Entity& entity, V3 center, V2 offset, f
 	}
 }
 
-inline
-TaskWithMemory* TryBeginBackgroundTask(TransientState* tranState) {
-	TaskWithMemory* result = 0;
-	for (u32 taskIndex = 0; taskIndex < ArrayCount(tranState->tasks); taskIndex++) {
-		TaskWithMemory* task = tranState->tasks + taskIndex;
-		if (AtomicCompareExchange(&task->done, 0, 1)) {
-			CheckArena(task->arena);
-			task->memory = BeginTempMemory(task->arena);
-			result = task;
-			break;
-		}
-	}
-	return result;
-}
-
-inline
-void EndBackgroundTask(TaskWithMemory* task) {
-	EndTempMemory(task->memory);
-	WriteCompilatorFence;
-	task->done = true;
-}
-
 struct FillGroundBufferTaskArgs {
 	TaskWithMemory* task;
 	WorldPosition chunkPos;
@@ -138,10 +116,10 @@ bool FillGroundBuffer(TransientState* tranState, ProgramState* state, GroundBuff
 	args->chunkPos = chunkPos;
 	args->chunkSizeInMeters = state->world.chunkSizeInMeters.XY;
 	args->groundBuffer = &dstBuffer;
-	args->grassAssets = state->grassBmps;
-	args->grassAssetsCount = ArrayCount(state->grassBmps);
-	args->groundAssets = state->groundBmps;
-	args->groundAssetsCount = ArrayCount(state->groundBmps);
+	args->grassAssets = tranState->assets.grassBmps;
+	args->grassAssetsCount = ArrayCount(tranState->assets.grassBmps);
+	args->groundAssets = tranState->assets.groundBmps;
+	args->groundAssetsCount = ArrayCount(tranState->assets.groundBmps);
 	args->task = task;
 	dstBuffer.pos = chunkPos;
 	dstBuffer.state = GroundBufferState::Pending;
@@ -153,78 +131,6 @@ bool FillGroundBuffer(TransientState* tranState, ProgramState* state, GroundBuff
 inline
 V2 ToBottomUpAlignment(LoadedBitmap& bitmap, V2 topDownAlign) {
 	V2 result = V2{ topDownAlign.X, f4(bitmap.height - 1) - topDownAlign.Y };
-	return result;
-}
-
-internal
-LoadedBitmap LoadBmpFile(debug_read_entire_file* debugReadEntireFile, const char* filename, 
-	V2 bottomUpAlignRatio = V2{0.5f, 0.5f})
-{
-#pragma pack(push, 1)
-	struct BmpHeader {
-		u16 signature; // must be 0x42 = BMP
-		u32 fileSize;
-		u32 reservedZeros;
-		u32 bitmapOffset; // where pixels starts
-		u32 headerSize;
-		u32 width;
-		u32 height;
-		u16 planes;
-		u16 bitsPerPixel;
-		u32 compression;
-		u32 imageSize;
-		u32 resolutionPixPerMeterX;
-		u32 resolutionPixPerMeterY;
-		u32 colorsUsed;
-		u32 ColorsImportant;
-		u32 redMask;
-		u32 greenMask;
-		u32 blueMask;
-		u32 alphaMask;
-	};
-#pragma pack(pop)
-
-	FileData bmpData = debugReadEntireFile(filename);
-	if (!bmpData.content) {
-		return {};
-	}
-	BmpHeader* header = ptrcast(BmpHeader, bmpData.content);
-	Assert(header->compression == 3);
-	Assert(header->bitsPerPixel == 32);
-	u32 redShift = LeastSignificantHighBit(header->redMask).index;
-	u32 greenShift = LeastSignificantHighBit(header->greenMask).index;
-	u32 blueShift = LeastSignificantHighBit(header->blueMask).index;
-	u32 alphaShift = LeastSignificantHighBit(header->alphaMask).index;
-
-	LoadedBitmap result = {};
-	result.bufferStart = ptrcast(void, ptrcast(u8, bmpData.content) + header->bitmapOffset);
-	result.height = header->height;
-	result.width = header->width;
-	result.widthOverHeight = f4(result.width) / f4(result.height);
-	Assert((header->bitsPerPixel / 8) == BITMAP_BYTES_PER_PIXEL);
-	result.pitch = result.width * BITMAP_BYTES_PER_PIXEL;
-	result.data = ptrcast(u32, result.bufferStart);
-	result.align = bottomUpAlignRatio;
-
-	u32* pixels = ptrcast(u32, result.bufferStart);
-	for (u32 Y = 0; Y < header->height; Y++) {
-		for (u32 X = 0; X < header->width; X++) {
-			V4 texel = {
-				f4((*pixels >> redShift) & 0xFF),
-				f4((*pixels >> greenShift) & 0xFF),
-				f4((*pixels >> blueShift) & 0xFF),
-				f4((*pixels >> alphaShift) & 0xFF),
-			};
-			texel = SRGB255ToLinear1(texel);
-			texel.RGB *= texel.A;
-			texel = Linear1ToSRGB255(texel);
-			*pixels++ = (u4(texel.A + 0.5f) << 24) + 
-						(u4(texel.R + 0.5f) << 16) +
-						(u4(texel.G + 0.5f) << 8) +
-						(u4(texel.B + 0.5f) << 0);
-		}
-	}
-	
 	return result;
 }
 
@@ -898,7 +804,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState),
 			memory.permanentMemorySize - sizeof(ProgramState)
 		);
-
 		state->wallCollision = MakeGroundedCollisionGroup(state, world.tileSizeInMeters);
 		state->playerCollision = MakeGroundedCollisionGroup(state, V3{1.0f, 0.55f, 0.25f});
 		state->monsterCollision = MakeGroundedCollisionGroup(state, V3{ 1.0f, 1.25f, 0.25f });
@@ -917,26 +822,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			world, world.tileCountX / 2, world.tileCountY / 2, 0
 		);
 
-		state->groundBmps[0] = LoadBmpFile(memory.debug.readEntireFile, "test/ground0.bmp");
-		state->groundBmps[1] = LoadBmpFile(memory.debug.readEntireFile, "test/ground1.bmp");
-		state->grassBmps[0] = LoadBmpFile(memory.debug.readEntireFile, "test/grass0.bmp");
-		state->grassBmps[1] = LoadBmpFile(memory.debug.readEntireFile, "test/grass1.bmp");
-		state->treeBmp = LoadBmpFile(memory.debug.readEntireFile, "test/tree2.bmp", V2{0.5f, 0.25f});
-
 		u32 testTextureWidth = 256;
 		u32 testTextureHeight = 256;
 		state->testNormalMap = MakeSphereNormalMap(state->world.arena, testTextureWidth, testTextureHeight, 1.f);
 		state->testDiffusionTexture = MakeSphereDiffusionTexture(state->world.arena, testTextureWidth, testTextureHeight);
-
-		V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
-		state->playerMoveAnim[0] = LoadBmpFile(memory.debug.readEntireFile,
-			"test/hero-right.bmp", playerBitmapsAlignment);
-		state->playerMoveAnim[1] = LoadBmpFile(memory.debug.readEntireFile,
-			"test/hero-left.bmp", playerBitmapsAlignment);
-		state->playerMoveAnim[2] = LoadBmpFile(memory.debug.readEntireFile,
-			"test/hero-up.bmp", playerBitmapsAlignment);
-		state->playerMoveAnim[3] = LoadBmpFile(memory.debug.readEntireFile,
-			"test/hero-down.bmp", playerBitmapsAlignment);
 
 		bool doorLeft = false;
 		bool doorRight = false;
@@ -1056,6 +945,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			ptrcast(u8, memory.transientMemory) + sizeof(TransientState),
 			memory.transientMemorySize - sizeof(TransientState)
 		);
+		AllocateAssets(tranState);
 		for (u32 taskIndex = 0; taskIndex < ArrayCount(tranState->tasks); taskIndex++) {
 			TaskWithMemory* task = tranState->tasks + taskIndex;
 			//Note: Hot reload causes crash, when background tasks are working
@@ -1166,7 +1056,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	renderGroup.projection = GetStandardProjection(bitmap.width, bitmap.height);
 	f32 originalCameraDistance = renderGroup.projection.camera.distanceToTarget;
 	//NOTE: Change this to change debug view
-	renderGroup.projection.camera.distanceToTarget = 30.f;
+	//renderGroup.projection.camera.distanceToTarget = 30.f;
 
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
@@ -1269,13 +1159,13 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			acceleration = playerControls->acceleration;
 			const f32 playerHeight = 1.35f;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, layerAlpha });
-			PushBitmap(renderGroup, &state->playerMoveAnim[entity->faceDir], groundLevelPos, 1.35f, V2{0, 0});
+			PushBitmap(renderGroup, &tranState->assets.playerMoveAnim[entity->faceDir], groundLevelPos, 1.35f, V2{0, 0});
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 		} break;
 		case EntityType_Wall: {
 			const f32 treeHeight = 2.5f * world.tileSizeInMeters.Z;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
-			PushBitmap(renderGroup, &state->treeBmp, groundLevelPos, treeHeight, V2{ 0, 0.1f }, V4{ 1, 0.f, 1.f, layerAlpha });
+			PushBitmap(renderGroup, tranState->assets, Asset_Tree, groundLevelPos, treeHeight, V2{ 0, 0.1f }, V4{ 1, 0.f, 1.f, layerAlpha });
 		} break;
 		case EntityType_Stairs: {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, layerAlpha });
