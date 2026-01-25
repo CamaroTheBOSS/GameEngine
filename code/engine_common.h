@@ -106,6 +106,20 @@ void InitializeArena(MemoryArena& arena, void* data, u64 capacity) {
 }
 
 inline
+u64 GetAlignmentOffset(MemoryArena& arena, u64 alignment) {
+	u64 alignMask = alignment - 1;
+	Assert((alignment & alignMask) == 0);
+	u64 basePtr = reinterpret_cast<uptr>(arena.data) + arena.used;
+	u64 alignmentOffset = (alignment - (basePtr & alignMask)) & alignMask;
+	return alignmentOffset;
+}
+
+u64 GetArenaFreeSpaceSize(MemoryArena& arena) {
+	u64 result = arena.capacity - arena.used;
+	return result;
+}
+
+inline
 TemporaryMemory BeginTempMemory(MemoryArena& arena) {
 	TemporaryMemory tempMemory = {};
 	tempMemory.arena = &arena;
@@ -124,13 +138,7 @@ void EndTempMemory(TemporaryMemory& memory) {
 
 inline
 void* PushSize_(MemoryArena & arena, u64 size, u64 alignment = 4) {
-	u64 alignMask = alignment - 1;
-	Assert((alignment & alignMask) == 0);
-	u64 basePtr = reinterpret_cast<uptr>(arena.data) + arena.used;
-	u64 alignmentOffset = (alignment - (basePtr & alignMask)) & alignMask;
-	if (alignmentOffset) {
-		int breakhere = 5;
-	}
+	u64 alignmentOffset = GetAlignmentOffset(arena, alignment);
 	size += alignmentOffset;
 	if (arena.used + size > arena.capacity) {
 		Assert(false);
@@ -139,6 +147,12 @@ void* PushSize_(MemoryArena & arena, u64 size, u64 alignment = 4) {
 	void* ptr = arena.data + arena.used + alignmentOffset;
 	arena.used += size;
 	return ptr;
+}
+
+inline
+void SubArena(MemoryArena& subArena, MemoryArena& arena, u64 size, u64 alignment = 4) {
+	void* data = PushSize_(arena, size, alignment);
+	InitializeArena(subArena, data, size);
 }
 
 inline

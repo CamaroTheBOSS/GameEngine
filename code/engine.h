@@ -160,12 +160,19 @@ struct GroundBuffer {
 	WorldPosition pos;
 };
 
+struct TaskWithMemory {
+	MemoryArena arena;
+	TemporaryMemory memory;
+	volatile u32 done;
+};
+
 struct TransientState {
 	MemoryArena arena;
-	GroundBuffer groundBuffers[64];
+	GroundBuffer groundBuffers[256];
 	bool isInitialized;
 	PlatformQueue* lowPriorityQueue;
 	PlatformQueue* highPriorityQueue;
+	TaskWithMemory tasks[4];
 
 	EnvironmentMap topEnvMap;
 	EnvironmentMap middleEnvMap;

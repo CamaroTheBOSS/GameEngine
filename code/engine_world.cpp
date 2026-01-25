@@ -197,9 +197,20 @@ internal
 V3 Subtract(World& world, WorldPosition& first, WorldPosition& second) {
 	// TODO: Think what if absX, absY is 2^32-1 and 2^32 (do we have a bug with overflowing again?)
 	V3 diff = {
-		scast(f32, first.chunkX - second.chunkX) * world.chunkSizeInMeters.X + (first.offset.X - second.offset.X),
-		scast(f32, first.chunkY - second.chunkY) * world.chunkSizeInMeters.Y + (first.offset.Y - second.offset.Y),
-		scast(f32, first.chunkZ - second.chunkZ)* world.chunkSizeInMeters.Z + (first.offset.Z - second.offset.Z)
+		f4(first.chunkX - second.chunkX) * world.chunkSizeInMeters.X + (first.offset.X - second.offset.X),
+		f4(first.chunkY - second.chunkY) * world.chunkSizeInMeters.Y + (first.offset.Y - second.offset.Y),
+		f4(first.chunkZ - second.chunkZ)* world.chunkSizeInMeters.Z + (first.offset.Z - second.offset.Z)
+	};
+	return diff;
+}
+
+internal
+V3 SubtractChunks(World& world, WorldPosition& first, WorldPosition& second) {
+	// TODO: Think what if absX, absY is 2^32-1 and 2^32 (do we have a bug with overflowing again?)
+	V3 diff = {
+		f4(first.chunkX - second.chunkX),
+		f4(first.chunkY - second.chunkY),
+		f4(first.chunkZ - second.chunkZ)
 	};
 	return diff;
 }

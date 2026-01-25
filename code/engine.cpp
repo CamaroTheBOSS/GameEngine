@@ -38,22 +38,58 @@ void RenderHitPoints(RenderGroup& group, Entity& entity, V3 center, V2 offset, f
 	}
 }
 
+inline
+TaskWithMemory* TryBeginBackgroundTask(TransientState* tranState) {
+	TaskWithMemory* result = 0;
+	for (u32 taskIndex = 0; taskIndex < ArrayCount(tranState->tasks); taskIndex++) {
+		TaskWithMemory* task = tranState->tasks + taskIndex;
+		if (AtomicCompareExchange(&task->done, 0, 1)) {
+			CheckArena(task->arena);
+			task->memory = BeginTempMemory(task->arena);
+			result = task;
+			break;
+		}
+	}
+	return result;
+}
+
+inline
+void EndBackgroundTask(TaskWithMemory* task) {
+	EndTempMemory(task->memory);
+	WriteCompilatorFence;
+	task->done = true;
+}
+
+struct FillGroundBufferTaskArgs {
+	TaskWithMemory* task;
+	WorldPosition chunkPos;
+	V2 chunkSizeInMeters;
+	u32 grassAssetsCount;
+	LoadedBitmap* grassAssets;
+	u32 groundAssetsCount;
+	LoadedBitmap* groundAssets;
+	LoadedBitmap* dstBuffer;
+};
+
 internal
-void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos, PlatformQueue* queue) {
-	TemporaryMemory renderMemory = BeginTempMemory(arena);
-	RenderGroup renderGroup = AllocateRenderGroup(arena, MB(4));
-	f32 width = state->world.chunkSizeInMeters.X;
-	f32 height = state->world.chunkSizeInMeters.Y;
-	LoadedBitmap& buffer = dstBuffer.buffer;
+void FillGroundBufferBackgroundTask(void* data) {
+	FillGroundBufferTaskArgs* args = ptrcast(FillGroundBufferTaskArgs, data);
+	TaskWithMemory* task = args->task;
+	LoadedBitmap* buffer = args->dstBuffer;
+	u32 grassAssetsCount = args->grassAssetsCount;
+	u32 groundAssetsCount = args->groundAssetsCount;
+	RenderGroup group = AllocateRenderGroup(task->arena, u4(GetArenaFreeSpaceSize(task->arena)));
+	f32 width = args->chunkSizeInMeters.X;
+	f32 height = args->chunkSizeInMeters.Y;
 	Assert(width == height);
-	f32 metersToPixels = (dstBuffer.buffer.width - 2) / width;
-	renderGroup.projection = GetOrtographicProjection(buffer.width, buffer.height, metersToPixels);
-	PushClearCall(renderGroup, V4{ 1, 0, 1, 1 });
+	f32 metersToPixels = (buffer->width - 2) / width;
+	group.projection = GetOrtographicProjection(buffer->width, buffer->height, metersToPixels);
+	PushClearCall(group, V4{ 1, 0, 1, 1 });
 	for (i32 chunkOffsetY = -1; chunkOffsetY <= 1; chunkOffsetY++) {
 		for (i32 chunkOffsetX = -1; chunkOffsetX <= 1; chunkOffsetX++) {
-			i32 chunkX = chunkPos.chunkX + chunkOffsetX;
-			i32 chunkY = chunkPos.chunkY + chunkOffsetY;
-			i32 chunkZ = chunkPos.chunkZ;
+			i32 chunkX = args->chunkPos.chunkX + chunkOffsetX;
+			i32 chunkY = args->chunkPos.chunkY + chunkOffsetY;
+			i32 chunkZ = args->chunkPos.chunkZ;
 #if 0
 			V4 color = V4{ 1, 0, 0, 1 };
 			if (((chunkX % 2) == 1 && (chunkY % 2) == 1) || (((chunkX % 2) == 0) && ((chunkY % 2) == 0))) {
@@ -62,7 +98,6 @@ void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dst
 #else
 			V4 color = { 1, 1, 1, 1 };
 #endif
-
 			u32 seed = 313 * chunkX + 217 * chunkY + 177 * chunkZ;
 			RandomSeries series = RandomSeed(seed);
 			for (u32 bmpIndex = 0; bmpIndex < 100; bmpIndex++) {
@@ -74,22 +109,42 @@ void FillGroundBuffer(MemoryArena& arena, ProgramState* state, GroundBuffer& dst
 				bool grass = RandomUnilateral(series) > 0.5f;
 				LoadedBitmap* bmp = 0;
 				if (grass) {
-					u32 grassIndex = NextRandom(series) % ArrayCount(state->grassBmps);
-					bmp = state->grassBmps + grassIndex;
+					u32 grassIndex = NextRandom(series) % grassAssetsCount;
+					bmp = args->grassAssets + grassIndex;
 				}
 				else {
-					u32 groundIndex = NextRandom(series) % ArrayCount(state->groundBmps);
-					bmp = state->groundBmps + groundIndex;
+					u32 groundIndex = NextRandom(series) % groundAssetsCount;
+					bmp = args->groundAssets + groundIndex;
 				}
 				position.X += chunkOffsetX * width;
 				position.Y += chunkOffsetY * height;
-				PushBitmap(renderGroup, bmp, position, 1.7f, V2{0, 0}, color);
+				PushBitmap(group, bmp, position, 1.7f, V2{ 0, 0 }, color);
 			}
 		}
 	}
-	TiledRenderGroupToBuffer(renderGroup, dstBuffer.buffer, queue);
-	EndTempMemory(renderMemory);
+	RenderGroupToBuffer(group, *buffer);
+	EndBackgroundTask(task);
+}
+
+internal
+bool FillGroundBuffer(TransientState* tranState, ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos, PlatformQueue* queue) {
+	TaskWithMemory* task = TryBeginBackgroundTask(tranState);
+	if (!task) {
+		return false;
+	}
+	FillGroundBufferTaskArgs* args = PushStructSize(task->arena, FillGroundBufferTaskArgs);
+	args->chunkPos = chunkPos;
+	args->chunkSizeInMeters = state->world.chunkSizeInMeters.XY;
+	args->dstBuffer = &dstBuffer.buffer;
+	args->grassAssets = state->grassBmps;
+	args->grassAssetsCount = ArrayCount(state->grassBmps);
+	args->groundAssets = state->groundBmps;
+	args->groundAssetsCount = ArrayCount(state->groundBmps);
+	args->task = task;
 	dstBuffer.pos = chunkPos;
+	WriteCompilatorFence;
+	PlatformPushTaskToQueue(queue, FillGroundBufferBackgroundTask, args);
+	return true;
 }
 
 inline
@@ -998,6 +1053,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			ptrcast(u8, memory.transientMemory) + sizeof(TransientState),
 			memory.transientMemorySize - sizeof(TransientState)
 		);
+		for (u32 taskIndex = 0; taskIndex < ArrayCount(tranState->tasks); taskIndex++) {
+			TaskWithMemory* task = tranState->tasks + taskIndex;
+			SubArena(task->arena, tranState->arena, MB(4));
+			task->done = 1;
+		}
 		for (u32 groundBufferIndex = 0; groundBufferIndex < ArrayCount(tranState->groundBuffers); groundBufferIndex++) {
 			GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
 			groundBuffer->buffer = MakeEmptyBuffer(tranState->arena, 256, 256);
@@ -1089,24 +1149,26 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		playerControls.acceleration -= 10.0f * entity->vel;
 	}
-	// TODO: Think about size of the main render group
-	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
-	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, MB(4));
-	renderGroup.projection = GetStandardProjection(bitmap.width, bitmap.height);
-	//NOTE: Change this to change debug view
-	renderGroup.projection.camera.distanceToTarget = 10.f;
-
 	LoadedBitmap screenBitmap = {};
 	screenBitmap.height = bitmap.height;
 	screenBitmap.width = bitmap.width;
 	screenBitmap.data = ptrcast(u32, bitmap.data);
 	screenBitmap.pitch = bitmap.pitch;
+
+	// TODO: Think about size of the main render group
+	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
+	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, MB(4));
+	renderGroup.projection = GetStandardProjection(bitmap.width, bitmap.height);
+	f32 originalCameraDistance = renderGroup.projection.camera.distanceToTarget;
+	//NOTE: Change this to change debug view
+	//renderGroup.projection.camera.distanceToTarget = 30.f;
+
+	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
 
-	Rect2 groundChunkBounds = GetRenderRectangleAtTarget(renderGroup.projection, bitmap.width, bitmap.height);
-	Rect3 realCameraBounds = ToRect3(groundChunkBounds, V2{0, 0});
-	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(realCameraBounds));
-	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(realCameraBounds));
+	Rect3 groundChunkBounds = ToRect3(playerView, V2{0, 0});
+	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(groundChunkBounds));
+	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(groundChunkBounds));
 	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
 		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
 			i32 chunkZ = state->cameraPos.chunkZ;
@@ -1139,10 +1201,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 			if (!drawBuffer && furthestBuffer) {
 				WorldPosition chunkPos = CenteredWorldPosition(chunkX, chunkY, chunkZ);
-				FillGroundBuffer(tranState->arena, state, *furthestBuffer, chunkPos, tranState->lowPriorityQueue);
+				FillGroundBuffer(tranState, state, *furthestBuffer, chunkPos, tranState->lowPriorityQueue);
 				drawBuffer = furthestBuffer;
 			}
-
 			V3 diff = Subtract(world, drawBuffer->pos, state->cameraPos);
 			diff -= ToV3(0.5f * state->world.chunkSizeInMeters.XY, 0);
 			PushBitmap(renderGroup, &drawBuffer->buffer, diff, 1.f * state->world.chunkSizeInMeters.Y, V2{ 0, 0 });
@@ -1160,8 +1221,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 #endif
-	Rect2 screenRect = GetRenderRectangleAtTarget(renderGroup.projection, screenBitmap.width, screenBitmap.height);
-	PushRectBorders(renderGroup, V3{ 0.f, 0.f, 0.f }, GetDim(screenRect), V4{ 1, 1, 0, 1 }, 0.4f);
+	PushRectBorders(renderGroup, V3{ 0.f, 0.f, 0.f }, GetDim(playerView), V4{ 1, 1, 0, 1 }, 0.4f);
 	PushRectBorders(renderGroup, V3{ 0.f, 0.f, 0.f }, GetDim(simBounds).XY, V4{ 1, 0, 0, 1 }, 0.4f);
 	f32 fadeUpStartZ = 0.f * state->world.tileSizeInMeters.Z;
 	f32 fadeUpEndZ = 0.3f * state->world.tileSizeInMeters.Z;

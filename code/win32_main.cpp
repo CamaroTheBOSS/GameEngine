@@ -762,9 +762,7 @@ bool Win32PushTask(PlatformQueue* queue, PlatformQueueCallback callback, void* a
 	PlatformQueueTask* newTask = queue->tasks + taskIndex;
 	newTask->callback = callback;
 	newTask->args = args;
-	// TODO: Should I just use InterlockedIncrement()? 
 	_WriteBarrier();
-	_mm_sfence();
 	queue->writeIndex = (taskIndex + 1) % ArrayCount(queue->tasks);
 	queue->tasksTarget = queue->tasksTarget + 1;
 	ReleaseSemaphore(queue->semaphore, 1, 0);
@@ -1027,7 +1025,7 @@ int CALLBACK WinMain(
 		float megaCycles = static_cast<float>(rdtscEnd - rdtscStart) / 1'000'000.f;
 		rdtscStart = rdtscEnd;
 		frameStartTime = frameEndTime;
-#if 0
+#if 1
 		char buffer[256];
 		sprintf_s(buffer, "%0.2fms/f,  %0.2ffps/f,  %0.2fMc/f,   frames_av %d\n", msElapsed, fps, megaCycles, framesAvailable);
 		OutputDebugStringA(buffer);
