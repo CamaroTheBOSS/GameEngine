@@ -68,14 +68,14 @@ struct FillGroundBufferTaskArgs {
 	LoadedBitmap* grassAssets;
 	u32 groundAssetsCount;
 	LoadedBitmap* groundAssets;
-	LoadedBitmap* dstBuffer;
+	GroundBuffer* groundBuffer;
 };
 
 internal
 void FillGroundBufferBackgroundTask(void* data) {
 	FillGroundBufferTaskArgs* args = ptrcast(FillGroundBufferTaskArgs, data);
 	TaskWithMemory* task = args->task;
-	LoadedBitmap* buffer = args->dstBuffer;
+	LoadedBitmap* buffer = &args->groundBuffer->buffer;
 	u32 grassAssetsCount = args->grassAssetsCount;
 	u32 groundAssetsCount = args->groundAssetsCount;
 	RenderGroup group = AllocateRenderGroup(task->arena, u4(GetArenaFreeSpaceSize(task->arena)));
@@ -123,25 +123,28 @@ void FillGroundBufferBackgroundTask(void* data) {
 		}
 	}
 	RenderGroupToBuffer(group, *buffer);
+	WriteCompilatorFence;
+	args->groundBuffer->state = GroundBufferState::Ready;
 	EndBackgroundTask(task);
 }
 
 internal
 bool FillGroundBuffer(TransientState* tranState, ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos, PlatformQueue* queue) {
 	TaskWithMemory* task = TryBeginBackgroundTask(tranState);
-	if (!task) {
+	if (!task || dstBuffer.state == GroundBufferState::Pending) {
 		return false;
 	}
 	FillGroundBufferTaskArgs* args = PushStructSize(task->arena, FillGroundBufferTaskArgs);
 	args->chunkPos = chunkPos;
 	args->chunkSizeInMeters = state->world.chunkSizeInMeters.XY;
-	args->dstBuffer = &dstBuffer.buffer;
+	args->groundBuffer = &dstBuffer;
 	args->grassAssets = state->grassBmps;
 	args->grassAssetsCount = ArrayCount(state->grassBmps);
 	args->groundAssets = state->groundBmps;
 	args->groundAssetsCount = ArrayCount(state->groundBmps);
 	args->task = task;
 	dstBuffer.pos = chunkPos;
+	dstBuffer.state = GroundBufferState::Pending;
 	WriteCompilatorFence;
 	PlatformPushTaskToQueue(queue, FillGroundBufferBackgroundTask, args);
 	return true;
@@ -1055,6 +1058,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		);
 		for (u32 taskIndex = 0; taskIndex < ArrayCount(tranState->tasks); taskIndex++) {
 			TaskWithMemory* task = tranState->tasks + taskIndex;
+			//Note: Hot reload causes crash, when background tasks are working
 			SubArena(task->arena, tranState->arena, MB(4));
 			task->done = 1;
 		}
@@ -1062,6 +1066,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
 			groundBuffer->buffer = MakeEmptyBuffer(tranState->arena, 256, 256);
 			groundBuffer->pos = NullPosition();
+			groundBuffer->state = GroundBufferState::NotReady;
 		}
 		tranState->highPriorityQueue = memory.highPriorityQueue;
 		tranState->lowPriorityQueue = memory.lowPriorityQueue;
@@ -1161,7 +1166,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	renderGroup.projection = GetStandardProjection(bitmap.width, bitmap.height);
 	f32 originalCameraDistance = renderGroup.projection.camera.distanceToTarget;
 	//NOTE: Change this to change debug view
-	//renderGroup.projection.camera.distanceToTarget = 30.f;
+	renderGroup.projection.camera.distanceToTarget = 30.f;
 
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
@@ -1178,6 +1183,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			GroundBuffer* drawBuffer = 0;
 			for (u32 groundBufferIndex = 0; groundBufferIndex < ArrayCount(tranState->groundBuffers); groundBufferIndex++) {
 				GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
+				if (groundBuffer->state == GroundBufferState::Pending) {
+					continue;
+				}
 				
 				if (groundBuffer->pos.chunkX == chunkX && 
 					groundBuffer->pos.chunkY == chunkY &&
@@ -1204,9 +1212,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				FillGroundBuffer(tranState, state, *furthestBuffer, chunkPos, tranState->lowPriorityQueue);
 				drawBuffer = furthestBuffer;
 			}
-			V3 diff = Subtract(world, drawBuffer->pos, state->cameraPos);
-			diff -= ToV3(0.5f * state->world.chunkSizeInMeters.XY, 0);
-			PushBitmap(renderGroup, &drawBuffer->buffer, diff, 1.f * state->world.chunkSizeInMeters.Y, V2{ 0, 0 });
+			if (drawBuffer->state == GroundBufferState::Ready) {
+				V3 diff = Subtract(world, drawBuffer->pos, state->cameraPos);
+				diff -= ToV3(0.5f * state->world.chunkSizeInMeters.XY, 0);
+				PushBitmap(renderGroup, &drawBuffer->buffer, diff, 1.f * state->world.chunkSizeInMeters.Y, V2{ 0, 0 });
+			}
 		}
 	}
 

@@ -320,6 +320,75 @@ void Win32InitAudioClient() {
 	globalSoundData.bufferSizeInSamples = bufferSizeInSamples;
 }
 
+
+internal
+bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue) {
+	bool workDone = false;
+	u32 visibleReadIndex = queue->readIndex;
+	if (visibleReadIndex != queue->writeIndex) {
+		u32 nextReadIndex = (visibleReadIndex + 1) % ArrayCount(queue->tasks);
+		u32 actualReadIndex = InterlockedCompareExchange(
+			ptrcast(volatile LONG, &queue->readIndex),
+			nextReadIndex,
+			visibleReadIndex
+		);
+		if (visibleReadIndex == actualReadIndex) {
+			PlatformQueueTask* task = queue->tasks + visibleReadIndex;
+			task->callback(task->args);
+			InterlockedIncrement(ptrcast(volatile LONG, &queue->tasksDone));
+		}
+		workDone = true;
+	}
+	return workDone;
+}
+
+internal
+DWORD Win32ThreadProc(LPVOID params) {
+	PlatformQueue* queue = ptrcast(PlatformQueue, params);
+	while (true) {
+		if (!Win32TryPopAndExecuteTaskFromQueue(queue)) {
+			WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
+		}
+
+	}
+	return 0;
+}
+
+internal
+bool Win32WorkInQueueIsDone(PlatformQueue* queue) {
+	return queue->tasksDone == queue->tasksTarget;
+}
+
+internal
+bool Win32PushTask(PlatformQueue* queue, PlatformQueueCallback callback, void* args) {
+	u32 taskIndex = queue->writeIndex;
+	PlatformQueueTask* existingTask = queue->tasks + taskIndex;
+	PlatformQueueTask* newTask = queue->tasks + taskIndex;
+	newTask->callback = callback;
+	newTask->args = args;
+	_WriteBarrier();
+	queue->writeIndex = (taskIndex + 1) % ArrayCount(queue->tasks);
+	queue->tasksTarget = queue->tasksTarget + 1;
+	ReleaseSemaphore(queue->semaphore, 1, 0);
+	return true;
+}
+
+internal
+void Win32WaitForQueueCompletion(PlatformQueue* queue) {
+	while (!Win32WorkInQueueIsDone(queue)) {
+		Win32TryPopAndExecuteTaskFromQueue(queue);
+	};
+}
+
+internal
+void InitializeQueue(PlatformQueue& queue, DWORD threadCount) {
+	for (u32 threadIndex = 0; threadIndex < threadCount; threadIndex++) {
+		CreateThread(0, 0, Win32ThreadProc, &queue, 0, 0);
+	}
+	queue.semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
+}
+
+internal
 FileData DebugReadEntireFile(const char* filename) {
 	HANDLE file = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
 	if (!file) {
@@ -352,6 +421,7 @@ FileData DebugReadEntireFile(const char* filename) {
 	return FileData{ fileContent, static_cast<u64>(fileSize.QuadPart) };
 }
 
+internal
 bool DebugWriteToFile(const char* filename, void* buffer, u64 size) {
 	HANDLE file = CreateFileA(filename, GENERIC_WRITE, FILE_SHARE_WRITE, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 	if (!file) {
@@ -445,6 +515,8 @@ void Win32DebugReplayInput(Win32State& state, ProgramMemory& memory, Controller&
 		return;
 	}
 	if (bytesRead != sizeof(data)) {
+		Win32WaitForQueueCompletion(&globalHighPriorityQueue);
+		Win32WaitForQueueCompletion(&globalLowPriorityQueue);
 		CopyMemory(memory.memoryBlock, state.dLoopRecord.stateMemoryBlock, memory.memoryBlockSize);
 		SetFilePointer(state.dLoopRecord.inputFileHandle, 0, 0, FILE_BEGIN);
 		return;
@@ -637,6 +709,8 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 			}
 			else if (vkCode == 'L') {
 				if (!wasDown) {
+					Win32WaitForQueueCompletion(&globalHighPriorityQueue);
+					Win32WaitForQueueCompletion(&globalLowPriorityQueue);
 					if (state.dLoopRecord.recording == 0) {
 						if (state.dLoopRecord.replaying) {
 							Win32DebugEndReplayingInput(state);
@@ -653,6 +727,8 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 			}
 			else if (vkCode == 'P') {
 				controller = {};
+				Win32WaitForQueueCompletion(&globalHighPriorityQueue);
+				Win32WaitForQueueCompletion(&globalLowPriorityQueue);
 				if (state.dLoopRecord.replaying) {
 					Win32DebugEndReplayingInput(state);
 				}
@@ -717,71 +793,6 @@ u64 Win32GetCurrentTimestamp() {
 inline internal
 f32 Win32CalculateTimeElapsed(u64 startTime, u64 endTime) {
 	return static_cast<f32>(endTime - startTime) / static_cast<f32>(globalPerformanceFreq.QuadPart);
-}
-
-internal
-bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue) {
-	bool workDone = false;
-	u32 visibleReadIndex = queue->readIndex;
-	if (visibleReadIndex != queue->writeIndex) {
-		u32 nextReadIndex = (visibleReadIndex + 1) % ArrayCount(queue->tasks);
-		u32 actualReadIndex = InterlockedCompareExchange(
-			ptrcast(volatile LONG, &queue->readIndex),
-			nextReadIndex,
-			visibleReadIndex
-		);
-		if (visibleReadIndex == actualReadIndex) {
-			PlatformQueueTask* task = queue->tasks + visibleReadIndex;
-			task->callback(task->args);
-			InterlockedIncrement(ptrcast(volatile LONG, &queue->tasksDone));
-		}
-		workDone = true;
-	}
-	return workDone;
-}
-
-DWORD Win32ThreadProc(LPVOID params) {
-	PlatformQueue* queue = ptrcast(PlatformQueue, params);
-	while (true) {
-		if (!Win32TryPopAndExecuteTaskFromQueue(queue)) {
-			WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
-		}
-
-	}
-	return 0;
-}
-
-internal
-bool Win32WorkInQueueIsDone(PlatformQueue* queue) {
-	return queue->tasksDone == queue->tasksTarget;
-}
-
-bool Win32PushTask(PlatformQueue* queue, PlatformQueueCallback callback, void* args) {
-	u32 taskIndex = queue->writeIndex;
-	PlatformQueueTask* existingTask = queue->tasks + taskIndex;
-	PlatformQueueTask* newTask = queue->tasks + taskIndex;
-	newTask->callback = callback;
-	newTask->args = args;
-	_WriteBarrier();
-	queue->writeIndex = (taskIndex + 1) % ArrayCount(queue->tasks);
-	queue->tasksTarget = queue->tasksTarget + 1;
-	ReleaseSemaphore(queue->semaphore, 1, 0);
-	return true;
-}
-
-void Win32WaitForQueueCompletion(PlatformQueue* queue) {
-	while (!Win32WorkInQueueIsDone(queue)) {
-		Win32TryPopAndExecuteTaskFromQueue(queue);
-	};
-	int breakHere = 5;
-}
-
-internal
-void InitializeQueue(PlatformQueue& queue, DWORD threadCount) {
-	for (u32 threadIndex = 0; threadIndex < threadCount; threadIndex++) {
-		CreateThread(0, 0, Win32ThreadProc, &queue, 0, 0);
-	}
-	queue.semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
 }
 
 internal

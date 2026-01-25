@@ -155,9 +155,16 @@ struct ProgramState {
 	LoadedBitmap testDiffusionTexture;
 };
 
+enum class GroundBufferState {
+	NotReady,
+	Pending,
+	Ready,
+};
+
 struct GroundBuffer {
 	LoadedBitmap buffer;
 	WorldPosition pos;
+	GroundBufferState state;
 };
 
 struct TaskWithMemory {
