@@ -1,4 +1,4 @@
-#include "engine_common.h"
+#include "engine_rand.h"
 
 constexpr u32 randomMin = 2;
 constexpr u32 randomMax = 99968008;
@@ -225,10 +225,6 @@ u32 randomNumbers[] = {
 	70353981, 49250232, 44471625, 35409903, 21441878
 };
 
-struct RandomSeries {
-	u32 index;
-};
-
 inline
 RandomSeries RandomSeed(u32 seed) {
 	RandomSeries result = {};
@@ -262,5 +258,15 @@ f32 RandomInRange(RandomSeries& series, f32 min, f32 max) {
 	Assert(min < max);
 	f32 result = RandomUnilateral(series) * (max - min) + min;
 	return result;
+}
+
+inline
+u32 RandomChoice(RandomSeries& series, u32 count) {
+	return NextRandom(series) % count;
+}
+
+inline
+u32 RandomChoiceBetween(RandomSeries& series, u32 min, u32 max) {
+	return min + NextRandom(series) % (max - min);
 }
 

@@ -115,14 +115,37 @@ struct Asset {
 	AssetState state;
 };
 
+struct AssetGroup {
+	u32 firstAssetIndex;
+	u32 lastAssetIndex;
+};
+
+struct BitmapId {
+	u32 id;
+};
+
+struct SoundId {
+	u32 id;
+};
+
+struct BitmapInfo {
+	const char* filename;
+	V2 alignment;
+	AssetTypeID typeId;
+};
+
 struct TransientState;
 struct Assets {
 	MemoryArena arena;
 	TransientState* tranState;
 
-	Asset assets[Asset_Count];
+	u32 assetCount;
+	BitmapInfo bitmapInfos[256 * Asset_Count];
+	AssetGroup groups[Asset_Count];
+	
+	Asset assets[256 * Asset_Count];
+	
 
-	LoadedBitmap treeBmp;
 	LoadedBitmap playerMoveAnim[4];
 	LoadedBitmap groundBmps[2];
 	LoadedBitmap grassBmps[2];

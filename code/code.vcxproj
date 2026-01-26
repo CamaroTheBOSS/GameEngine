@@ -147,6 +147,7 @@
   <ItemGroup>
     <ClInclude Include="engine.h" />
     <ClInclude Include="engine_common.h" />
+    <ClInclude Include="engine_rand.h" />
     <ClInclude Include="engine_render.h" />
     <ClInclude Include="engine_simulation.h" />
     <ClInclude Include="engine_world.h" />

@@ -64,5 +64,8 @@
     <ClInclude Include="engine_render.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="engine_rand.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

@@ -42,10 +42,7 @@ struct FillGroundBufferTaskArgs {
 	TaskWithMemory* task;
 	WorldPosition chunkPos;
 	V2 chunkSizeInMeters;
-	u32 grassAssetsCount;
-	LoadedBitmap* grassAssets;
-	u32 groundAssetsCount;
-	LoadedBitmap* groundAssets;
+	Assets* assets;
 	GroundBuffer* groundBuffer;
 };
 
@@ -54,8 +51,6 @@ void FillGroundBufferBackgroundTask(void* data) {
 	FillGroundBufferTaskArgs* args = ptrcast(FillGroundBufferTaskArgs, data);
 	TaskWithMemory* task = args->task;
 	LoadedBitmap* buffer = &args->groundBuffer->buffer;
-	u32 grassAssetsCount = args->grassAssetsCount;
-	u32 groundAssetsCount = args->groundAssetsCount;
 	RenderGroup group = AllocateRenderGroup(task->arena, u4(GetArenaFreeSpaceSize(task->arena)));
 	f32 width = args->chunkSizeInMeters.X;
 	f32 height = args->chunkSizeInMeters.Y;
@@ -85,18 +80,12 @@ void FillGroundBufferBackgroundTask(void* data) {
 					0
 				};
 				bool grass = RandomUnilateral(series) > 0.5f;
-				LoadedBitmap* bmp = 0;
-				if (grass) {
-					u32 grassIndex = NextRandom(series) % grassAssetsCount;
-					bmp = args->grassAssets + grassIndex;
-				}
-				else {
-					u32 groundIndex = NextRandom(series) % groundAssetsCount;
-					bmp = args->groundAssets + groundIndex;
-				}
+				BitmapId bid = grass ?
+					GetRandomAssetId(*args->assets, Asset_Grass, series) :
+					GetRandomAssetId(*args->assets, Asset_Ground, series);
 				position.X += chunkOffsetX * width;
 				position.Y += chunkOffsetY * height;
-				PushBitmap(group, bmp, position, 1.7f, V2{ 0, 0 }, color);
+				PushBitmap(group, *args->assets, bid, position, 1.7f, V2{ 0, 0 }, color);
 			}
 		}
 	}
@@ -108,6 +97,10 @@ void FillGroundBufferBackgroundTask(void* data) {
 
 internal
 bool FillGroundBuffer(TransientState* tranState, ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos, PlatformQueue* queue) {
+	if (!LoadIfNotAllAssetsAreReady(tranState->assets, Asset_Ground) ||
+		!LoadIfNotAllAssetsAreReady(tranState->assets, Asset_Grass)) {
+		return false;
+	}
 	TaskWithMemory* task = TryBeginBackgroundTask(tranState);
 	if (!task || dstBuffer.state == GroundBufferState::Pending) {
 		return false;
@@ -115,11 +108,8 @@ bool FillGroundBuffer(TransientState* tranState, ProgramState* state, GroundBuff
 	FillGroundBufferTaskArgs* args = PushStructSize(task->arena, FillGroundBufferTaskArgs);
 	args->chunkPos = chunkPos;
 	args->chunkSizeInMeters = state->world.chunkSizeInMeters.XY;
+	args->assets = &tranState->assets;
 	args->groundBuffer = &dstBuffer;
-	args->grassAssets = tranState->assets.grassBmps;
-	args->grassAssetsCount = ArrayCount(tranState->assets.grassBmps);
-	args->groundAssets = tranState->assets.groundBmps;
-	args->groundAssetsCount = ArrayCount(tranState->assets.groundBmps);
 	args->task = task;
 	dstBuffer.pos = chunkPos;
 	dstBuffer.state = GroundBufferState::Pending;
@@ -1165,7 +1155,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		case EntityType_Wall: {
 			const f32 treeHeight = 2.5f * world.tileSizeInMeters.Z;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
-			PushBitmap(renderGroup, tranState->assets, Asset_Tree, groundLevelPos, treeHeight, V2{ 0, 0.1f }, V4{ 1, 0.f, 1.f, layerAlpha });
+			PushBitmap(renderGroup, tranState->assets, GetFirstAssetIdWithType(tranState->assets, Asset_Tree), groundLevelPos, treeHeight, V2{0, 0.1f}, V4{1, 0.f, 1.f, layerAlpha});
 		} break;
 		case EntityType_Stairs: {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, layerAlpha });

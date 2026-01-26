@@ -1,6 +1,7 @@
 #include "engine.h"
 #include "engine_render.h"
 #include "engine_intrinsics.h"
+#include "engine_rand.h"
 
 struct EntityProjectedParams {
 	V2 center;
@@ -1292,33 +1293,95 @@ void LoadBitmapBackgroundTask(void* data) {
 }
 
 inline
-Asset* GetAsset(Assets& assets, AssetTypeID id) {
+Asset* GetAsset(Assets& assets, u32 id) {
 	Asset* asset = &assets.assets[id];
 	return asset;
 }
 
+inline
+bool IsReady(Asset* asset) {
+	return asset && asset->state == AssetState::Ready;
+}
+
+inline
+AssetGroup* GetAssetGroup(Assets& assets, AssetTypeID typeId) {
+	AssetGroup* group = &assets.groups[typeId];
+	Assert(group);
+	Assert(group->firstAssetIndex != 0);
+	Assert(group->firstAssetIndex <= group->lastAssetIndex);
+	return group;
+}
+
+inline
+BitmapId GetFirstAssetIdWithType(Assets& assets, AssetTypeID typeId) {
+	AssetGroup* group = GetAssetGroup(assets, typeId);
+	return { group->firstAssetIndex };
+}
+
+inline
+BitmapId GetRandomAssetId(Assets& assets, AssetTypeID typeId, RandomSeries& series) {
+	AssetGroup* group = GetAssetGroup(assets, typeId);
+	u32 bid = RandomChoiceBetween(series, group->firstAssetIndex, group->lastAssetIndex + 1);
+	return { bid };
+}
+
 internal
-bool LoadBitmap(Assets& assets, AssetTypeID id) {
+bool LoadBitmap(Assets& assets, u32 id) {
 	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
 	Asset& asset = assets.assets[id];
 	if (!task || asset.state == AssetState::Pending) {
 		return false;
 	}
+	BitmapInfo* info = &assets.bitmapInfos[id];
+	Assert(info->filename);
 	LoadBitmapTaskArgs* args = PushStructSize(task->arena, LoadBitmapTaskArgs);
 	args->asset = &asset;
 	args->task = task;
-	args->alignment = V2{ 0.5f, 0.5f };
-	switch (id) {
-	case Asset_Tree: {
-		args->filename = "test/tree2.bmp";
-		args->alignment = V2{ 0.5f, 0.25f };
-	} break;
-				   InvalidDefaultCase;
-	}
+	args->alignment = info->alignment;
+	args->filename = info->filename;
 	asset.state = AssetState::Pending;
 	WriteCompilatorFence;
 	PlatformPushTaskToQueue(assets.tranState->lowPriorityQueue, LoadBitmapBackgroundTask, args);
 	return true;
+}
+
+inline
+bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
+	AssetGroup* group = GetAssetGroup(assets, typeId);
+	bool ready = true;
+	for (u32 assetIndex = group->firstAssetIndex; 
+		assetIndex <= group->lastAssetIndex; 
+		assetIndex++) 
+	{
+		Asset* asset = GetAsset(assets, assetIndex);
+		if (!IsReady(asset)) {
+			ready = false;
+			LoadBitmap(assets, assetIndex);
+		}
+	}
+	return ready;
+}
+
+inline 
+void AddAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment = V2{0.5f, 0.5f}) {
+	Assert(assets.assetCount < ArrayCount(assets.bitmapInfos));
+	BitmapInfo* info = &assets.bitmapInfos[assets.assetCount];
+	info->filename = filename;
+	info->alignment = alignment;
+	info->typeId = id;
+	AssetGroup* group = &assets.groups[id];
+	if (group->firstAssetIndex == 0) {
+		group->firstAssetIndex = assets.assetCount;
+		group->lastAssetIndex = assets.assetCount;
+	}
+	else {
+		group->lastAssetIndex++;
+		if (assets.assetCount > 0) {
+			BitmapInfo* prevInfo = &assets.bitmapInfos[assets.assetCount - 1];
+			Assert(prevInfo->typeId == info->typeId);
+		}
+	}
+	assets.assetCount++;
 }
 
 internal
@@ -1326,11 +1389,13 @@ void AllocateAssets(TransientState* tranState) {
 	Assets& assets = tranState->assets;
 	SubArena(assets.arena, tranState->arena, MB(12));
 	assets.tranState = tranState;
-	assets.groundBmps[0] = LoadBmpFile("test/ground0.bmp");
-	assets.groundBmps[1] = LoadBmpFile("test/ground1.bmp");
-	assets.grassBmps[0] = LoadBmpFile("test/grass0.bmp");
-	assets.grassBmps[1] = LoadBmpFile("test/grass1.bmp");
-	assets.treeBmp = LoadBmpFile("test/tree2.bmp", V2{ 0.5f, 0.25f });
+	AddAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
+	AddAsset(assets, Asset_Tree, "test/tree2.bmp", V2{ 0.5f, 0.25f });
+	AddAsset(assets, Asset_Tree, "test/tree3.bmp", V2{ 0.5f, 0.25f });
+	AddAsset(assets, Asset_Ground, "test/ground0.bmp");
+	AddAsset(assets, Asset_Ground, "test/ground1.bmp");
+	AddAsset(assets, Asset_Grass, "test/grass0.bmp");
+	AddAsset(assets, Asset_Grass, "test/grass1.bmp");
 
 	V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
 	assets.playerMoveAnim[0] = LoadBmpFile("test/hero-right.bmp", playerBitmapsAlignment);
@@ -1379,13 +1444,13 @@ bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height,
 }
 
 inline
-bool PushBitmap(RenderGroup& group, Assets& assets, AssetTypeID id, V3 center, f32 height, V2 offset, V4 color) {
-	Asset* asset = GetAsset(assets, id);
-	if (asset && asset->state == AssetState::Ready) {
+bool PushBitmap(RenderGroup& group, Assets& assets, BitmapId bid, V3 center, f32 height, V2 offset, V4 color) {
+	Asset* asset = GetAsset(assets, bid.id);
+	if (IsReady(asset)) {
 		PushBitmap(group, &asset->bitmap, center, height, offset, color);
 	}
 	else {
-		LoadBitmap(assets, id);
+		LoadBitmap(assets, bid.id);
 	}
 	return true;
 }
