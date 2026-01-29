@@ -93,6 +93,13 @@ struct RenderGroup {
 	u32 maxPushBufferSize;
 };
 
+enum AssetFeatureID {
+	Feature_Height,
+	Feature_FacingDirection,
+
+	Feature_Count
+};
+
 enum AssetTypeID {
 	Asset_Null,
 
@@ -110,8 +117,13 @@ enum class AssetState {
 	Ready
 };
 
+struct AssetFeatures {
+	f32 f[Feature_Count];
+};
+
 struct Asset {
 	LoadedBitmap bitmap;
+	AssetFeatures features;
 	AssetState state;
 };
 
@@ -140,23 +152,19 @@ struct Assets {
 	TransientState* tranState;
 
 	u32 assetCount;
-	BitmapInfo bitmapInfos[256 * Asset_Count];
-	AssetGroup groups[Asset_Count];
-	
-	Asset assets[256 * Asset_Count];
-	
+	u32 assetMaxCount;
+	Asset* assets;
+	BitmapInfo* bitmapInfos;
 
-	LoadedBitmap playerMoveAnim[4];
-	LoadedBitmap groundBmps[2];
-	LoadedBitmap grassBmps[2];
+	AssetGroup groups[Asset_Count];
 };
 
 /*                Renderer API                  */
 inline bool PushClearCall(RenderGroup& group, V4 color = V4{ 1, 1, 1, 1 });
 inline bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, 
 	V2 offset, V4 color = V4{1, 1, 1, 1});
-inline bool PushBitmap(RenderGroup& group, Assets& assets, AssetTypeID id, V3 center, 
-	f32 height, V2 offset, V4 color);
+inline bool PushBitmap(RenderGroup& group, Assets& assets, BitmapId bid, V3 center,
+	f32 height, V2 offset, V4 color = V4{ 1, 1, 1, 1 });
 inline bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, 
 	V4 color = V4{ 1, 1, 1, 1 });
 /*                Renderer API                  */

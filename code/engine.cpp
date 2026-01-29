@@ -1149,13 +1149,21 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			acceleration = playerControls->acceleration;
 			const f32 playerHeight = 1.35f;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, layerAlpha });
-			PushBitmap(renderGroup, &tranState->assets.playerMoveAnim[entity->faceDir], groundLevelPos, 1.35f, V2{0, 0});
+			PushBitmap(
+				renderGroup, tranState->assets, 
+				GetFirstAssetIdWithType(tranState->assets, Asset_Player), 
+				groundLevelPos, 1.35f, V2{0, 0}
+			);
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 		} break;
 		case EntityType_Wall: {
 			const f32 treeHeight = 2.5f * world.tileSizeInMeters.Z;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
-			PushBitmap(renderGroup, tranState->assets, GetFirstAssetIdWithType(tranState->assets, Asset_Tree), groundLevelPos, treeHeight, V2{0, 0.1f}, V4{1, 0.f, 1.f, layerAlpha});
+			PushBitmap(
+				renderGroup, tranState->assets, 
+				GetFirstAssetIdWithType(tranState->assets, Asset_Tree), 
+				groundLevelPos, treeHeight, V2{0, 0.1f}, V4{1, 0.f, 1.f, layerAlpha}
+			);
 		} break;
 		case EntityType_Stairs: {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, layerAlpha });

@@ -1364,7 +1364,7 @@ bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
 
 inline 
 void AddAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment = V2{0.5f, 0.5f}) {
-	Assert(assets.assetCount < ArrayCount(assets.bitmapInfos));
+	Assert(assets.assetCount < assets.assetMaxCount);
 	BitmapInfo* info = &assets.bitmapInfos[assets.assetCount];
 	info->filename = filename;
 	info->alignment = alignment;
@@ -1385,23 +1385,41 @@ void AddAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment
 }
 
 internal
+void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
+	Assert(assets.assetCount > 0);
+	Asset* asset = GetAsset(assets, assets.assetCount);
+	asset->features.f[fId] = value;
+}
+
+internal
 void AllocateAssets(TransientState* tranState) {
 	Assets& assets = tranState->assets;
 	SubArena(assets.arena, tranState->arena, MB(12));
 	assets.tranState = tranState;
+	assets.assetMaxCount = 256 * Asset_Count;
+	assets.assets = PushArray(assets.arena, assets.assetMaxCount, Asset);
+	assets.bitmapInfos = PushArray(assets.arena, assets.assetMaxCount, BitmapInfo);
+	AddAsset(assets, Asset_Null, 0);
 	AddAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
+	AddFeature(assets, Feature_Height, 1.f);
 	AddAsset(assets, Asset_Tree, "test/tree2.bmp", V2{ 0.5f, 0.25f });
+	AddFeature(assets, Feature_Height, 3.f);
 	AddAsset(assets, Asset_Tree, "test/tree3.bmp", V2{ 0.5f, 0.25f });
+	AddFeature(assets, Feature_Height, 2.f);
 	AddAsset(assets, Asset_Ground, "test/ground0.bmp");
 	AddAsset(assets, Asset_Ground, "test/ground1.bmp");
 	AddAsset(assets, Asset_Grass, "test/grass0.bmp");
 	AddAsset(assets, Asset_Grass, "test/grass1.bmp");
 
 	V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
-	assets.playerMoveAnim[0] = LoadBmpFile("test/hero-right.bmp", playerBitmapsAlignment);
-	assets.playerMoveAnim[1] = LoadBmpFile("test/hero-left.bmp", playerBitmapsAlignment);
-	assets.playerMoveAnim[2] = LoadBmpFile("test/hero-up.bmp", playerBitmapsAlignment);
-	assets.playerMoveAnim[3] = LoadBmpFile("test/hero-down.bmp", playerBitmapsAlignment);
+	AddAsset(assets, Asset_Player, "test/hero-right.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.f * TAU);
+	AddAsset(assets, Asset_Player, "test/hero-left.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.25f * TAU);
+	AddAsset(assets, Asset_Player, "test/hero-up.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
+	AddAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
 }
 
 #define Text(text) text

@@ -33,6 +33,7 @@
 #define internal static
 #define noapi
 #define PI 3.14159f
+#define TAU 6.28318f
 #define kB(bytes) ((bytes) * 1024)
 #define MB(bytes) (kB(bytes) * 1024)
 #define GB(bytes) (MB(bytes) * 1024)
