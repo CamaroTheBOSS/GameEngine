@@ -1326,6 +1326,29 @@ BitmapId GetRandomAssetId(Assets& assets, AssetTypeID typeId, RandomSeries& seri
 }
 
 internal
+BitmapId GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures match, AssetFeatures weight) {
+	AssetGroup* group = GetAssetGroup(assets, typeId);
+	BitmapId best = {};
+	f32 bestScore = F32_MAX;
+	for (u32 assetIndex = group->firstAssetIndex;
+		assetIndex <= group->lastAssetIndex;
+		assetIndex++
+		) {
+		Asset* asset = GetAsset(assets, assetIndex);
+		f32 score = 0;
+		for (u32 featureIndex = 0; featureIndex < ArrayCount(asset->features); featureIndex++) {
+			f32 distance = match[featureIndex] - asset->features[featureIndex];
+			score += weight[featureIndex] * Abs(distance);
+		}
+		if (score < bestScore) {
+			bestScore = score;
+			best.id = assetIndex;
+		}
+	}
+	return best;
+}
+
+internal
 bool LoadBitmap(Assets& assets, u32 id) {
 	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
 	Asset& asset = assets.assets[id];
@@ -1387,8 +1410,8 @@ void AddAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment
 internal
 void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
 	Assert(assets.assetCount > 0);
-	Asset* asset = GetAsset(assets, assets.assetCount);
-	asset->features.f[fId] = value;
+	Asset* asset = GetAsset(assets, assets.assetCount - 1);
+	asset->features[fId] = value;
 }
 
 internal

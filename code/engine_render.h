@@ -117,9 +117,7 @@ enum class AssetState {
 	Ready
 };
 
-struct AssetFeatures {
-	f32 f[Feature_Count];
-};
+using AssetFeatures = f32[Feature_Count];
 
 struct Asset {
 	LoadedBitmap bitmap;
