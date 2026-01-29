@@ -74,7 +74,7 @@ struct Entity {
 	EntityType type;
 	WorldPosition worldPos;
 	CollisionVolumeGroup* collision;
-	u32 faceDir;
+	f32 faceDir;
 	u32 highEntityIndex;
 	HitPoints hitPoints;
 	u32 flags;

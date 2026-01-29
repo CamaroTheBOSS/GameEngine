@@ -1326,7 +1326,7 @@ BitmapId GetRandomAssetId(Assets& assets, AssetTypeID typeId, RandomSeries& seri
 }
 
 internal
-BitmapId GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures match, AssetFeatures weight) {
+BitmapId GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures match, AssetFeatures weight, f32 halfPeriod) {
 	AssetGroup* group = GetAssetGroup(assets, typeId);
 	BitmapId best = {};
 	f32 bestScore = F32_MAX;
@@ -1337,7 +1337,12 @@ BitmapId GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures mat
 		Asset* asset = GetAsset(assets, assetIndex);
 		f32 score = 0;
 		for (u32 featureIndex = 0; featureIndex < ArrayCount(asset->features); featureIndex++) {
-			f32 distance = match[featureIndex] - asset->features[featureIndex];
+			//f32 sign = SignF32(halfPeriod - match[featureIndex]);
+			f32 a1 = asset->features[featureIndex];
+			f32 a2 = asset->features[featureIndex] - 2 * halfPeriod;
+			f32 d1 = Abs(match[featureIndex] - a1);
+			f32 d2 = Abs(match[featureIndex] - a2);
+			f32 distance = Minimum(d1, d2);
 			score += weight[featureIndex] * Abs(distance);
 		}
 		if (score < bestScore) {
@@ -1437,9 +1442,9 @@ void AllocateAssets(TransientState* tranState) {
 	V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
 	AddAsset(assets, Asset_Player, "test/hero-right.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.f * TAU);
-	AddAsset(assets, Asset_Player, "test/hero-left.bmp", playerBitmapsAlignment);
-	AddFeature(assets, Feature_FacingDirection, 0.25f * TAU);
 	AddAsset(assets, Asset_Player, "test/hero-up.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.25f * TAU);
+	AddAsset(assets, Asset_Player, "test/hero-left.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
 	AddAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);

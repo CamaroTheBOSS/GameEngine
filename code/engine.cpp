@@ -681,6 +681,13 @@ void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity&
 		SetEntityGroundLevel(entity, ground);
 		entity.vel.Z = 0.f;
 	}
+	f32 velEpsilon = 0.5f;
+	if (entity.vel.X < -velEpsilon ||
+		entity.vel.X > velEpsilon ||
+		entity.vel.Y < -velEpsilon ||
+		entity.vel.Y > velEpsilon) {
+		entity.faceDir = Atan2(entity.vel.Y, entity.vel.X);
+	}
 }
 
 internal
@@ -986,19 +993,15 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		playerControls.acceleration = {};
 		f32 speed = 75.0f;
 		if (controller.isADown) {
-			entity->faceDir = 1;
 			playerControls.acceleration.X -= 1.f;
 		}
 		if (controller.isWDown) {
-			entity->faceDir = 2;
 			playerControls.acceleration.Y += 1.f;
 		}
 		if (controller.isSDown) {
-			entity->faceDir = 3;
 			playerControls.acceleration.Y -= 1.f;
 		}
 		if (controller.isDDown) {
-			entity->faceDir = 0;
 			playerControls.acceleration.X += 1.f;
 		}
 		if (controller.isSpaceDown) {
@@ -1149,19 +1152,22 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			acceleration = playerControls->acceleration;
 			const f32 playerHeight = 1.35f;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, layerAlpha });
-			PushBitmap(
-				renderGroup, tranState->assets, 
-				GetFirstAssetIdWithType(tranState->assets, Asset_Player), 
-				groundLevelPos, 1.35f, V2{0, 0}
-			);
+			AssetFeatures match = {};
+			AssetFeatures weight = {};
+			match[Feature_FacingDirection] = entity->faceDir;
+			weight[Feature_FacingDirection] = 1.f;
+			BitmapId bmp = GetBestFitAssetId(tranState->assets, Asset_Player, match, weight, PI);
+			PushBitmap(renderGroup, tranState->assets, bmp, groundLevelPos, 1.35f, V2{0, 0});
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 		} break;
 		case EntityType_Wall: {
 			const f32 treeHeight = 2.5f * world.tileSizeInMeters.Z;
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
 			AssetFeatures match = {};
+			AssetFeatures weight = {};
 			match[Feature_Height] = 1.5f;
-			BitmapId bmp = GetBestFitAssetId(tranState->assets, Asset_Tree, match, match);
+			weight[Feature_Height] = 1.f;
+			BitmapId bmp = GetBestFitAssetId(tranState->assets, Asset_Tree, match, weight, 10000);
 			PushBitmap(renderGroup, tranState->assets, bmp, groundLevelPos, treeHeight, 
 				V2{0, 0.1f}, V4{1, 0.f, 1.f, layerAlpha});
 		} break;

@@ -70,6 +70,18 @@ f32 SquareRoot(f32 value) {
 	return sqrtf(value);
 }
 
+inline
+f32 Atan2(f32 Y, f32 X) {
+	return atan2f(Y, X);
+}
+
+inline
+f32 SignF32(f32 val) {
+	if (val > 0) return 1;
+	if (val < 0) return -1;
+	return 0;
+}
+
 struct BitwiseSearchResult {
 	bool found;
 	u32 index;
