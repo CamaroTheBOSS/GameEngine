@@ -9,10 +9,11 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 	static u64 runninngSampleIndex = 0;
 	float sampleInterval = static_cast<float>(dst.nSamplesPerSec) / (2 * PI * toneHz);
 	float* fData = reinterpret_cast<float*>(dst.data);
-	for (int frame = 0; frame < dst.nSamples; frame++) {
-		dst.tSine += 1.0f / sampleInterval;
-#if 0
-		float value = amplitude * sinf(dst.tSine);
+	static float tSine = 0;
+	for (u32 frame = 0; frame < dst.nSamples; frame++) {
+		tSine += 1.0f / sampleInterval;
+#if 1
+		float value = amplitude * sinf(tSine);
 #else
 		float value = 0;
 #endif
@@ -21,10 +22,29 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 		}
 		runninngSampleIndex++;
 	}
-	if (dst.tSine > 2 * PI * toneHz) {
+
+	if (tSine > 2 * PI * toneHz) {
 		// NOTE: sinf() seems to be inaccurate for high tSine values and quantization goes crazy 
-		dst.tSine -= 2 * PI * toneHz;
+		tSine -= 2 * PI * toneHz;
 	}
+}
+
+internal
+void RenderSoundToBuffer(AudioState& audio, SoundData& dst) {
+	PlayingSound* sound = audio.playingSounds;
+	if (!sound) {
+		return;
+	}
+
+	f32* src[2] = { sound->sound->samples[0] + sound->currentSample, 
+					sound->sound->samples[1] + sound->currentSample };
+	f32* dest = ptrcast(f32, dst.data);
+	for (u32 sampleIndex = 0; sampleIndex < dst.nSamples; sampleIndex++) {
+		for (u32 channelIndex = 0; channelIndex < dst.nChannels; channelIndex++) {
+			*dest++ = *src[channelIndex]++;
+		}
+	}
+	sound->currentSample += dst.nSamples;
 }
 
 internal
@@ -787,6 +807,24 @@ LoadedBitmap MakeSphereDiffusionTexture(MemoryArena& arena, u32 width, u32 heigh
 	return result;
 }
 
+void PlaySound(AudioState& audio, LoadedSound& sound, f32 secondsToStart) {
+	PlayingSound* playingSound = audio.freeListSounds;
+	if (playingSound) {
+		audio.freeListSounds = playingSound->next;
+		playingSound->next = 0;
+	}
+	else {
+		playingSound = PushStructSize(audio.arena, PlayingSound);
+	}
+	// TODO: Use secondsToStart to have specific time in mind
+	// TODO: instead of taking the sound it should take sound_id()!
+	playingSound->currentSample = 0;
+	playingSound->next = 0;
+	playingSound->sound = &sound;
+	playingSound->next = audio.playingSounds;
+	audio.playingSounds = playingSound;
+}
+
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	debugGlobalMemory = &memory.debug;
 	PlatformPushTaskToQueue = memory.PlatformPushTaskToQueue;
@@ -797,10 +835,15 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	if (!state->isInitialized) {
 		InitializeWorld(world);
 		InitializeArena(
-			world.arena,
+			state->mainArena,
 			ptrcast(u8, memory.permanentMemory) + sizeof(ProgramState),
 			memory.permanentMemorySize - sizeof(ProgramState)
 		);
+		SubArena(world.arena, state->mainArena, MB(32));
+		SubArena(state->audio.arena, state->mainArena, MB(16));
+		state->audio.testSound = LoadWAV("sound/silksong.wav");
+		PlaySound(state->audio, state->audio.testSound, 0);
+
 		state->wallCollision = MakeGroundedCollisionGroup(state, world.tileSizeInMeters);
 		state->playerCollision = MakeGroundedCollisionGroup(state, V3{1.0f, 0.55f, 0.25f});
 		state->monsterCollision = MakeGroundedCollisionGroup(state, V3{ 1.0f, 1.25f, 0.25f });
@@ -1326,7 +1369,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #else
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
 #endif
-	AddSineWaveToBuffer(soundData, 1, 50);
+	//AddSineWaveToBuffer(soundData, -1, 250);
+	RenderSoundToBuffer(state->audio, soundData);
 
 	EndSimulation(*simRegion, world);
 	EndTempMemory(renderMemory);

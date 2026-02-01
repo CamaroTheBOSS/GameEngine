@@ -1438,17 +1438,19 @@ LoadedSound LoadWAV(const char* filename) {
 	}
 	Assert(samplesCount > 0);
 	Assert(sound.nChannels != 0);
-	u64 bytesToAllocate = samplesCount * sizeof(u16);
-	sound.samples[0] = ptrcast(i16, debugGlobalMemory->allocate(bytesToAllocate));
+	u64 bytesToAllocate = samplesCount * sizeof(f32);
+	sound.sampleCount = samplesCount;
+	sound.samples[0] = ptrcast(f32, debugGlobalMemory->allocate(bytesToAllocate));
 	if (sound.nChannels == 2) {
 		u32 secondChannelStart = samplesCount / 2;
 		sound.samples[1] = sound.samples[0] + secondChannelStart;
 	}
-	i16* dest[2] = { sound.samples[0], sound.samples[1] };
+	f32* dest[2] = { sound.samples[0], sound.samples[1] };
 	i16* src = fileSamples;
+	f32 dividor = f4(I16_MAX);
 	for (u32 sampleIndex = 0; sampleIndex < samplesCount; sampleIndex += sound.nChannels) {
 		for (u32 channelIndex = 0; channelIndex < sound.nChannels; channelIndex++) {
-			*dest[channelIndex]++ = *src++;
+			*dest[channelIndex]++ = f4(*src++) / dividor;
 		}
 	}
 	return sound;
@@ -1529,8 +1531,6 @@ void AllocateAssets(TransientState* tranState) {
 	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
 	AddAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
-
-	assets.testSound = LoadWAV("sound/silksong.wav");
 }
 
 #define Text(text) text

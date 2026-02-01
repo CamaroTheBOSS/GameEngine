@@ -16,10 +16,9 @@ struct BitmapData {
 struct SoundData {
 	// Platform independent buffer to play sounds
 	void* data;
-	int nSamples;
-	int nSamplesPerSec;
-	int nChannels;
-	float tSine = 0.;
+	u32 nSamples;
+	u32 nSamplesPerSec;
+	u32 nChannels;
 };
 
 struct TimeData {
@@ -131,16 +130,34 @@ struct PlayerControls {
 	V3 acceleration;
 };
 
+struct PlayingSound {
+	LoadedSound* sound;
+	u32 currentSample;
+
+	PlayingSound* next;
+};
+
+struct AudioState {
+	MemoryArena arena;
+	PlayingSound* playingSounds;
+	PlayingSound* freeListSounds;
+
+	LoadedSound testSound;
+};
+
 struct ProgramState {
 	// Global state of the program
 	f32 highFreqBoundDim;
 	f32 highFreqBoundHeight;
 	WorldPosition cameraPos;
+	MemoryArena mainArena;
 	World world;
 	
 	u32 playerEntityIndexes[MAX_CONTROLLERS];
 	PlayerControls playerControls[MAX_CONTROLLERS];
 	u32 cameraEntityIndex;
+
+	AudioState audio;
 
 	CollisionVolumeGroup* wallCollision;
 	CollisionVolumeGroup* playerCollision;
@@ -190,9 +207,9 @@ struct TransientState {
 #define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, InputData& input)
 typedef GAME_MAIN_LOOP_FRAME(game_main_loop_frame);
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {
-	float* data = reinterpret_cast<float*>(soundData.data);
-	for (int frame = 0; frame < soundData.nSamples; frame++) {
-		for (int channel = 0; channel < soundData.nChannels; channel++) {
+	f32* data = reinterpret_cast<f32*>(soundData.data);
+	for (u32 frame = 0; frame < soundData.nSamples; frame++) {
+		for (u32 channel = 0; channel < soundData.nChannels; channel++) {
 			*data++ = 0;
 		}
 	}

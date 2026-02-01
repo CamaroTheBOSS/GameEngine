@@ -240,13 +240,23 @@ void Win32InitAudioClient() {
 		// TODO log error with _com_error err.ErrorMessage()
 		return;
 	}
+	// TODO: Support only for f32!
+#if 0
+	mixFormat->wFormatTag = WAVE_FORMAT_PCM;
+	mixFormat->wBitsPerSample = 16;
+	WAVEFORMATEX* closestMatch = nullptr;
+	hr = audioClient->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, mixFormat, &closestMatch);
+	if (!SUCCEEDED(hr)) {
+		// TODO Maybe I should be supporting other formats? For now lets go with PCM
+		return;
+	}
+#endif
 
 	// ?????? doesnt work
 	REFERENCE_TIME min = 1080;
 	REFERENCE_TIME max = 2000;
 	hr = audioClient->GetBufferSizeLimits(mixFormat, 0, &min, &max);
 	if (!SUCCEEDED(hr)) {
-		// TODO log error with _com_error err.ErrorMessage()
 		_com_error err(hr);
 		LPCTSTR errMsg = err.ErrorMessage();
 		min = -1;
@@ -275,7 +285,8 @@ void Win32InitAudioClient() {
 		0
 	);
 	if (!SUCCEEDED(hr)) {
-		// TODO log error with _com_error err.ErrorMessage()
+		_com_error err(hr);
+		LPCTSTR errMsg = err.ErrorMessage();
 		return;
 	}
 	IAudioRenderClient* renderClient = nullptr;
@@ -296,6 +307,9 @@ void Win32InitAudioClient() {
 		format.Samples.wValidBitsPerSample = format.Format.wBitsPerSample;
 		format.dwChannelMask = 0;
 	}
+	// TODO (IMPORTANT): Support for 16bits audio
+	Assert(format.Format.nChannels == 2);
+	Assert(format.Format.wBitsPerSample == 32);
 
 	UINT32 bufferSizeInSamples;
 	hr = audioClient->GetBufferSize(&bufferSizeInSamples);
