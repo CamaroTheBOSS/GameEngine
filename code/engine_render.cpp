@@ -1412,7 +1412,8 @@ LoadedSound LoadWAV(const char* filename) {
 	u8* ptr = ptrcast(u8, data.content) + sizeof(RiffHeader);
 	u32 sizeRead = 0;
 	i16* fileSamples = 0;
-	u32 samplesCount = 0;
+	u32 samplesSizeInBytes = 0;
+	u32 nChannels = 0;
 	while (sizeRead < chunkSize) {
 		ChunkHeader* header = ptrcast(ChunkHeader, ptr);
 		sizeRead += sizeof(header);
@@ -1423,32 +1424,29 @@ LoadedSound LoadWAV(const char* filename) {
 			Assert(fmt->nSamplesPerSec == 48000);
 			Assert(fmt->bitsPerSample == 16);
 			Assert(fmt->nChannels <= 2);
-			sound.nChannels = fmt->nChannels;
+			nChannels = fmt->nChannels;
 		} break;
 		case CHUNK_ID('d', 'a', 't', 'a'): {
 			fileSamples = ptrcast(i16, ptr);
-			samplesCount = header->chunkSize / sizeof(i16);
-			Assert(samplesCount > 0);
-			Assert((samplesCount & 1) == 0);
+			samplesSizeInBytes = header->chunkSize;
 		} break;
 		}
 		u32 paddedSize = (header->chunkSize + 1) & ~1;
 		sizeRead += paddedSize;
 		ptr += paddedSize;
 	}
-	Assert(samplesCount > 0);
-	Assert(sound.nChannels != 0);
-	u64 bytesToAllocate = samplesCount * sizeof(f32);
-	sound.sampleCount = samplesCount;
+	Assert(nChannels == 2);
+	sound.sampleCount = samplesSizeInBytes / (sizeof(i16) * nChannels);
+	sound.nChannels = nChannels;
+	Assert(sound.sampleCount > 0);
+	Assert((sound.sampleCount & 1) == 0);
+	u64 bytesToAllocate = sound.sampleCount * sizeof(f32) * sound.nChannels;
 	sound.samples[0] = ptrcast(f32, debugGlobalMemory->allocate(bytesToAllocate));
-	if (sound.nChannels == 2) {
-		u32 secondChannelStart = samplesCount / 2;
-		sound.samples[1] = sound.samples[0] + secondChannelStart;
-	}
+	sound.samples[1] = sound.samples[0] + sound.sampleCount;
 	f32* dest[2] = { sound.samples[0], sound.samples[1] };
 	i16* src = fileSamples;
 	f32 dividor = f4(I16_MAX);
-	for (u32 sampleIndex = 0; sampleIndex < samplesCount; sampleIndex += sound.nChannels) {
+	for (u32 sampleIndex = 0; sampleIndex < sound.sampleCount; sampleIndex ++) {
 		for (u32 channelIndex = 0; channelIndex < sound.nChannels; channelIndex++) {
 			*dest[channelIndex]++ = f4(*src++) / dividor;
 		}

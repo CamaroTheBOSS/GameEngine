@@ -31,20 +31,62 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 
 internal
 void RenderSoundToBuffer(AudioState& audio, SoundData& dst) {
-	PlayingSound* sound = audio.playingSounds;
-	if (!sound) {
-		return;
+	constexpr u32 nChannels = 2;
+	TemporaryMemory mixerMemory = BeginTempMemory(audio.arena);
+	f32* mixedSamples[nChannels] = {};
+	
+	u32 outBufferSampleCount = dst.nSamples;
+	for (u32 channel = 0; channel < nChannels; channel++) {
+		mixedSamples[channel] = PushArray(audio.arena, outBufferSampleCount, f32);
+		ZeroSize_(ptrcast(u8, mixedSamples[channel]), outBufferSampleCount * sizeof(f32));
+	}
+	PlayingSound* prevSound = 0;
+	PlayingSound* currSound = audio.playingSounds;
+	while (currSound) {
+		PlayingSound* nextSound = currSound->next;
+		f32* src[nChannels] = {};
+		f32* dest[nChannels] = {};
+		for (u32 channel = 0; channel < nChannels; channel++) {
+			src[channel] = currSound->sound->samples[channel] + currSound->currentSample;
+			dest[channel] = mixedSamples[channel];
+		}
+		u32 samplesToPlay = currSound->sound->sampleCount - currSound->currentSample;
+		if (samplesToPlay > outBufferSampleCount) {
+			samplesToPlay = outBufferSampleCount;
+		}
+		if (samplesToPlay < outBufferSampleCount) {
+			int breakHere = 0;
+		}
+		for (u32 sampleIndex = 0; sampleIndex < samplesToPlay; sampleIndex++) {
+			for (u32 channel = 0; channel < nChannels; channel++) {
+				*dest[channel]++ += *src[channel]++;
+			}
+		}
+		currSound->currentSample += samplesToPlay;
+		bool needsDeletion = currSound->currentSample >= currSound->sound->sampleCount;
+		if (needsDeletion) {
+			if (prevSound) {
+				prevSound->next = currSound->next;
+			}
+			else {
+				audio.playingSounds = currSound->next;
+			}
+			currSound->next = audio.freeListSounds;
+			audio.freeListSounds = currSound;
+		}
+		else {
+			prevSound = currSound;
+		}
+		currSound = nextSound;
 	}
 
-	f32* src[2] = { sound->sound->samples[0] + sound->currentSample, 
-					sound->sound->samples[1] + sound->currentSample };
-	f32* dest = ptrcast(f32, dst.data);
-	for (u32 sampleIndex = 0; sampleIndex < dst.nSamples; sampleIndex++) {
-		for (u32 channelIndex = 0; channelIndex < dst.nChannels; channelIndex++) {
-			*dest++ = *src[channelIndex]++;
+	f32* out = ptrcast(f32, dst.data);
+	for (u32 sampleIndex = 0; sampleIndex < outBufferSampleCount; sampleIndex++) {
+		for (u32 channel = 0; channel < nChannels; channel++) {
+			*out++ = *mixedSamples[channel]++;
 		}
 	}
-	sound->currentSample += dst.nSamples;
+	EndTempMemory(mixerMemory);
 }
 
 internal
