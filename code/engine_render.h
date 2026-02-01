@@ -156,10 +156,15 @@ struct Asset {
 	AssetState state;
 };
 #pragma warning(pop)
+enum AssetGroupType {
+	AssetGroup_Bitmap,
+	AssetGroup_Sound
+};
 
 struct AssetGroup {
 	u32 firstAssetIndex;
 	u32 lastAssetIndex;
+	AssetGroupType type;
 };
 
 struct BitmapId {

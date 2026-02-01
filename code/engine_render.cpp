@@ -1532,7 +1532,6 @@ bool PrefetchSound(Assets& assets, SoundId sid) {
 
 inline
 bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
-	// TODO: Make it work also for sounds;
 	AssetGroup* group = GetAssetGroup(assets, typeId);
 	bool ready = true;
 	for (u32 assetIndex = group->firstAssetIndex; 
@@ -1542,7 +1541,12 @@ bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
 		Asset* asset = GetAsset(assets, assetIndex);
 		if (!IsReady(asset)) {
 			ready = false;
-			PrefetchBitmap(assets, { assetIndex });
+			if (group->type == AssetGroup_Bitmap) {
+				PrefetchBitmap(assets, { assetIndex });
+			}
+			else {
+				PrefetchSound(assets, { assetIndex });
+			}
 		}
 	}
 	return ready;
@@ -1559,8 +1563,10 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 	if (group->firstAssetIndex == 0) {
 		group->firstAssetIndex = assets.assetCount;
 		group->lastAssetIndex = assets.assetCount;
+		group->type = AssetGroup_Bitmap;
 	}
 	else {
+		Assert(group->type == AssetGroup_Bitmap);
 		group->lastAssetIndex++;
 		if (assets.assetCount > 0) {
 			BitmapInfo* prevInfo = &assets.assets[assets.assetCount - 1].bitmapInfo;
@@ -1580,8 +1586,10 @@ void AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename) {
 	if (group->firstAssetIndex == 0) {
 		group->firstAssetIndex = assets.assetCount;
 		group->lastAssetIndex = assets.assetCount;
+		group->type = AssetGroup_Sound;
 	}
 	else {
+		Assert(group->type == AssetGroup_Sound);
 		group->lastAssetIndex++;
 		if (assets.assetCount > 0) {
 			SoundInfo* prevInfo = &assets.assets[assets.assetCount - 1].soundInfo;
