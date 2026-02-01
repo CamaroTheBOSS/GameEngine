@@ -24,6 +24,12 @@ struct LoadedBitmap {
 	V2 align; // NOTE: bottom-up in pixels
 };
 
+struct LoadedSound {
+	u32 sampleCount;
+	u32 nChannels;
+	i16* samples[2];
+};
+
 struct EnvironmentMap {
 	u32 mapWidth;
 	u32 mapHeight;
@@ -155,6 +161,8 @@ struct Assets {
 	BitmapInfo* bitmapInfos;
 
 	AssetGroup groups[Asset_Count];
+
+	LoadedSound testSound;
 };
 
 /*                Renderer API                  */

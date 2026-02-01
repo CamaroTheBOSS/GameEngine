@@ -389,6 +389,12 @@ void InitializeQueue(PlatformQueue& queue, DWORD threadCount) {
 }
 
 internal
+void* DebugAllocate(u64 size) {
+	void* result = VirtualAlloc(nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	return result;
+}
+
+internal
 FileData DebugReadEntireFile(const char* filename) {
 	HANDLE file = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
 	if (!file) {
@@ -801,6 +807,7 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.debug.freeFile = DebugFreeFile;
 	programMemory.debug.readEntireFile = DebugReadEntireFile;
 	programMemory.debug.writeFile = DebugWriteToFile;
+	programMemory.debug.allocate = DebugAllocate;
 	programMemory.permanentMemorySize = MB(64);
 	programMemory.transientMemorySize = GB(static_cast<u64>(3));
 	programMemory.memoryBlockSize = programMemory.permanentMemorySize + programMemory.transientMemorySize;

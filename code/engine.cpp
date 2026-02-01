@@ -1326,6 +1326,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #else
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
 #endif
+	AddSineWaveToBuffer(soundData, 1, 50);
 
 	EndSimulation(*simRegion, world);
 	EndTempMemory(renderMemory);

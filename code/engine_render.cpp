@@ -1373,6 +1373,87 @@ bool LoadBitmap(Assets& assets, u32 id) {
 	return true;
 }
 
+internal
+LoadedSound LoadWAV(const char* filename) {
+#define CHUNK_ID(a, b, c, d) ((d << 24) + (c << 16) + (b << 8) + a)
+#pragma pack(push, 1)
+	struct RiffHeader {
+		u32 riffId;
+		u32 size;
+		u32 waveId;
+	};
+	struct ChunkHeader {
+		u32 chunkId;
+		u32 chunkSize;
+	};
+	struct FmtHeader {
+		u16 formatCode;
+		u16 nChannels;
+		u32 nSamplesPerSec;
+		u32 nAvgBytesPerSec;
+		u16 nBlockAlign;
+		u16 bitsPerSample;
+		u16 cbSize;
+		u16 validBitsPerSample;
+		u32 channelMask;
+		char subformat[16];
+	};
+#pragma pack(pop)
+	LoadedSound sound = {};
+	FileData data = debugGlobalMemory->readEntireFile(filename);
+	if (!data.content) {
+		return sound;
+	}
+	
+	RiffHeader* riffHeader = ptrcast(RiffHeader, data.content);
+	Assert(riffHeader->riffId == CHUNK_ID('R', 'I', 'F', 'F'));
+	Assert(riffHeader->waveId == CHUNK_ID('W', 'A', 'V', 'E'));
+	u32 chunkSize = riffHeader->size - 4;
+	u8* ptr = ptrcast(u8, data.content) + sizeof(RiffHeader);
+	u32 sizeRead = 0;
+	i16* fileSamples = 0;
+	u32 samplesCount = 0;
+	while (sizeRead < chunkSize) {
+		ChunkHeader* header = ptrcast(ChunkHeader, ptr);
+		sizeRead += sizeof(header);
+		ptr += sizeof(header);
+		switch (header->chunkId) {
+		case CHUNK_ID('f', 'm', 't', ' '): {
+			FmtHeader* fmt = ptrcast(FmtHeader, ptr);
+			Assert(fmt->nSamplesPerSec == 48000);
+			Assert(fmt->bitsPerSample == 16);
+			Assert(fmt->nChannels <= 2);
+			sound.nChannels = fmt->nChannels;
+		} break;
+		case CHUNK_ID('d', 'a', 't', 'a'): {
+			fileSamples = ptrcast(i16, ptr);
+			samplesCount = header->chunkSize / sizeof(i16);
+			Assert(samplesCount > 0);
+			Assert((samplesCount & 1) == 0);
+		} break;
+		}
+		u32 paddedSize = (header->chunkSize + 1) & ~1;
+		sizeRead += paddedSize;
+		ptr += paddedSize;
+	}
+	Assert(samplesCount > 0);
+	Assert(sound.nChannels != 0);
+	u64 bytesToAllocate = samplesCount * sizeof(u16);
+	sound.samples[0] = ptrcast(i16, debugGlobalMemory->allocate(bytesToAllocate));
+	if (sound.nChannels == 2) {
+		u32 secondChannelStart = samplesCount / 2;
+		sound.samples[1] = sound.samples[0] + secondChannelStart;
+	}
+	i16* dest[2] = { sound.samples[0], sound.samples[1] };
+	i16* src = fileSamples;
+	for (u32 sampleIndex = 0; sampleIndex < samplesCount; sampleIndex += sound.nChannels) {
+		for (u32 channelIndex = 0; channelIndex < sound.nChannels; channelIndex++) {
+			*dest[channelIndex]++ = *src++;
+		}
+	}
+	return sound;
+}
+
 inline
 bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
 	AssetGroup* group = GetAssetGroup(assets, typeId);
@@ -1448,6 +1529,8 @@ void AllocateAssets(TransientState* tranState) {
 	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
 	AddAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
+
+	assets.testSound = LoadWAV("sound/silksong.wav");
 }
 
 #define Text(text) text
