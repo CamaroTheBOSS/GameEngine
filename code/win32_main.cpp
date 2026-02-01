@@ -1026,6 +1026,7 @@ int CALLBACK WinMain(
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 	while (globalRunning) {
 		Win32ReloadGameCode(gameCode);
+		// TODO: ResetInput for Gamepad as well!
 		ResetInput(inputData.controllers[KB_CONTROLLER_IDX]);
 		Win32ProcessOSMessages(globalWin32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
 		for (DWORD cIndex = 0; cIndex < XUSER_MAX_COUNT; cIndex++) {

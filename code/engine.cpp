@@ -30,7 +30,7 @@ void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
 }
 
 internal
-void RenderSoundToBuffer(AudioState& audio, SoundData& dst) {
+void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	constexpr u32 nChannels = 2;
 	TemporaryMemory mixerMemory = BeginTempMemory(audio.arena);
 	f32* mixedSamples[nChannels] = {};
@@ -43,14 +43,21 @@ void RenderSoundToBuffer(AudioState& audio, SoundData& dst) {
 	PlayingSound* prevSound = 0;
 	PlayingSound* currSound = audio.playingSounds;
 	while (currSound) {
+		Asset* asset = GetAsset(assets, currSound->soundId.id);
+		if (!IsReady(asset)) {
+			prevSound = currSound;
+			currSound = currSound->next;
+			continue;
+		}
+		LoadedSound* assetSound = &asset->sound;
 		PlayingSound* nextSound = currSound->next;
 		f32* src[nChannels] = {};
 		f32* dest[nChannels] = {};
 		for (u32 channel = 0; channel < nChannels; channel++) {
-			src[channel] = currSound->sound->samples[channel] + currSound->currentSample;
+			src[channel] = assetSound->samples[channel] + currSound->currentSample;
 			dest[channel] = mixedSamples[channel];
 		}
-		u32 samplesToPlay = currSound->sound->sampleCount - currSound->currentSample;
+		u32 samplesToPlay = assetSound->sampleCount - currSound->currentSample;
 		if (samplesToPlay > outBufferSampleCount) {
 			samplesToPlay = outBufferSampleCount;
 		}
@@ -63,7 +70,7 @@ void RenderSoundToBuffer(AudioState& audio, SoundData& dst) {
 			}
 		}
 		currSound->currentSample += samplesToPlay;
-		bool needsDeletion = currSound->currentSample >= currSound->sound->sampleCount;
+		bool needsDeletion = currSound->currentSample >= assetSound->sampleCount;
 		if (needsDeletion) {
 			if (prevSound) {
 				prevSound->next = currSound->next;
@@ -143,8 +150,8 @@ void FillGroundBufferBackgroundTask(void* data) {
 				};
 				bool grass = RandomUnilateral(series) > 0.5f;
 				BitmapId bid = grass ?
-					GetRandomAssetId(*args->assets, Asset_Grass, series) :
-					GetRandomAssetId(*args->assets, Asset_Ground, series);
+					GetRandomBitmapId(*args->assets, Asset_Grass, series) :
+					GetRandomBitmapId(*args->assets, Asset_Ground, series);
 				position.X += chunkOffsetX * width;
 				position.Y += chunkOffsetY * height;
 				PushBitmap(group, *args->assets, bid, position, 1.7f, V2{ 0, 0 }, color);
@@ -849,7 +856,7 @@ LoadedBitmap MakeSphereDiffusionTexture(MemoryArena& arena, u32 width, u32 heigh
 	return result;
 }
 
-void PlaySound(AudioState& audio, LoadedSound& sound, f32 secondsToStart) {
+void PlaySound(AudioState& audio, Assets& assets, SoundId soundId, f32 secondsToStart) {
 	PlayingSound* playingSound = audio.freeListSounds;
 	if (playingSound) {
 		audio.freeListSounds = playingSound->next;
@@ -862,9 +869,10 @@ void PlaySound(AudioState& audio, LoadedSound& sound, f32 secondsToStart) {
 	// TODO: instead of taking the sound it should take sound_id()!
 	playingSound->currentSample = 0;
 	playingSound->next = 0;
-	playingSound->sound = &sound;
+	playingSound->soundId = soundId;
 	playingSound->next = audio.playingSounds;
 	audio.playingSounds = playingSound;
+	PrefetchSound(assets, soundId);
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
@@ -883,9 +891,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		);
 		SubArena(world.arena, state->mainArena, MB(32));
 		SubArena(state->audio.arena, state->mainArena, MB(16));
-		state->audio.testSound = LoadWAV("sound/silksong.wav");
-		state->audio.testSound2 = LoadWAV("sound/bloop2.wav");
-		PlaySound(state->audio, state->audio.testSound, 0);
 
 		state->wallCollision = MakeGroundedCollisionGroup(state, world.tileSizeInMeters);
 		state->playerCollision = MakeGroundedCollisionGroup(state, V3{1.0f, 0.55f, 0.25f});
@@ -1028,6 +1033,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			ptrcast(u8, memory.transientMemory) + sizeof(TransientState),
 			memory.transientMemorySize - sizeof(TransientState)
 		);
+		tranState->highPriorityQueue = memory.highPriorityQueue;
+		tranState->lowPriorityQueue = memory.lowPriorityQueue;
+
 		AllocateAssets(tranState);
 		for (u32 taskIndex = 0; taskIndex < ArrayCount(tranState->tasks); taskIndex++) {
 			TaskWithMemory* task = tranState->tasks + taskIndex;
@@ -1035,14 +1043,14 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			SubArena(task->arena, tranState->arena, MB(4));
 			task->done = 1;
 		}
+		PlaySound(state->audio, tranState->assets, GetFirstSoundIdWithType(tranState->assets, Asset_Music), 0);
+
 		for (u32 groundBufferIndex = 0; groundBufferIndex < ArrayCount(tranState->groundBuffers); groundBufferIndex++) {
 			GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
 			groundBuffer->buffer = MakeEmptyBuffer(tranState->arena, 256, 256);
 			groundBuffer->pos = NullPosition();
 			groundBuffer->state = GroundBufferState::NotReady;
 		}
-		tranState->highPriorityQueue = memory.highPriorityQueue;
-		tranState->lowPriorityQueue = memory.lowPriorityQueue;
 		tranState->isInitialized = true;
 	}
 
@@ -1081,7 +1089,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (controller.B.kA.isDown) {
 			playerControls.acceleration.X -= 1.f;
 			if (!controller.B.kA.wasDown) {
-				PlaySound(state->audio, state->audio.testSound2, 0);
+				PlaySound(state->audio, tranState->assets, GetFirstSoundIdWithType(tranState->assets, Asset_Bloop), 0);
 			}
 		}
 		if (controller.B.kW.isDown) {
@@ -1245,7 +1253,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			AssetFeatures weight = {};
 			match[Feature_FacingDirection] = entity->faceDir;
 			weight[Feature_FacingDirection] = 1.f;
-			BitmapId bmp = GetBestFitAssetId(tranState->assets, Asset_Player, match, weight, PI);
+			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Player, match, weight, PI);
 			PushBitmap(renderGroup, tranState->assets, bmp, groundLevelPos, 1.35f, V2{0, 0});
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 		} break;
@@ -1256,7 +1264,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			AssetFeatures weight = {};
 			match[Feature_Height] = 1.5f;
 			weight[Feature_Height] = 1.f;
-			BitmapId bmp = GetBestFitAssetId(tranState->assets, Asset_Tree, match, weight, 10000);
+			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Tree, match, weight, 10000);
 			PushBitmap(renderGroup, tranState->assets, bmp, groundLevelPos, treeHeight, 
 				V2{0, 0.1f}, V4{1, 0.f, 1.f, layerAlpha});
 		} break;
@@ -1416,7 +1424,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
 #endif
 	//AddSineWaveToBuffer(soundData, -1, 250);
-	RenderSoundToBuffer(state->audio, soundData);
+	RenderSoundToBuffer(state->audio, tranState->assets, soundData);
 
 	EndSimulation(*simRegion, world);
 	EndTempMemory(renderMemory);

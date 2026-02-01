@@ -1313,22 +1313,22 @@ AssetGroup* GetAssetGroup(Assets& assets, AssetTypeID typeId) {
 }
 
 inline
-BitmapId GetFirstAssetIdWithType(Assets& assets, AssetTypeID typeId) {
+u32 _GetFirstAssetIdWithType(Assets& assets, AssetTypeID typeId) {
 	AssetGroup* group = GetAssetGroup(assets, typeId);
-	return { group->firstAssetIndex };
+	return group->firstAssetIndex;
 }
 
 inline
-BitmapId GetRandomAssetId(Assets& assets, AssetTypeID typeId, RandomSeries& series) {
+u32 _GetRandomAssetId(Assets& assets, AssetTypeID typeId, RandomSeries& series) {
 	AssetGroup* group = GetAssetGroup(assets, typeId);
-	u32 bid = RandomChoiceBetween(series, group->firstAssetIndex, group->lastAssetIndex + 1);
-	return { bid };
+	u32 id = RandomChoiceBetween(series, group->firstAssetIndex, group->lastAssetIndex + 1);
+	return id;
 }
 
 internal
-BitmapId GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures match, AssetFeatures weight, f32 halfPeriod) {
+u32 _GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures match, AssetFeatures weight, f32 halfPeriod) {
 	AssetGroup* group = GetAssetGroup(assets, typeId);
-	BitmapId best = {};
+	u32 best = {};
 	f32 bestScore = F32_MAX;
 	for (u32 assetIndex = group->firstAssetIndex;
 		assetIndex <= group->lastAssetIndex;
@@ -1347,20 +1347,59 @@ BitmapId GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures mat
 		}
 		if (score < bestScore) {
 			bestScore = score;
-			best.id = assetIndex;
+			best = assetIndex;
 		}
 	}
 	return best;
 }
 
+inline
+SoundId GetFirstSoundIdWithType(Assets& assets, AssetTypeID typeId) {
+	SoundId id = { _GetFirstAssetIdWithType(assets, typeId) };
+	return id;
+}
+
+inline
+SoundId GetRandomSoundId(Assets& assets, AssetTypeID typeId, RandomSeries& series) {
+	SoundId id = { _GetRandomAssetId(assets, typeId, series) };
+	return id;
+}
+
+inline
+SoundId GetBestFitSoundId(Assets& assets, AssetTypeID typeId, AssetFeatures match, AssetFeatures weight, f32 halfPeriod) {
+	SoundId id = { _GetBestFitAssetId(assets, typeId, match, weight, halfPeriod) };
+	return id;
+}
+
+inline
+BitmapId GetFirstBitmapIdWithType(Assets& assets, AssetTypeID typeId) {
+	BitmapId id = { _GetFirstAssetIdWithType(assets, typeId) };
+	return id;
+}
+
+inline
+BitmapId GetRandomBitmapId(Assets& assets, AssetTypeID typeId, RandomSeries& series) {
+	BitmapId id = { _GetRandomAssetId(assets, typeId, series) };
+	return id;
+}
+
+inline
+BitmapId GetBestFitBitmapId(Assets& assets, AssetTypeID typeId, AssetFeatures match, AssetFeatures weight, f32 halfPeriod) {
+	BitmapId id = { _GetBestFitAssetId(assets, typeId, match, weight, halfPeriod) };
+	return id;
+}
+
 internal
-bool LoadBitmap(Assets& assets, u32 id) {
-	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
-	Asset& asset = assets.assets[id];
-	if (!task || asset.state == AssetState::Pending) {
+bool PrefetchBitmap(Assets& assets, BitmapId bid) {
+	Asset& asset = assets.assets[bid.id];
+	if (asset.state == AssetState::Pending) {
 		return false;
 	}
-	BitmapInfo* info = &assets.bitmapInfos[id];
+	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
+	if (!task) {
+		return false;
+	}
+	BitmapInfo* info = &assets.bitmapInfos[bid.id];
 	Assert(info->filename);
 	LoadBitmapTaskArgs* args = PushStructSize(task->arena, LoadBitmapTaskArgs);
 	args->asset = &asset;
@@ -1454,8 +1493,46 @@ LoadedSound LoadWAV(const char* filename) {
 	return sound;
 }
 
+struct LoadSoundTaskArgs {
+	const char* filename;
+	Asset* asset;
+	TaskWithMemory* task;
+};
+
+internal
+void LoadSoundBackgroundTask(void* data) {
+	LoadSoundTaskArgs* args = ptrcast(LoadSoundTaskArgs, data);
+	args->asset->sound = LoadWAV(args->filename);
+	WriteCompilatorFence;
+	args->asset->state = AssetState::Ready;
+	EndBackgroundTask(args->task);
+}
+
+internal
+bool PrefetchSound(Assets& assets, SoundId sid) {
+	Asset& asset = assets.assets[sid.id];
+	if (asset.state == AssetState::Pending) {
+		return false;
+	}
+	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
+	if (!task) {
+		return false;
+	}
+	SoundInfo* info = &assets.soundInfos[sid.id];
+	Assert(info->filename);
+	LoadSoundTaskArgs* args = PushStructSize(task->arena, LoadSoundTaskArgs);
+	args->asset = &asset;
+	args->task = task;
+	args->filename = info->filename;
+	asset.state = AssetState::Pending;
+	WriteCompilatorFence;
+	PlatformPushTaskToQueue(assets.tranState->lowPriorityQueue, LoadSoundBackgroundTask, args);
+	return true;
+}
+
 inline
 bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
+	// TODO: Make it work also for sounds;
 	AssetGroup* group = GetAssetGroup(assets, typeId);
 	bool ready = true;
 	for (u32 assetIndex = group->firstAssetIndex; 
@@ -1465,18 +1542,39 @@ bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
 		Asset* asset = GetAsset(assets, assetIndex);
 		if (!IsReady(asset)) {
 			ready = false;
-			LoadBitmap(assets, assetIndex);
+			PrefetchBitmap(assets, { assetIndex });
 		}
 	}
 	return ready;
 }
 
 inline 
-void AddAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment = V2{0.5f, 0.5f}) {
+void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment = V2{0.5f, 0.5f}) {
 	Assert(assets.assetCount < assets.assetMaxCount);
 	BitmapInfo* info = &assets.bitmapInfos[assets.assetCount];
 	info->filename = filename;
 	info->alignment = alignment;
+	info->typeId = id;
+	AssetGroup* group = &assets.groups[id];
+	if (group->firstAssetIndex == 0) {
+		group->firstAssetIndex = assets.assetCount;
+		group->lastAssetIndex = assets.assetCount;
+	}
+	else {
+		group->lastAssetIndex++;
+		if (assets.assetCount > 0) {
+			BitmapInfo* prevInfo = &assets.bitmapInfos[assets.assetCount - 1];
+			Assert(prevInfo->typeId == info->typeId);
+		}
+	}
+	assets.assetCount++;
+}
+
+inline
+void AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename) {
+	Assert(assets.assetCount < assets.assetMaxCount);
+	SoundInfo* info = &assets.soundInfos[assets.assetCount];
+	info->filename = filename;
 	info->typeId = id;
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
@@ -1508,27 +1606,31 @@ void AllocateAssets(TransientState* tranState) {
 	assets.assetMaxCount = 256 * Asset_Count;
 	assets.assets = PushArray(assets.arena, assets.assetMaxCount, Asset);
 	assets.bitmapInfos = PushArray(assets.arena, assets.assetMaxCount, BitmapInfo);
-	AddAsset(assets, Asset_Null, 0);
-	AddAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
+	assets.soundInfos = PushArray(assets.arena, assets.assetMaxCount, SoundInfo);
+	AddBmpAsset(assets, Asset_Null, 0);
+	AddBmpAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
 	AddFeature(assets, Feature_Height, 1.f);
-	AddAsset(assets, Asset_Tree, "test/tree2.bmp", V2{ 0.5f, 0.25f });
+	AddBmpAsset(assets, Asset_Tree, "test/tree2.bmp", V2{ 0.5f, 0.25f });
 	AddFeature(assets, Feature_Height, 3.f);
-	AddAsset(assets, Asset_Tree, "test/tree3.bmp", V2{ 0.5f, 0.25f });
+	AddBmpAsset(assets, Asset_Tree, "test/tree3.bmp", V2{ 0.5f, 0.25f });
 	AddFeature(assets, Feature_Height, 2.f);
-	AddAsset(assets, Asset_Ground, "test/ground0.bmp");
-	AddAsset(assets, Asset_Ground, "test/ground1.bmp");
-	AddAsset(assets, Asset_Grass, "test/grass0.bmp");
-	AddAsset(assets, Asset_Grass, "test/grass1.bmp");
+	AddBmpAsset(assets, Asset_Ground, "test/ground0.bmp");
+	AddBmpAsset(assets, Asset_Ground, "test/ground1.bmp");
+	AddBmpAsset(assets, Asset_Grass, "test/grass0.bmp");
+	AddBmpAsset(assets, Asset_Grass, "test/grass1.bmp");
 
 	V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
-	AddAsset(assets, Asset_Player, "test/hero-right.bmp", playerBitmapsAlignment);
+	AddBmpAsset(assets, Asset_Player, "test/hero-right.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.f * TAU);
-	AddAsset(assets, Asset_Player, "test/hero-up.bmp", playerBitmapsAlignment);
+	AddBmpAsset(assets, Asset_Player, "test/hero-up.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.25f * TAU);
-	AddAsset(assets, Asset_Player, "test/hero-left.bmp", playerBitmapsAlignment);
+	AddBmpAsset(assets, Asset_Player, "test/hero-left.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
-	AddAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
+	AddBmpAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
+
+	AddSoundAsset(assets, Asset_Music, "sound/silksong.wav");
+	AddSoundAsset(assets, Asset_Bloop, "sound/bloop2.wav");
 }
 
 #define Text(text) text
@@ -1577,7 +1679,7 @@ bool PushBitmap(RenderGroup& group, Assets& assets, BitmapId bid, V3 center, f32
 		PushBitmap(group, &asset->bitmap, center, height, offset, color);
 	}
 	else {
-		LoadBitmap(assets, bid.id);
+		PrefetchBitmap(assets, bid);
 	}
 	return true;
 }

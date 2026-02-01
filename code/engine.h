@@ -146,9 +146,8 @@ struct PlayerControls {
 };
 
 struct PlayingSound {
-	LoadedSound* sound;
+	SoundId soundId;
 	u32 currentSample;
-
 	PlayingSound* next;
 };
 
@@ -156,9 +155,6 @@ struct AudioState {
 	MemoryArena arena;
 	PlayingSound* playingSounds;
 	PlayingSound* freeListSounds;
-
-	LoadedSound testSound;
-	LoadedSound testSound2;
 };
 
 struct ProgramState {

@@ -114,6 +114,9 @@ enum AssetTypeID {
 	Asset_Grass,
 	Asset_Ground,
 
+	Asset_Music,
+	Asset_Bloop,
+
 	Asset_Count
 };
 
@@ -126,7 +129,10 @@ enum class AssetState {
 using AssetFeatures = f32[Feature_Count];
 
 struct Asset {
-	LoadedBitmap bitmap;
+	union {
+		LoadedBitmap bitmap;
+		LoadedSound sound;
+	};
 	AssetFeatures features;
 	AssetState state;
 };
@@ -150,6 +156,11 @@ struct BitmapInfo {
 	AssetTypeID typeId;
 };
 
+struct SoundInfo {
+	const char* filename;
+	AssetTypeID typeId;
+};
+
 struct TransientState;
 struct Assets {
 	MemoryArena arena;
@@ -159,6 +170,7 @@ struct Assets {
 	u32 assetMaxCount;
 	Asset* assets;
 	BitmapInfo* bitmapInfos;
+	SoundInfo* soundInfos;
 
 	AssetGroup groups[Asset_Count];
 };
