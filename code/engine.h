@@ -27,28 +27,43 @@ struct TimeData {
 
 #define MAX_CONTROLLERS 5
 #define KB_CONTROLLER_IDX (MAX_CONTROLLERS - 4)
+
+struct Button {
+	bool isDown;
+	bool wasDown;
+};
+
+#pragma warning(push)
+#pragma warning(disable : 4201)
 struct Controller {
 	// Platform independent user input
-	bool isWDown = false;
-	bool isSDown = false;
-	bool isDDown = false;
-	bool isADown = false;
-	bool isUpDown = false;
-	bool isDownDown = false;
-	bool isLeftDown = false;
-	bool isRightDown = false;
-	bool isSpaceDown = false;
-	bool isEscDown = false;
-
+	union {
+		struct Buttons {
+			Button kW;
+			Button kS;
+			Button kD;
+			Button kA;
+			Button kArrowUp;
+			Button kArrowDown;
+			Button kArrowLeft;
+			Button kArrowRight;
+			Button kSpace;
+			Button kEsc;
+			Button mouseLeft;
+			Button mouseRight;
+			Button mouseMiddle;
+			Button mouse1B;
+			Button mouse2B;
+		};
+		Buttons B;
+		Button E[15];
+		static_assert(sizeof(B) == sizeof(E));
+	};
 	// Mouse data (<0-1> value relative to window size where 0 is left or top, and 1 is right or bottom)
 	f32 mouseX;
 	f32 mouseY;
-	bool isMouseLDown = false;
-	bool isMouseMDown = false;
-	bool isMouseRDown = false;
-	bool isMouse1BDown = false;
-	bool isMouse2BDown = false;
 };
+#pragma warning(pop)
 
 struct InputData {
 	Controller controllers[MAX_CONTROLLERS];
@@ -143,6 +158,7 @@ struct AudioState {
 	PlayingSound* freeListSounds;
 
 	LoadedSound testSound;
+	LoadedSound testSound2;
 };
 
 struct ProgramState {

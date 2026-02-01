@@ -884,6 +884,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		SubArena(world.arena, state->mainArena, MB(32));
 		SubArena(state->audio.arena, state->mainArena, MB(16));
 		state->audio.testSound = LoadWAV("sound/silksong.wav");
+		state->audio.testSound2 = LoadWAV("sound/bloop2.wav");
 		PlaySound(state->audio, state->audio.testSound, 0);
 
 		state->wallCollision = MakeGroundedCollisionGroup(state, world.tileSizeInMeters);
@@ -1066,7 +1067,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		Controller& controller = input.controllers[playerIdx]; 
 		PlayerControls& playerControls = state->playerControls[playerIdx];
 		u32 playerLowEntityIndex = state->playerEntityIndexes[playerIdx];
-		if (controller.isSpaceDown && playerLowEntityIndex == 0) {
+		if (controller.B.kSpace.isDown && playerLowEntityIndex == 0) {
 			playerLowEntityIndex = InitializePlayer(state);
 			state->playerEntityIndexes[playerIdx] = playerLowEntityIndex;
 		}
@@ -1077,22 +1078,25 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		playerControls.acceleration = {};
 		f32 speed = 75.0f;
-		if (controller.isADown) {
+		if (controller.B.kA.isDown) {
 			playerControls.acceleration.X -= 1.f;
+			if (!controller.B.kA.wasDown) {
+				PlaySound(state->audio, state->audio.testSound2, 0);
+			}
 		}
-		if (controller.isWDown) {
+		if (controller.B.kW.isDown) {
 			playerControls.acceleration.Y += 1.f;
 		}
-		if (controller.isSDown) {
+		if (controller.B.kS.isDown) {
 			playerControls.acceleration.Y -= 1.f;
 		}
-		if (controller.isDDown) {
+		if (controller.B.kD.isDown) {
 			playerControls.acceleration.X += 1.f;
 		}
-		if (controller.isSpaceDown) {
+		if (controller.B.kSpace.isDown) {
 			speed = 250.0f;
 		}
-		if (controller.isMouseLDown && IsFlagSet(*entity->sword, EntityFlag_NonSpatial)) {
+		if (controller.B.mouseLeft.isDown && IsFlagSet(*entity->sword, EntityFlag_NonSpatial)) {
 			entity->sword->distanceRemaining = 5.f;
 			entity->sword->timeRemaining = 4.f;
 
@@ -1110,10 +1114,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MakeEntitySpatial(*simRegion, state->world, entity->sword->storageIndex, *entity->sword, entity->worldPos);
 		}
 		playerControls.acceleration.Z = 0.f;
-		if (controller.isUpDown) {
+		if (controller.B.kArrowUp.isDown) {
 			playerControls.acceleration.Z += 10.0f;
 		}
-		if (controller.isDownDown) {
+		if (controller.B.kArrowDown.isDown) {
 			playerControls.acceleration.Z -= 10.0f;
 		}
 		f32 playerAccLength = Length(playerControls.acceleration);

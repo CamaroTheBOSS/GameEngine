@@ -142,6 +142,7 @@ void Win32UnloadGameCode(Win32GameCode& gameCode) {
 
 internal
 void Win32OutputPerformanceCounters(DebugMemory& memory) {
+#if 0
 	char buffer[256] = "Debug Counters:\n";
 	OutputDebugStringA(buffer);
 	for (u32 counterIndex = 0; counterIndex < ArrayCount(memory.performanceCounters); counterIndex++) {
@@ -157,7 +158,7 @@ void Win32OutputPerformanceCounters(DebugMemory& memory) {
 		);
 		OutputDebugStringA(buffer);
 	}
-
+#endif
 }
 
 internal
@@ -688,7 +689,32 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 		case WM_QUIT: {
 			globalRunning = false;
 		} break;
-		//case WM_MOUSEDOWN:
+		case WM_LBUTTONUP: {
+			u32 vkCode = static_cast<u32>(msg.wParam);
+			bool wasDown = msg.lParam & (scast(LPARAM, 1) << 30);
+			bool isDown = !(msg.lParam & (scast(LPARAM, 1) << 31));
+			bool altIsDown = (msg.lParam & (scast(LPARAM, 1) << 29));
+			if (vkCode == VK_MBUTTON) {
+				controller.B.mouseMiddle.isDown = isDown;
+				controller.B.mouseMiddle.wasDown = wasDown;
+			}
+			else if (vkCode == VK_RBUTTON) {
+				controller.B.mouseRight.isDown = isDown;
+				controller.B.mouseRight.wasDown = wasDown;
+			}
+			else if (vkCode == VK_LBUTTON) {
+				controller.B.mouseLeft.isDown = isDown;
+				controller.B.mouseLeft.wasDown = wasDown;
+			}
+			else if (vkCode == VK_XBUTTON1) {
+				controller.B.mouse1B.isDown = isDown;
+				controller.B.mouse1B.wasDown = wasDown;
+			}
+			else if (vkCode == VK_XBUTTON2) {
+				controller.B.mouse2B.isDown = isDown;
+				controller.B.mouse2B.wasDown = wasDown;
+			}
+		} break;
 		case WM_SYSKEYDOWN:
 		case WM_SYSKEYUP:
 		case WM_KEYDOWN:
@@ -698,34 +724,44 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 			bool isDown = !(msg.lParam & (scast(LPARAM, 1) << 31));
 			bool altIsDown = (msg.lParam & (scast(LPARAM, 1) << 29));
 			if (vkCode == 'W') {
-				controller.isWDown = isDown;
+				controller.B.kW.isDown = isDown;
+				controller.B.kW.wasDown = wasDown;
 			}
 			else if (vkCode == 'A') {
-				controller.isADown = isDown;
+				controller.B.kA.isDown = isDown;
+				controller.B.kA.wasDown = wasDown;
 			}
 			else if (vkCode == 'S') {
-				controller.isSDown = isDown;
+				controller.B.kS.isDown = isDown;
+				controller.B.kS.wasDown = wasDown;
 			}
 			else if (vkCode == 'D') {
-				controller.isDDown = isDown;
+				controller.B.kD.isDown = isDown;
+				controller.B.kD.wasDown = wasDown;
 			}
 			else if (vkCode == VK_UP) {
-				controller.isUpDown = isDown;
+				controller.B.kArrowUp.isDown = isDown;
+				controller.B.kArrowUp.wasDown = wasDown;
 			}
 			else if (vkCode == VK_LEFT) {
-				controller.isLeftDown = isDown;
+				controller.B.kArrowLeft.isDown = isDown;
+				controller.B.kArrowLeft.wasDown = wasDown;
 			}
 			else if (vkCode == VK_DOWN) {
-				controller.isDownDown = isDown;
+				controller.B.kArrowDown.isDown = isDown;
+				controller.B.kArrowDown.wasDown = wasDown;
 			}
 			else if (vkCode == VK_RIGHT) {
-				controller.isRightDown = isDown;
+				controller.B.kArrowRight.isDown = isDown;
+				controller.B.kArrowRight.wasDown = wasDown;
 			}
 			else if (vkCode == VK_SPACE) {
-				controller.isSpaceDown = isDown;
+				controller.B.kSpace.isDown = isDown;
+				controller.B.kSpace.wasDown = wasDown;
 			}
 			else if (vkCode == VK_ESCAPE) {
-				controller.isEscDown = isDown;
+				controller.B.kEsc.isDown = isDown;
+				controller.B.kEsc.wasDown = wasDown;
 			}
 			else if (vkCode == 'L') {
 				if (!wasDown) {
@@ -773,14 +809,6 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 	ScreenToClient(state.window, &point);
 	controller.mouseX = f4(point.x - state.bltOffsetX) / state.displayWidth;
 	controller.mouseY = 1.f - f4(point.y - state.bltOffsetY) / state.displayHeight;
-	controller.isMouseMDown = GetKeyState(VK_MBUTTON) >> 15;
-	controller.isMouseRDown = GetKeyState(VK_RBUTTON) >> 15;
-	controller.isMouseLDown = GetKeyState(VK_LBUTTON) >> 15;
-	controller.isMouse1BDown = GetKeyState(VK_XBUTTON1) >> 15;
-	controller.isMouse2BDown = GetKeyState(VK_XBUTTON2) >> 15;
-	if (controller.isMouseLDown) {
-		int breakhere = 0;
-	}
 }
 
 internal
@@ -791,19 +819,26 @@ void Win32GatherGamepadInput(Controller& controller, DWORD cIndex) {
 			//TODO log errCode with error listed in Winerror.h
 			return;
 		}
-		controller.isWDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP;
-		controller.isSDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
-		controller.isADown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
-		controller.isDDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
-		controller.isSpaceDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_START;
-		controller.isEscDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_BACK;
-		controller.isLeftDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_A;
-		controller.isRightDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_B;
-		controller.isDownDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_X;
-		controller.isUpDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_Y;
+		controller.B.kW.isDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP;
+		controller.B.kS.isDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
+		controller.B.kA.isDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
+		controller.B.kD.isDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
+		controller.B.kSpace.isDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_START;
+		controller.B.kEsc.isDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_BACK;
+		controller.B.kArrowLeft.isDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_A;
+		controller.B.kArrowRight.isDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_B;
+		controller.B.kArrowDown.isDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_X;
+		controller.B.kArrowUp.isDown = state.Gamepad.wButtons & XINPUT_GAMEPAD_Y;
 }
 
-inline internal
+inline
+void ResetInput(Controller& controller) {
+	for (u32 bIndex = 0; bIndex < ArrayCount(controller.E); bIndex++) {
+		controller.E[bIndex].wasDown = true;
+	}
+}
+
+inline
 u64 Win32GetCurrentTimestamp() {
 	LARGE_INTEGER timestamp = {};
 	QueryPerformanceCounter(&timestamp);
@@ -991,6 +1026,7 @@ int CALLBACK WinMain(
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 	while (globalRunning) {
 		Win32ReloadGameCode(gameCode);
+		ResetInput(inputData.controllers[KB_CONTROLLER_IDX]);
 		Win32ProcessOSMessages(globalWin32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
 		for (DWORD cIndex = 0; cIndex < XUSER_MAX_COUNT; cIndex++) {
 			Win32GatherGamepadInput(inputData.controllers[cIndex], cIndex);
@@ -1057,7 +1093,7 @@ int CALLBACK WinMain(
 		float megaCycles = static_cast<float>(rdtscEnd - rdtscStart) / 1'000'000.f;
 		rdtscStart = rdtscEnd;
 		frameStartTime = frameEndTime;
-#if 1
+#if 0
 		char buffer[256];
 		sprintf_s(buffer, "%0.2fms/f,  %0.2ffps/f,  %0.2fMc/f,   frames_av %d\n", msElapsed, fps, megaCycles, framesAvailable);
 		OutputDebugStringA(buffer);
