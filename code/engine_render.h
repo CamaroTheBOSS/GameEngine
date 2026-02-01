@@ -128,14 +128,34 @@ enum class AssetState {
 
 using AssetFeatures = f32[Feature_Count];
 
+struct BitmapInfo {
+	const char* filename;
+	V2 alignment;
+	AssetTypeID typeId;
+};
+
+struct SoundInfo {
+	const char* filename;
+	AssetTypeID typeId;
+};
+
+#pragma warning(push)
+#pragma warning(disable : 4201)
 struct Asset {
 	union {
-		LoadedBitmap bitmap;
-		LoadedSound sound;
+		struct {
+			LoadedBitmap bitmap;
+			BitmapInfo bitmapInfo;
+		};
+		struct {
+			LoadedSound sound;
+			SoundInfo soundInfo;
+		};
 	};
 	AssetFeatures features;
 	AssetState state;
 };
+#pragma warning(pop)
 
 struct AssetGroup {
 	u32 firstAssetIndex;
@@ -150,17 +170,6 @@ struct SoundId {
 	u32 id;
 };
 
-struct BitmapInfo {
-	const char* filename;
-	V2 alignment;
-	AssetTypeID typeId;
-};
-
-struct SoundInfo {
-	const char* filename;
-	AssetTypeID typeId;
-};
-
 struct TransientState;
 struct Assets {
 	MemoryArena arena;
@@ -169,9 +178,6 @@ struct Assets {
 	u32 assetCount;
 	u32 assetMaxCount;
 	Asset* assets;
-	BitmapInfo* bitmapInfos;
-	SoundInfo* soundInfos;
-
 	AssetGroup groups[Asset_Count];
 };
 

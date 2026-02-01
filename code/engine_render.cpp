@@ -1399,7 +1399,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	if (!task) {
 		return false;
 	}
-	BitmapInfo* info = &assets.bitmapInfos[bid.id];
+	BitmapInfo* info = &assets.assets[bid.id].bitmapInfo;
 	Assert(info->filename);
 	LoadBitmapTaskArgs* args = PushStructSize(task->arena, LoadBitmapTaskArgs);
 	args->asset = &asset;
@@ -1518,7 +1518,7 @@ bool PrefetchSound(Assets& assets, SoundId sid) {
 	if (!task) {
 		return false;
 	}
-	SoundInfo* info = &assets.soundInfos[sid.id];
+	SoundInfo* info = &assets.assets[sid.id].soundInfo;
 	Assert(info->filename);
 	LoadSoundTaskArgs* args = PushStructSize(task->arena, LoadSoundTaskArgs);
 	args->asset = &asset;
@@ -1551,7 +1551,7 @@ bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
 inline 
 void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment = V2{0.5f, 0.5f}) {
 	Assert(assets.assetCount < assets.assetMaxCount);
-	BitmapInfo* info = &assets.bitmapInfos[assets.assetCount];
+	BitmapInfo* info = &assets.assets[assets.assetCount].bitmapInfo;
 	info->filename = filename;
 	info->alignment = alignment;
 	info->typeId = id;
@@ -1563,7 +1563,7 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 	else {
 		group->lastAssetIndex++;
 		if (assets.assetCount > 0) {
-			BitmapInfo* prevInfo = &assets.bitmapInfos[assets.assetCount - 1];
+			BitmapInfo* prevInfo = &assets.assets[assets.assetCount - 1].bitmapInfo;
 			Assert(prevInfo->typeId == info->typeId);
 		}
 	}
@@ -1573,7 +1573,7 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 inline
 void AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename) {
 	Assert(assets.assetCount < assets.assetMaxCount);
-	SoundInfo* info = &assets.soundInfos[assets.assetCount];
+	SoundInfo* info = &assets.assets[assets.assetCount].soundInfo;
 	info->filename = filename;
 	info->typeId = id;
 	AssetGroup* group = &assets.groups[id];
@@ -1584,7 +1584,7 @@ void AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename) {
 	else {
 		group->lastAssetIndex++;
 		if (assets.assetCount > 0) {
-			BitmapInfo* prevInfo = &assets.bitmapInfos[assets.assetCount - 1];
+			SoundInfo* prevInfo = &assets.assets[assets.assetCount - 1].soundInfo;
 			Assert(prevInfo->typeId == info->typeId);
 		}
 	}
@@ -1605,8 +1605,6 @@ void AllocateAssets(TransientState* tranState) {
 	assets.tranState = tranState;
 	assets.assetMaxCount = 256 * Asset_Count;
 	assets.assets = PushArray(assets.arena, assets.assetMaxCount, Asset);
-	assets.bitmapInfos = PushArray(assets.arena, assets.assetMaxCount, BitmapInfo);
-	assets.soundInfos = PushArray(assets.arena, assets.assetMaxCount, SoundInfo);
 	AddBmpAsset(assets, Asset_Null, 0);
 	AddBmpAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
 	AddFeature(assets, Feature_Height, 1.f);
