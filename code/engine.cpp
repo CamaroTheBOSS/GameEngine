@@ -56,11 +56,13 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		f32* src[nChannels] = {};
 		f32* dest[nChannels] = {};
 		for (u32 channel = 0; channel < nChannels; channel++) {
-			src[channel] = assetSound->samples[channel] + currSound->currentSample;
+			src[channel] = assetSound->samples[channel] + FloorF32ToU32(currSound->currentSample);
 			dest[channel] = mixedSamples[channel] + destCurrentSample;
 		}
 		u32 remainingSamples = outBufferSampleCount - destCurrentSample;
-		u32 samplesToPlay = assetSound->sampleCount - currSound->currentSample;
+		u32 samplesToPlay = u4(
+			f4(assetSound->sampleCount - RoundF32ToU32(currSound->currentSample)) / currSound->pitch
+		);
 		if (samplesToPlay > remainingSamples) {
 			samplesToPlay = remainingSamples;
 		}
@@ -91,13 +93,18 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		V2 startVolume = currSound->currentVolume;
 		for (u32 sampleIndex = 0; sampleIndex < samplesToPlay; sampleIndex++) {
 			V2 volume = startVolume + f4(sampleIndex) * currSound->volumeChangeSpeed;
+			f32 sample = f4(sampleIndex) * currSound->pitch;
+			u32 sampleInt = FloorF32ToU32(sample);
+			f32 sampleFrac = f4(sampleInt) - sample;
+			Assert(sampleInt < (assetSound->sampleCount - CeilF32ToU32(currSound->currentSample)));
 			for (u32 channel = 0; channel < nChannels; channel++) {
-				*dest[channel]++ += volume.E[channel] * (*src[channel]++);
+				f32 sampleValue = Lerp(src[channel][sampleInt], sampleFrac, src[channel][sampleInt + 1]);
+				*dest[channel]++ += volume.E[channel] * sampleValue;
 			}
 		}
 		currSound->currentVolume += f4(samplesToPlay) * volumeSpeed;
-		currSound->currentSample += samplesToPlay;
-		bool needsDeletion = currSound->currentSample >= i4(assetSound->sampleCount);
+		currSound->currentSample += f4(samplesToPlay) * currSound->pitch;
+		bool needsDeletion = currSound->currentSample >= f4(assetSound->sampleCount);
 		if (needsRepetition) {
 			Assert(!needsDeletion);
 			destCurrentSample += samplesToPlay;
@@ -898,13 +905,14 @@ PlayingSound* PlaySound(AudioState& audio, Assets& assets, SoundId soundId, f32 
 	else {
 		playingSound = PushStructSize(audio.arena, PlayingSound);
 	}
-	playingSound->currentSample = -i4(secondsToStart) * SOUND_SAMPLES_PER_SECOND;
+	playingSound->currentSample = -secondsToStart * SOUND_SAMPLES_PER_SECOND;
 	playingSound->next = 0;
 	playingSound->soundId = soundId;
 	playingSound->next = audio.playingSounds;
 	playingSound->currentVolume = { 1.f, 1.f };
 	playingSound->requestedVolume = playingSound->currentVolume;
 	playingSound->volumeChangeSpeed = { 0.f, 0.f };
+	playingSound->pitch = 1.0f;
 	audio.playingSounds = playingSound;
 	PrefetchSound(assets, soundId);
 	return playingSound;
@@ -917,6 +925,13 @@ void ChangeVolume(PlayingSound* sound, V2 volume, f32 durationInSeconds) {
 	sound->requestedVolume = volume;
 	sound->volumeChangeSpeed = (sound->requestedVolume - sound->currentVolume) / 
 		(durationInSeconds * SOUND_SAMPLES_PER_SECOND);
+}
+
+void ChangePitch(PlayingSound* sound, f32 pitch) {
+	if (!sound) {
+		return;
+	}
+	sound->pitch = pitch;
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
@@ -1161,6 +1176,15 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		if (controller.B.kSpace.isDown) {
 			speed = 250.0f;
+			if (!controller.B.kSpace.wasDown) {
+				PlayingSound* first = state->audio.playingSounds;
+				static i32 index = -1;
+				f32 pitches[] = { 0.9f, 0.8f, 0.7f, 0.6f, 0.5f, 0.6f,
+					0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f,
+					1.5f, 1.4f, 1.3f, 1.2f, 1.1f, 1.0f };
+				index = (index + 1) % ArrayCount(pitches);
+				ChangePitch(first, pitches[index]);
+			}
 		}
 		if (controller.B.mouseLeft.isDown && IsFlagSet(*entity->sword, EntityFlag_NonSpatial)) {
 			entity->sword->distanceRemaining = 5.f;
@@ -1481,7 +1505,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #else
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
 #endif
-	//AddSineWaveToBuffer(soundData, -1, 250);
 	RenderSoundToBuffer(state->audio, tranState->assets, soundData);
 
 	EndSimulation(*simRegion, world);

@@ -148,11 +148,12 @@ struct PlayerControls {
 #define SOUND_SAMPLES_PER_SECOND 48000
 struct PlayingSound {
 	SoundId soundId;
-	i32 currentSample;
+	f32 currentSample;
 
 	V2 currentVolume;
 	V2 requestedVolume;
 	V2 volumeChangeSpeed;
+	f32 pitch;
 
 	PlayingSound* next;
 };
