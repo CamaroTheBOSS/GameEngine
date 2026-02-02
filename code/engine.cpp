@@ -42,7 +42,9 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	}
 	PlayingSound* prevSound = 0;
 	PlayingSound* currSound = audio.playingSounds;
+	u32 destCurrentSample = 0;
 	while (currSound) {
+		Assert(destCurrentSample < outBufferSampleCount);
 		Asset* asset = GetAsset(assets, currSound->soundId.id);
 		if (!IsReady(asset)) {
 			prevSound = currSound;
@@ -55,22 +57,52 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		f32* dest[nChannels] = {};
 		for (u32 channel = 0; channel < nChannels; channel++) {
 			src[channel] = assetSound->samples[channel] + currSound->currentSample;
-			dest[channel] = mixedSamples[channel];
+			dest[channel] = mixedSamples[channel] + destCurrentSample;
 		}
+		u32 remainingSamples = outBufferSampleCount - destCurrentSample;
 		u32 samplesToPlay = assetSound->sampleCount - currSound->currentSample;
-		if (samplesToPlay > outBufferSampleCount) {
-			samplesToPlay = outBufferSampleCount;
+		if (samplesToPlay > remainingSamples) {
+			samplesToPlay = remainingSamples;
 		}
-		if (samplesToPlay < outBufferSampleCount) {
-			int breakHere = 0;
-		}
-		for (u32 sampleIndex = 0; sampleIndex < samplesToPlay; sampleIndex++) {
-			for (u32 channel = 0; channel < nChannels; channel++) {
-				*dest[channel]++ += *src[channel]++;
+		bool needsRepetition = false;
+		V2 volumeSpeed = currSound->volumeChangeSpeed;
+		V2 diffVolume = currSound->requestedVolume - currSound->currentVolume;
+		if (diffVolume.X != 0.f || diffVolume.Y != 0.f) {
+			V2 samplesToEndVolume = {
+				diffVolume.X / volumeSpeed.X,
+				diffVolume.Y / volumeSpeed.Y,
+			};
+			i32 samplesLeft = RoundF32ToI32(samplesToEndVolume.X);
+			i32 samplesRight = RoundF32ToI32(samplesToEndVolume.X);
+			i32 samplesMin = Minimum(samplesLeft, samplesRight);
+			if (samplesLeft == 0) {
+				currSound->volumeChangeSpeed.X = 0;
+				currSound->requestedVolume.X = currSound->currentVolume.X + f4(samplesToPlay) * volumeSpeed.X;
+			}
+			if (samplesRight == 0) {
+				currSound->volumeChangeSpeed.Y = 0;
+				currSound->requestedVolume.Y = currSound->currentVolume.Y + f4(samplesToPlay) * volumeSpeed.Y;
+			}
+			if (samplesMin > 0 && samplesToPlay > u4(samplesMin)) {
+				samplesToPlay = u4(samplesMin);
+				needsRepetition = true;
 			}
 		}
+		V2 startVolume = currSound->currentVolume;
+		for (u32 sampleIndex = 0; sampleIndex < samplesToPlay; sampleIndex++) {
+			V2 volume = startVolume + f4(sampleIndex) * currSound->volumeChangeSpeed;
+			for (u32 channel = 0; channel < nChannels; channel++) {
+				*dest[channel]++ += volume.E[channel] * (*src[channel]++);
+			}
+		}
+		currSound->currentVolume += f4(samplesToPlay) * volumeSpeed;
 		currSound->currentSample += samplesToPlay;
-		bool needsDeletion = currSound->currentSample >= assetSound->sampleCount;
+		bool needsDeletion = currSound->currentSample >= i4(assetSound->sampleCount);
+		if (needsRepetition) {
+			Assert(!needsDeletion);
+			destCurrentSample += samplesToPlay;
+			continue;
+		}
 		if (needsDeletion) {
 			if (prevSound) {
 				prevSound->next = currSound->next;
@@ -85,6 +117,7 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 			prevSound = currSound;
 		}
 		currSound = nextSound;
+		destCurrentSample = 0;
 	}
 
 	f32* out = ptrcast(f32, dst.data);
@@ -856,7 +889,7 @@ LoadedBitmap MakeSphereDiffusionTexture(MemoryArena& arena, u32 width, u32 heigh
 	return result;
 }
 
-void PlaySound(AudioState& audio, Assets& assets, SoundId soundId, f32 secondsToStart) {
+PlayingSound* PlaySound(AudioState& audio, Assets& assets, SoundId soundId, f32 secondsToStart) {
 	PlayingSound* playingSound = audio.freeListSounds;
 	if (playingSound) {
 		audio.freeListSounds = playingSound->next;
@@ -865,14 +898,25 @@ void PlaySound(AudioState& audio, Assets& assets, SoundId soundId, f32 secondsTo
 	else {
 		playingSound = PushStructSize(audio.arena, PlayingSound);
 	}
-	// TODO: Use secondsToStart to have specific time in mind
-	// TODO: instead of taking the sound it should take sound_id()!
-	playingSound->currentSample = 0;
+	playingSound->currentSample = -i4(secondsToStart) * SOUND_SAMPLES_PER_SECOND;
 	playingSound->next = 0;
 	playingSound->soundId = soundId;
 	playingSound->next = audio.playingSounds;
+	playingSound->currentVolume = { 1.f, 1.f };
+	playingSound->requestedVolume = playingSound->currentVolume;
+	playingSound->volumeChangeSpeed = { 0.f, 0.f };
 	audio.playingSounds = playingSound;
 	PrefetchSound(assets, soundId);
+	return playingSound;
+}
+
+void ChangeVolume(PlayingSound* sound, V2 volume, f32 durationInSeconds) {
+	if (!sound) {
+		return;
+	}
+	sound->requestedVolume = volume;
+	sound->volumeChangeSpeed = (sound->requestedVolume - sound->currentVolume) / 
+		(durationInSeconds * SOUND_SAMPLES_PER_SECOND);
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
@@ -1089,17 +1133,31 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (controller.B.kA.isDown) {
 			playerControls.acceleration.X -= 1.f;
 			if (!controller.B.kA.wasDown) {
+				PlayingSound* first = state->audio.playingSounds;
+				ChangeVolume(first, V2{ 1.f, 0.f }, 5);
 				PlaySound(state->audio, tranState->assets, GetFirstSoundIdWithType(tranState->assets, Asset_Bloop), 0);
 			}
 		}
 		if (controller.B.kW.isDown) {
 			playerControls.acceleration.Y += 1.f;
+			if (!controller.B.kW.wasDown) {
+				PlayingSound* first = state->audio.playingSounds;
+				ChangeVolume(first, V2{ 1.f, 1.f }, 5);
+			}
 		}
 		if (controller.B.kS.isDown) {
 			playerControls.acceleration.Y -= 1.f;
+			if (!controller.B.kS.wasDown) {
+				PlayingSound* first = state->audio.playingSounds;
+				ChangeVolume(first, V2{0.f, 0.f}, 5);
+			}
 		}
 		if (controller.B.kD.isDown) {
 			playerControls.acceleration.X += 1.f;
+			if (!controller.B.kD.wasDown) {
+				PlayingSound* first = state->audio.playingSounds;
+				ChangeVolume(first, V2{ 0.f, 1.f }, 5);
+			}
 		}
 		if (controller.B.kSpace.isDown) {
 			speed = 250.0f;

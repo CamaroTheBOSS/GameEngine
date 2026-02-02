@@ -145,9 +145,15 @@ struct PlayerControls {
 	V3 acceleration;
 };
 
+#define SOUND_SAMPLES_PER_SECOND 48000
 struct PlayingSound {
 	SoundId soundId;
-	u32 currentSample;
+	i32 currentSample;
+
+	V2 currentVolume;
+	V2 requestedVolume;
+	V2 volumeChangeSpeed;
+
 	PlayingSound* next;
 };
 
