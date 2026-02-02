@@ -1293,6 +1293,16 @@ void LoadBitmapBackgroundTask(void* data) {
 }
 
 inline
+bool IsValid(SoundId sid) {
+	return sid.id > 0;
+}
+
+inline
+bool IsValid(BitmapId bid) {
+	return bid.id > 0;
+}
+
+inline
 Asset* GetAsset(Assets& assets, u32 id) {
 	Asset* asset = &assets.assets[id];
 	return asset;
@@ -1389,10 +1399,15 @@ BitmapId GetBestFitBitmapId(Assets& assets, AssetTypeID typeId, AssetFeatures ma
 	return id;
 }
 
+inline
+bool NeedsFetching(Asset& asset) {
+	return asset.state == AssetState::NotReady;
+}
+
 internal
 bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	Asset& asset = assets.assets[bid.id];
-	if (asset.state == AssetState::Pending) {
+	if (!IsValid(bid) || !NeedsFetching(asset)) {
 		return false;
 	}
 	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
@@ -1413,7 +1428,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 }
 
 internal
-LoadedSound LoadWAV(const char* filename) {
+LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleCount) {
 #define CHUNK_ID(a, b, c, d) ((d << 24) + (c << 16) + (b << 8) + a)
 #pragma pack(push, 1)
 	struct RiffHeader {
@@ -1474,18 +1489,31 @@ LoadedSound LoadWAV(const char* filename) {
 		sizeRead += paddedSize;
 		ptr += paddedSize;
 	}
+	if (chunkSampleCount == 0) {
+		chunkSampleCount = U32_MAX;
+	}
+	u32 chunkOverlap = 8;
+	u32 wavSampleCount = samplesSizeInBytes / (sizeof(i16) * nChannels);
+	Assert(samplesSizeInBytes > 0);
+	Assert(wavSampleCount > firstSampleIndex);
 	Assert(nChannels == 2);
-	sound.sampleCount = samplesSizeInBytes / (sizeof(i16) * nChannels);
 	sound.nChannels = nChannels;
-	Assert(sound.sampleCount > 0);
+	sound.sampleCount = Minimum(wavSampleCount - firstSampleIndex, chunkSampleCount);
+	Assert(sound.sampleCount != 0);
 	Assert((sound.sampleCount & 1) == 0);
-	u64 bytesToAllocate = sound.sampleCount * sizeof(f32) * sound.nChannels;
+	u64 bytesToAllocate = sound.sampleCount * sizeof(f32) * (sound.nChannels + chunkOverlap);
 	sound.samples[0] = ptrcast(f32, debugGlobalMemory->allocate(bytesToAllocate));
-	sound.samples[1] = sound.samples[0] + sound.sampleCount;
+	sound.samples[1] = sound.samples[0] + sound.sampleCount + chunkOverlap;
 	f32* dest[2] = { sound.samples[0], sound.samples[1] };
-	i16* src = fileSamples;
+	i16* src = fileSamples + sound.nChannels * firstSampleIndex;
 	f32 dividor = f4(I16_MAX);
-	for (u32 sampleIndex = 0; sampleIndex < sound.sampleCount; sampleIndex ++) {
+	// NOTE: copy a little bit more samples if this is not last chank to make sound seamless
+	bool lastChunk = (wavSampleCount - firstSampleIndex) <= chunkSampleCount;
+	u32 samplesToCopy = sound.sampleCount;
+	if (!lastChunk) {
+		samplesToCopy += chunkOverlap;
+	}
+	for (u32 sampleIndex = 0; sampleIndex < samplesToCopy; sampleIndex ++) {
 		for (u32 channelIndex = 0; channelIndex < sound.nChannels; channelIndex++) {
 			*dest[channelIndex]++ = f4(*src++) / dividor;
 		}
@@ -1496,13 +1524,15 @@ LoadedSound LoadWAV(const char* filename) {
 struct LoadSoundTaskArgs {
 	const char* filename;
 	Asset* asset;
+	u32 firstSampleIndex;
+	u32 chunkSampleCount;
 	TaskWithMemory* task;
 };
 
 internal
 void LoadSoundBackgroundTask(void* data) {
 	LoadSoundTaskArgs* args = ptrcast(LoadSoundTaskArgs, data);
-	args->asset->sound = LoadWAV(args->filename);
+	args->asset->sound = LoadWAV(args->filename, args->firstSampleIndex, args->chunkSampleCount);
 	WriteCompilatorFence;
 	args->asset->state = AssetState::Ready;
 	EndBackgroundTask(args->task);
@@ -1511,7 +1541,7 @@ void LoadSoundBackgroundTask(void* data) {
 internal
 bool PrefetchSound(Assets& assets, SoundId sid) {
 	Asset& asset = assets.assets[sid.id];
-	if (asset.state == AssetState::Pending) {
+	if (!IsValid(sid) || !NeedsFetching(asset)) {
 		return false;
 	}
 	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
@@ -1524,6 +1554,8 @@ bool PrefetchSound(Assets& assets, SoundId sid) {
 	args->asset = &asset;
 	args->task = task;
 	args->filename = info->filename;
+	args->firstSampleIndex = info->firstSampleIndex;
+	args->chunkSampleCount = info->chunkSampleCount;
 	asset.state = AssetState::Pending;
 	WriteCompilatorFence;
 	PlatformPushTaskToQueue(assets.tranState->lowPriorityQueue, LoadSoundBackgroundTask, args);
@@ -1577,11 +1609,15 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 }
 
 inline
-void AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename) {
+SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 firstSampleIndex = 0, u32 chunkSampleCount = 0) {
 	Assert(assets.assetCount < assets.assetMaxCount);
+	SoundId result = { assets.assetCount };
 	SoundInfo* info = &assets.assets[assets.assetCount].soundInfo;
 	info->filename = filename;
 	info->typeId = id;
+	info->nextChunkId = { 0 };
+	info->firstSampleIndex = firstSampleIndex;
+	info->chunkSampleCount = chunkSampleCount;
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
 		group->firstAssetIndex = assets.assetCount;
@@ -1597,6 +1633,7 @@ void AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename) {
 		}
 	}
 	assets.assetCount++;
+	return result;
 }
 
 internal
@@ -1635,7 +1672,21 @@ void AllocateAssets(TransientState* tranState) {
 	AddBmpAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
 
-	AddSoundAsset(assets, Asset_Music, "sound/silksong.wav");
+	u32 silksongSampleCount = 7762944;
+	u32 chunkSampleCount = 4 * 48000; // 2seconds;
+	u32 firstSampleIndex = 0;
+	Asset* prevAsset = 0;
+	// TODO: What with feature based asset retrieval? It is possible for asset system to return
+	// not first music chunk?
+	while (firstSampleIndex < silksongSampleCount) {
+		SoundId nextAssetId = AddSoundAsset(assets, Asset_Music, "sound/silksong.wav", firstSampleIndex, chunkSampleCount);
+		Asset* nextAsset = GetAsset(assets, nextAssetId.id);
+		if (prevAsset) {
+			prevAsset->soundInfo.nextChunkId = nextAssetId;
+		}
+		prevAsset = nextAsset;
+		firstSampleIndex += chunkSampleCount;
+	}
 	AddSoundAsset(assets, Asset_Bloop, "sound/bloop2.wav");
 }
 

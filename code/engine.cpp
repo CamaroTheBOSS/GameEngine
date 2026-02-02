@@ -5,31 +5,6 @@
 #include "engine_render.cpp"
 
 internal
-void AddSineWaveToBuffer(SoundData& dst, float amplitude, float toneHz) {
-	static u64 runninngSampleIndex = 0;
-	float sampleInterval = static_cast<float>(dst.nSamplesPerSec) / (2 * PI * toneHz);
-	float* fData = reinterpret_cast<float*>(dst.data);
-	static float tSine = 0;
-	for (u32 frame = 0; frame < dst.nSamples; frame++) {
-		tSine += 1.0f / sampleInterval;
-#if 1
-		float value = amplitude * sinf(tSine);
-#else
-		float value = 0;
-#endif
-		for (size_t channel = 0; channel < dst.nChannels; channel++) {
-			*fData++ = value;
-		}
-		runninngSampleIndex++;
-	}
-
-	if (tSine > 2 * PI * toneHz) {
-		// NOTE: sinf() seems to be inaccurate for high tSine values and quantization goes crazy 
-		tSine -= 2 * PI * toneHz;
-	}
-}
-
-internal
 void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	constexpr u32 nChannels = 2;
 	TemporaryMemory mixerMemory = BeginTempMemory(audio.arena);
@@ -46,11 +21,16 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	while (currSound) {
 		Assert(destCurrentSample < outBufferSampleCount);
 		Asset* asset = GetAsset(assets, currSound->soundId.id);
+		SoundInfo* soundInfo = &asset->soundInfo;
 		if (!IsReady(asset)) {
+			// Note: Only first chunk shouldn't be ready, the rest needs to be here on time to avoid
+			// clicking!
+			Assert(soundInfo->firstSampleIndex == 0);
 			prevSound = currSound;
 			currSound = currSound->next;
 			continue;
 		}
+		PrefetchSound(assets, asset->soundInfo.nextChunkId);
 		LoadedSound* assetSound = &asset->sound;
 		PlayingSound* nextSound = currSound->next;
 		f32* src[nChannels] = {};
@@ -96,7 +76,9 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 			f32 sample = f4(sampleIndex) * currSound->pitch;
 			u32 sampleInt = FloorF32ToU32(sample);
 			f32 sampleFrac = f4(sampleInt) - sample;
-			Assert(sampleInt < (assetSound->sampleCount - CeilF32ToU32(currSound->currentSample)));
+			if (FloorF32ToU32(currSound->currentSample) + sampleIndex == assetSound->sampleCount - 1) {
+				int breakHere = 0;
+			}
 			for (u32 channel = 0; channel < nChannels; channel++) {
 				f32 sampleValue = Lerp(src[channel][sampleInt], sampleFrac, src[channel][sampleInt + 1]);
 				*dest[channel]++ += volume.E[channel] * sampleValue;
@@ -104,13 +86,26 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		}
 		currSound->currentVolume += f4(samplesToPlay) * volumeSpeed;
 		currSound->currentSample += f4(samplesToPlay) * currSound->pitch;
-		bool needsDeletion = currSound->currentSample >= f4(assetSound->sampleCount);
+		// TODO: When round is here, current sample in the next chunk may be negative
+		// and can cause buffer underflow in the next playingSound chunk pass
+		bool soundChunkFinished = RoundF32ToU32(currSound->currentSample) >= assetSound->sampleCount;
+		if (f4(assetSound->sampleCount) - currSound->currentSample < 1 &&
+			f4(assetSound->sampleCount) - currSound->currentSample > 0.5f) {
+			
+			int breakHere = 0;
+		}
 		if (needsRepetition) {
-			Assert(!needsDeletion);
+			Assert(!soundChunkFinished);
 			destCurrentSample += samplesToPlay;
 			continue;
 		}
-		if (needsDeletion) {
+		if (soundChunkFinished) {
+			if (IsValid(soundInfo->nextChunkId)) {
+				currSound->soundId = soundInfo->nextChunkId;
+				currSound->currentSample -= soundInfo->chunkSampleCount;
+				destCurrentSample += samplesToPlay;
+				continue;
+			}
 			if (prevSound) {
 				prevSound->next = currSound->next;
 			}

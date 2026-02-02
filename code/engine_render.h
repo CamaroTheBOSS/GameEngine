@@ -24,10 +24,19 @@ struct LoadedBitmap {
 	V2 align; // NOTE: bottom-up in pixels
 };
 
+struct BitmapId {
+	u32 id;
+};
+
+struct SoundId {
+	u32 id;
+};
+
 struct LoadedSound {
 	u32 sampleCount;
 	u32 nChannels;
 	f32* samples[2];
+	SoundId nextChunkId;
 };
 
 struct EnvironmentMap {
@@ -130,13 +139,16 @@ using AssetFeatures = f32[Feature_Count];
 
 struct BitmapInfo {
 	const char* filename;
-	V2 alignment;
 	AssetTypeID typeId;
+	V2 alignment;
 };
 
 struct SoundInfo {
 	const char* filename;
 	AssetTypeID typeId;
+	SoundId nextChunkId;
+	u32 firstSampleIndex;
+	u32 chunkSampleCount;
 };
 
 #pragma warning(push)
@@ -165,14 +177,6 @@ struct AssetGroup {
 	u32 firstAssetIndex;
 	u32 lastAssetIndex;
 	AssetGroupType type;
-};
-
-struct BitmapId {
-	u32 id;
-};
-
-struct SoundId {
-	u32 id;
 };
 
 struct TransientState;
