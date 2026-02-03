@@ -39,10 +39,8 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 			src[channel] = assetSound->samples[channel] + FloorF32ToU32(currSound->currentSample);
 			dest[channel] = mixedSamples[channel] + destCurrentSample;
 		}
-		u32 remainingSamples = outBufferSampleCount - destCurrentSample;
-		u32 samplesToPlay = u4(
-			f4(assetSound->sampleCount - RoundF32ToU32(currSound->currentSample)) / currSound->pitch
-		);
+		f32 remainingSamples = f4(outBufferSampleCount - destCurrentSample);
+		f32 samplesToPlay = (f4(assetSound->sampleCount) - currSound->currentSample) / currSound->pitch;
 		if (samplesToPlay > remainingSamples) {
 			samplesToPlay = remainingSamples;
 		}
@@ -65,45 +63,37 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 				currSound->volumeChangeSpeed.Y = 0;
 				currSound->requestedVolume.Y = currSound->currentVolume.Y + f4(samplesToPlay) * volumeSpeed.Y;
 			}
-			if (samplesMin > 0 && samplesToPlay > u4(samplesMin)) {
-				samplesToPlay = u4(samplesMin);
+			if (samplesMin > 0 && samplesToPlay > f4(samplesMin)) {
+				samplesToPlay = f4(samplesMin);
 				needsRepetition = true;
 			}
 		}
 		V2 startVolume = currSound->currentVolume;
-		for (u32 sampleIndex = 0; sampleIndex < samplesToPlay; sampleIndex++) {
+		for (f32 sampleIndex = 0; sampleIndex < samplesToPlay; sampleIndex++) {
 			V2 volume = startVolume + f4(sampleIndex) * currSound->volumeChangeSpeed;
 			f32 sample = f4(sampleIndex) * currSound->pitch;
 			u32 sampleInt = FloorF32ToU32(sample);
 			f32 sampleFrac = f4(sampleInt) - sample;
-			if (FloorF32ToU32(currSound->currentSample) + sampleIndex == assetSound->sampleCount - 1) {
-				int breakHere = 0;
-			}
 			for (u32 channel = 0; channel < nChannels; channel++) {
 				f32 sampleValue = Lerp(src[channel][sampleInt], sampleFrac, src[channel][sampleInt + 1]);
 				*dest[channel]++ += volume.E[channel] * sampleValue;
 			}
 		}
-		currSound->currentVolume += f4(samplesToPlay) * volumeSpeed;
-		currSound->currentSample += f4(samplesToPlay) * currSound->pitch;
+		currSound->currentVolume += samplesToPlay * volumeSpeed;
+		currSound->currentSample += samplesToPlay * currSound->pitch;
 		// TODO: When round is here, current sample in the next chunk may be negative
 		// and can cause buffer underflow in the next playingSound chunk pass
-		bool soundChunkFinished = RoundF32ToU32(currSound->currentSample) >= assetSound->sampleCount;
-		if (f4(assetSound->sampleCount) - currSound->currentSample < 1 &&
-			f4(assetSound->sampleCount) - currSound->currentSample > 0.5f) {
-			
-			int breakHere = 0;
-		}
+		bool soundChunkFinished = FloorF32ToU32(currSound->currentSample) >= assetSound->sampleCount;
 		if (needsRepetition) {
 			Assert(!soundChunkFinished);
-			destCurrentSample += samplesToPlay;
+			destCurrentSample += CeilF32ToU32(samplesToPlay);
 			continue;
 		}
 		if (soundChunkFinished) {
 			if (IsValid(soundInfo->nextChunkId)) {
 				currSound->soundId = soundInfo->nextChunkId;
 				currSound->currentSample -= soundInfo->chunkSampleCount;
-				destCurrentSample += samplesToPlay;
+				destCurrentSample += CeilF32ToU32(samplesToPlay);
 				continue;
 			}
 			if (prevSound) {
