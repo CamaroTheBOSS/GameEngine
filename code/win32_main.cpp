@@ -1019,8 +1019,10 @@ int CALLBACK WinMain(
 	UINT schedulerGranularityMs = 1;
 	bool sleepIsGranular = timeBeginPeriod(schedulerGranularityMs) == NO_ERROR;
 	u32 frameRefreshHz = 60;
-	f32 targetFrameRefreshSeconds = 1.0f / static_cast<f32>(frameRefreshHz);
-	u32 soundSamplesToWriteEachFrame = 12u + static_cast<u32>(globalSoundData.dataFormat.Format.nSamplesPerSec * targetFrameRefreshSeconds);
+	f32 targetFrameRefreshSeconds = 1.0f / f4(frameRefreshHz);
+	u32 safetyMargin = 32;
+	u32 soundSamplesToWriteEachFrame = safetyMargin + u4(globalSoundData.dataFormat.Format.nSamplesPerSec * targetFrameRefreshSeconds);
+	
 	u64 rdtscStart = __rdtsc();
 	u64 frameStartTime = Win32GetCurrentTimestamp();
 	QueryPerformanceFrequency(&globalPerformanceFreq);

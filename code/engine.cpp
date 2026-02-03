@@ -11,9 +11,16 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	f32* mixedSamples[nChannels] = {};
 	
 	u32 outBufferSampleCount = dst.nSamples;
+	u32 maxIter = outBufferSampleCount >> 3;
+	Assert((outBufferSampleCount & 7) == 0);
+	__m256 zero = _mm256_set1_ps(0.f);
 	for (u32 channel = 0; channel < nChannels; channel++) {
-		mixedSamples[channel] = PushArray(audio.arena, outBufferSampleCount, f32);
-		ZeroSize_(ptrcast(u8, mixedSamples[channel]), outBufferSampleCount * sizeof(f32));
+		mixedSamples[channel] = PushArray(audio.arena, outBufferSampleCount, f32, 32);
+		f32* data = mixedSamples[channel];
+		for (u32 i = 0; i < maxIter; i++) {
+			_mm256_store_ps(data, zero);
+			data += 8;
+		}
 	}
 	PlayingSound* prevSound = 0;
 	PlayingSound* currSound = audio.playingSounds;
@@ -69,7 +76,13 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 			}
 		}
 		V2 startVolume = currSound->currentVolume;
+		__m256 startVolumeC1 = _mm256_set1_ps(currSound->currentVolume.X);
+		__m256 startVolumeC2 = _mm256_set1_ps(currSound->currentVolume.Y);
+		__m256 volumeChangeSpeedC1 = _mm256_set1_ps(currSound->volumeChangeSpeed.X);
+		__m256 volumeChangeSpeedC2 = _mm256_set1_ps(currSound->volumeChangeSpeed.Y);
+		__m256 sampleIndex = _mm256_set_ps(0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f);
 		for (f32 sampleIndex = 0; sampleIndex < samplesToPlay; sampleIndex++) {
+			//__m256 volumeC1 = _mm256_add_ps(startVolumeC1, _mm256_mul_ps(volumeChangeSpeedC1))
 			V2 volume = startVolume + f4(sampleIndex) * currSound->volumeChangeSpeed;
 			f32 sample = f4(sampleIndex) * currSound->pitch;
 			u32 sampleInt = FloorF32ToU32(sample);
