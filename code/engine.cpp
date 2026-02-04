@@ -80,7 +80,7 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		__m256 startVolumeC2 = _mm256_set1_ps(currSound->currentVolume.Y);
 		__m256 volumeChangeSpeedC1 = _mm256_set1_ps(currSound->volumeChangeSpeed.X);
 		__m256 volumeChangeSpeedC2 = _mm256_set1_ps(currSound->volumeChangeSpeed.Y);
-		__m256 sampleIndex = _mm256_set_ps(0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f);
+		//__m256 sampleIndex = _mm256_set_ps(0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f);
 		for (f32 sampleIndex = 0; sampleIndex < samplesToPlay; sampleIndex++) {
 			//__m256 volumeC1 = _mm256_add_ps(startVolumeC1, _mm256_mul_ps(volumeChangeSpeedC1))
 			V2 volume = startVolume + f4(sampleIndex) * currSound->volumeChangeSpeed;
@@ -126,10 +126,26 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	}
 
 	f32* out = ptrcast(f32, dst.data);
-	for (u32 sampleIndex = 0; sampleIndex < outBufferSampleCount; sampleIndex++) {
-		for (u32 channel = 0; channel < nChannels; channel++) {
-			*out++ = *mixedSamples[channel]++;
-		}
+	f32* mixedC1 = mixedSamples[0];
+	f32* mixedC2 = mixedSamples[1];
+	for (u32 iter = 0; iter < maxIter; iter++) {
+#if 1
+		__m256 samplesC1 = _mm256_load_ps(mixedC1);
+		__m256 samplesC2 = _mm256_load_ps(mixedC2);
+#else
+		__m256 samplesC1 = _mm256_setr_ps(10.f, 11.f, 12.f, 13.f, 14.f, 15.f, 16.f, 17.f);
+		__m256 samplesC2 = _mm256_setr_ps(20.f, 21.f, 22.f, 23.f, 24.f, 25.f, 26.f, 27.f);
+#endif
+		__m256 unpackedLow = _mm256_unpacklo_ps(samplesC1, samplesC2);
+		__m256 unpackedHigh = _mm256_unpackhi_ps(samplesC1, samplesC2);
+		__m256 permutedLow = _mm256_permute2f128_ps(unpackedLow, unpackedHigh, 0b0011'0001);
+		__m256 permutedHigh = _mm256_permute2f128_ps(unpackedLow, unpackedHigh, 0b0010'0000);
+		_mm256_store_ps(out, permutedHigh);
+		out += 8;
+		_mm256_store_ps(out, permutedLow);
+		out += 8;
+		mixedC1 += 8;
+		mixedC2 += 8;
 	}
 	EndTempMemory(mixerMemory);
 }
