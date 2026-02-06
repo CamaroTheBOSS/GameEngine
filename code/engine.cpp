@@ -75,22 +75,56 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 				needsRepetition = true;
 			}
 		}
+#if 1
 #if 0
-		__m256 startVolumeC1 = _mm256_set1_ps(currSound->currentVolume.X);
-		__m256 startVolumeC2 = _mm256_set1_ps(currSound->currentVolume.Y);
-		__m256 volumeChangeSpeedC1 = _mm256_set1_ps(currSound->volumeChangeSpeed.X);
-		__m256 volumeChangeSpeedC2 = _mm256_set1_ps(currSound->volumeChangeSpeed.Y);
-		//__m256 sampleIndex = _mm256_set_ps(0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f);
-		for (f32 sampleIndex = 0; sampleIndex < samplesToPlay; sampleIndex++) {
-			//__m256 volumeC1 = _mm256_add_ps(startVolumeC1, _mm256_mul_ps(volumeChangeSpeedC1))
-			V2 volume = startVolume + f4(sampleIndex) * currSound->volumeChangeSpeed;
-			f32 sample = f4(sampleIndex) * currSound->pitch;
-			u32 sampleInt = FloorF32ToU32(sample);
-			f32 sampleFrac = f4(sampleInt) - sample;
+		*src[0]++ = 0.f;
+		*src[0]++ = 1.f;
+		*src[0]++ = 2.f;
+		*src[0]++ = 3.f;
+		*src[0]++ = 4.f;
+		*src[0]++ = 5.f;
+		*src[0]++ = 6.f;
+		*src[0]++ = 7.f;
+		*src[1]++ = 10.f;
+		*src[1]++ = 11.f;
+		*src[1]++ = 12.f;
+		*src[1]++ = 13.f;
+		*src[1]++ = 14.f;
+		*src[1]++ = 15.f;
+		*src[1]++ = 16.f;
+		*src[1]++ = 17.f;
+		src[0] -= 8;
+		src[1] -= 8;
+#endif
+		__m256 startVolume[2];
+		__m256 volumeChangeSpeed[2];
+		for (u32 channel = 0; channel < nChannels; channel++) {
+			startVolume[channel] = _mm256_set1_ps(currSound->currentVolume.E[channel]);
+			volumeChangeSpeed[channel] = _mm256_set1_ps(currSound->volumeChangeSpeed.E[channel]);
+		}
+		__m256 sampleIndexes = _mm256_setr_ps(0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f);
+		__m256 pitch8 = _mm256_set1_ps(currSound->pitch);
+		__m256i ones = _mm256_set1_epi32(1);
+		__m256 eight = _mm256_set1_ps(8);
+		__m256 samplesToPlay8 = _mm256_set1_ps(samplesToPlay);
+		for (f32 index = 0; index < samplesToPlay; index += 8) {
+			__m256 samples = _mm256_mul_ps(sampleIndexes, pitch8);
+			__m256i samplesInt = _mm256_cvttps_epi32(samples);
+			__m256i samplesIntPlus1 = _mm256_add_epi32(samplesInt, ones);
+			__m256 samplesFrac = _mm256_sub_ps(samples, _mm256_cvtepi32_ps(samplesInt));
+			__m256 writeMask = _mm256_cmp_ps(sampleIndexes, samplesToPlay8, _CMP_LT_OQ);
 			for (u32 channel = 0; channel < nChannels; channel++) {
-				f32 sampleValue = Lerp(src[channel][sampleInt], sampleFrac, src[channel][sampleInt + 1]);
-				*dest[channel]++ += volume.E[channel] * sampleValue;
+				__m256 volume = _mm256_add_ps(startVolume[channel], _mm256_mul_ps(sampleIndexes, volumeChangeSpeed[channel]));
+				__m256 srcSamples1 = _mm256_i32gather_ps(src[channel], samplesInt, 4);
+				__m256 srcSamples2 = _mm256_i32gather_ps(src[channel], samplesIntPlus1, 4);
+				__m256 destSamples = _mm256_load_ps(dest[channel]);
+				__m256 output = _mm256_add_ps(srcSamples1, _mm256_mul_ps(samplesFrac, _mm256_sub_ps(srcSamples2, srcSamples1)));
+				output = _mm256_add_ps(destSamples, _mm256_mul_ps(volume, output));
+				output = _mm256_blendv_ps(destSamples, output, writeMask);
+				_mm256_store_ps(dest[channel], output);
+				dest[channel] += 8;
 			}
+			sampleIndexes = _mm256_add_ps(sampleIndexes, eight);
 		}
 #else
 		V2 startVolume = currSound->currentVolume;	
