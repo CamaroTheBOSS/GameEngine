@@ -827,4 +827,11 @@ inline
 V2 Perp(V2 A) {
 	return V2{ -A.Y, A.X };
 }
+
+inline
+f32 Clamp01(f32 value) {
+	if (value < 0) return 0;
+	if (value > 1) return 1;
+	return value;
+}
 #pragma warning(pop)

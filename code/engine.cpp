@@ -40,68 +40,41 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		PrefetchSound(assets, asset->soundInfo.nextChunkId);
 		LoadedSound* assetSound = &asset->sound;
 		PlayingSound* nextSound = currSound->next;
-		f32* src[nChannels] = {};
-		f32* dest[nChannels] = {};
-		for (u32 channel = 0; channel < nChannels; channel++) {
-			src[channel] = assetSound->samples[channel] + FloorF32ToU32(currSound->currentSample);
-			dest[channel] = mixedSamples[channel] + destCurrentSample;
-		}
+
 		f32 remainingSamples = f4(outBufferSampleCount - destCurrentSample);
 		f32 samplesToPlay = (f4(assetSound->sampleCount) - currSound->currentSample) / currSound->pitch;
 		if (samplesToPlay > remainingSamples) {
 			samplesToPlay = remainingSamples;
 		}
+
+		f32* src[nChannels] = {};
+		f32* dest[nChannels] = {};
+		__m256 startVolume[nChannels] = {};
+		__m256 volumeChangeSpeed[nChannels] = {};
 		bool needsRepetition = false;
 		V2 volumeSpeed = currSound->volumeChangeSpeed;
 		V2 diffVolume = currSound->requestedVolume - currSound->currentVolume;
-		if (diffVolume.X != 0.f || diffVolume.Y != 0.f) {
-			V2 samplesToEndVolume = {
-				diffVolume.X / volumeSpeed.X,
-				diffVolume.Y / volumeSpeed.Y,
-			};
-			i32 samplesLeft = RoundF32ToI32(samplesToEndVolume.X);
-			i32 samplesRight = RoundF32ToI32(samplesToEndVolume.X);
-			i32 samplesMin = Minimum(samplesLeft, samplesRight);
-			if (samplesLeft == 0) {
-				currSound->volumeChangeSpeed.X = 0;
-				currSound->requestedVolume.X = currSound->currentVolume.X + f4(samplesToPlay) * volumeSpeed.X;
-			}
-			if (samplesRight == 0) {
-				currSound->volumeChangeSpeed.Y = 0;
-				currSound->requestedVolume.Y = currSound->currentVolume.Y + f4(samplesToPlay) * volumeSpeed.Y;
-			}
-			if (samplesMin > 0 && samplesToPlay > f4(samplesMin)) {
-				samplesToPlay = f4(samplesMin);
-				needsRepetition = true;
-			}
-		}
-#if 1
-#if 0
-		*src[0]++ = 0.f;
-		*src[0]++ = 1.f;
-		*src[0]++ = 2.f;
-		*src[0]++ = 3.f;
-		*src[0]++ = 4.f;
-		*src[0]++ = 5.f;
-		*src[0]++ = 6.f;
-		*src[0]++ = 7.f;
-		*src[1]++ = 10.f;
-		*src[1]++ = 11.f;
-		*src[1]++ = 12.f;
-		*src[1]++ = 13.f;
-		*src[1]++ = 14.f;
-		*src[1]++ = 15.f;
-		*src[1]++ = 16.f;
-		*src[1]++ = 17.f;
-		src[0] -= 8;
-		src[1] -= 8;
-#endif
-		__m256 startVolume[2];
-		__m256 volumeChangeSpeed[2];
 		for (u32 channel = 0; channel < nChannels; channel++) {
+			src[channel] = assetSound->samples[channel] + FloorF32ToU32(currSound->currentSample);
+			dest[channel] = mixedSamples[channel] + destCurrentSample;
 			startVolume[channel] = _mm256_set1_ps(currSound->currentVolume.E[channel]);
 			volumeChangeSpeed[channel] = _mm256_set1_ps(currSound->volumeChangeSpeed.E[channel]);
+
+			if (diffVolume.E[channel] != 0.f) {
+				f32 samplesToEndVolume = diffVolume.E[channel] / volumeSpeed.E[channel];
+				i32 samples = RoundF32ToI32(samplesToEndVolume);
+				Assert(samples >= 0);
+				if (samples == 0) {
+					currSound->volumeChangeSpeed.E[channel] = 0;
+					currSound->requestedVolume.E[channel] = currSound->currentVolume.E[channel] + f4(samplesToPlay) * volumeSpeed.E[channel];
+				}
+				else if (samplesToPlay > f4(samples)) {
+					samplesToPlay = f4(samples);
+					needsRepetition = true;
+				}
+			}
 		}
+		
 		__m256 sampleIndexes = _mm256_setr_ps(0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f);
 		__m256 pitch8 = _mm256_set1_ps(currSound->pitch);
 		__m256i ones = _mm256_set1_epi32(1);
@@ -126,23 +99,8 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 			}
 			sampleIndexes = _mm256_add_ps(sampleIndexes, eight);
 		}
-#else
-		V2 startVolume = currSound->currentVolume;	
-		for (f32 sampleIndex = 0; sampleIndex < samplesToPlay; sampleIndex++) {
-			V2 volume = startVolume + f4(sampleIndex) * currSound->volumeChangeSpeed;
-			f32 sample = f4(sampleIndex) * currSound->pitch;
-			u32 sampleInt = FloorF32ToU32(sample);
-			f32 sampleFrac = f4(sampleInt) - sample;
-			for (u32 channel = 0; channel < nChannels; channel++) {
-				f32 sampleValue = Lerp(src[channel][sampleInt], sampleFrac, src[channel][sampleInt + 1]);
-				*dest[channel]++ += volume.E[channel] * sampleValue;
-			}
-		}
-#endif
 		currSound->currentVolume += samplesToPlay * volumeSpeed;
 		currSound->currentSample += samplesToPlay * currSound->pitch;
-		// TODO: When round is here, current sample in the next chunk may be negative
-		// and can cause buffer underflow in the next playingSound chunk pass
 		bool soundChunkFinished = FloorF32ToU32(currSound->currentSample) >= assetSound->sampleCount;
 		if (needsRepetition) {
 			Assert(!soundChunkFinished);
@@ -176,13 +134,8 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	f32* mixedC1 = mixedSamples[0];
 	f32* mixedC2 = mixedSamples[1];
 	for (u32 iter = 0; iter < maxIter; iter++) {
-#if 1
 		__m256 samplesC1 = _mm256_load_ps(mixedC1);
 		__m256 samplesC2 = _mm256_load_ps(mixedC2);
-#else
-		__m256 samplesC1 = _mm256_setr_ps(10.f, 11.f, 12.f, 13.f, 14.f, 15.f, 16.f, 17.f);
-		__m256 samplesC2 = _mm256_setr_ps(20.f, 21.f, 22.f, 23.f, 24.f, 25.f, 26.f, 27.f);
-#endif
 		__m256 unpackedLow = _mm256_unpacklo_ps(samplesC1, samplesC2);
 		__m256 unpackedHigh = _mm256_unpackhi_ps(samplesC1, samplesC2);
 		__m256 permutedLow = _mm256_permute2f128_ps(unpackedLow, unpackedHigh, 0b0011'0001);
@@ -1264,6 +1217,12 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			
 			MakeEntitySpatial(*simRegion, state->world, entity->sword->storageIndex, *entity->sword, entity->worldPos);
 		}
+		PlayingSound* first = state->audio.playingSounds;
+		f32 clampedMouseX = Clamp01(controller.mouseX);
+		ChangeVolume(first, V2{ 1 - clampedMouseX, clampedMouseX }, 0.1f);
+		
+
+
 		playerControls.acceleration.Z = 0.f;
 		if (controller.B.kArrowUp.isDown) {
 			playerControls.acceleration.Z += 10.0f;
