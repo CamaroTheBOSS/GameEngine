@@ -75,7 +75,7 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 				needsRepetition = true;
 			}
 		}
-		V2 startVolume = currSound->currentVolume;
+#if 0
 		__m256 startVolumeC1 = _mm256_set1_ps(currSound->currentVolume.X);
 		__m256 startVolumeC2 = _mm256_set1_ps(currSound->currentVolume.Y);
 		__m256 volumeChangeSpeedC1 = _mm256_set1_ps(currSound->volumeChangeSpeed.X);
@@ -92,6 +92,19 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 				*dest[channel]++ += volume.E[channel] * sampleValue;
 			}
 		}
+#else
+		V2 startVolume = currSound->currentVolume;	
+		for (f32 sampleIndex = 0; sampleIndex < samplesToPlay; sampleIndex++) {
+			V2 volume = startVolume + f4(sampleIndex) * currSound->volumeChangeSpeed;
+			f32 sample = f4(sampleIndex) * currSound->pitch;
+			u32 sampleInt = FloorF32ToU32(sample);
+			f32 sampleFrac = f4(sampleInt) - sample;
+			for (u32 channel = 0; channel < nChannels; channel++) {
+				f32 sampleValue = Lerp(src[channel][sampleInt], sampleFrac, src[channel][sampleInt + 1]);
+				*dest[channel]++ += volume.E[channel] * sampleValue;
+			}
+		}
+#endif
 		currSound->currentVolume += samplesToPlay * volumeSpeed;
 		currSound->currentSample += samplesToPlay * currSound->pitch;
 		// TODO: When round is here, current sample in the next chunk may be negative
