@@ -51,8 +51,8 @@ struct Win32State {
 	HWND window;
 
 	// TODO change to some structure with X and Y access like screen dim
-	u32 bltOffsetX;
-	u32 bltOffsetY;
+	i32 bltOffsetX;
+	i32 bltOffsetY;
 	u32 displayWidth;
 	u32 displayHeight;
 
@@ -807,8 +807,8 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 	POINT point;
 	GetCursorPos(&point);
 	ScreenToClient(state.window, &point);
-	controller.mouseX = f4(point.x - state.bltOffsetX) / state.displayWidth;
-	controller.mouseY = 1.f - f4(point.y - state.bltOffsetY) / state.displayHeight;
+	controller.mouse.X = f4(point.x - state.bltOffsetX) / state.displayWidth;
+	controller.mouse.Y = 1.f - f4(point.y - state.bltOffsetY) / state.displayHeight;
 }
 
 internal

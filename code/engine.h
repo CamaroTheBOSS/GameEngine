@@ -60,8 +60,7 @@ struct Controller {
 		static_assert(sizeof(B) == sizeof(E));
 	};
 	// Mouse data (<0-1> value relative to window size where 0 is left or top, and 1 is right or bottom)
-	f32 mouseX;
-	f32 mouseY;
+	V2 mouse;
 };
 #pragma warning(pop)
 

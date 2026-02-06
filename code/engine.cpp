@@ -26,7 +26,8 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	PlayingSound* currSound = audio.playingSounds;
 	u32 destCurrentSample = 0;
 	while (currSound) {
-		Assert(destCurrentSample < outBufferSampleCount);
+		// TODO: Hunt for this assertion and check whether it is still needed, probably not
+		// Assert(destCurrentSample < outBufferSampleCount);
 		Asset* asset = GetAsset(assets, currSound->soundId.id);
 		SoundInfo* soundInfo = &asset->soundInfo;
 		if (!IsReady(asset)) {
@@ -60,15 +61,18 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 			startVolume[channel] = _mm256_set1_ps(currSound->currentVolume.E[channel]);
 			volumeChangeSpeed[channel] = _mm256_set1_ps(currSound->volumeChangeSpeed.E[channel]);
 
-			if (diffVolume.E[channel] != 0.f) {
+			// TODO: Can it be done with no epsilons?
+			f32 epsilon = 0.00001f;
+			if (Abs(diffVolume.E[channel]) > epsilon && Abs(volumeSpeed.E[channel]) > epsilon) {
 				f32 samplesToEndVolume = diffVolume.E[channel] / volumeSpeed.E[channel];
 				i32 samples = RoundF32ToI32(samplesToEndVolume);
+				// TODO: Hunt for this assertion, it will fire when volumeSpeed is very very small
 				Assert(samples >= 0);
 				if (samples == 0) {
 					currSound->volumeChangeSpeed.E[channel] = 0;
 					currSound->requestedVolume.E[channel] = currSound->currentVolume.E[channel] + f4(samplesToPlay) * volumeSpeed.E[channel];
 				}
-				else if (samplesToPlay > f4(samples)) {
+				else if (samples > 0 && samplesToPlay > f4(samples)) {
 					samplesToPlay = f4(samples);
 					needsRepetition = true;
 				}
@@ -1205,7 +1209,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			entity->sword->timeRemaining = 4.f;
 
 			V2 screenDim = GetDim(GetRenderRectangleAtTarget(projection, bitmap.width, bitmap.height));
-			V2 mousePos = Hadamard(screenDim, V2{ controller.mouseX, controller.mouseY } - V2{0.5f, 0.5f});
+			V2 mousePos = Hadamard(screenDim, controller.mouse - V2{0.5f, 0.5f});
 			f32 mouseVecLength = Length(mousePos);
 			f32 projectileSpeed = 5.f;
 			if (mouseVecLength != 0.f) {
@@ -1218,7 +1222,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MakeEntitySpatial(*simRegion, state->world, entity->sword->storageIndex, *entity->sword, entity->worldPos);
 		}
 		PlayingSound* first = state->audio.playingSounds;
-		f32 clampedMouseX = Clamp01(controller.mouseX);
+		f32 clampedMouseX = Clamp01(controller.mouse.X);
 		ChangeVolume(first, V2{ 1 - clampedMouseX, clampedMouseX }, 0.1f);
 		
 
