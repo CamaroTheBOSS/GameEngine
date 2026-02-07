@@ -1309,6 +1309,12 @@ Asset* GetAsset(Assets& assets, u32 id) {
 }
 
 inline
+AssetFeatures* GetAssetFeatures(Assets& assets, u32 id) {
+	AssetFeatures* asset = &assets.features[id];
+	return asset;
+}
+
+inline
 bool IsReady(Asset* asset) {
 	return asset && asset->state == AssetState::Ready;
 }
@@ -1345,11 +1351,12 @@ u32 _GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures match, 
 		assetIndex++
 		) {
 		Asset* asset = GetAsset(assets, assetIndex);
+		AssetFeatures* features = GetAssetFeatures(assets, assetIndex);
 		f32 score = 0;
-		for (u32 featureIndex = 0; featureIndex < ArrayCount(asset->features); featureIndex++) {
+		for (u32 featureIndex = 0; featureIndex < ArrayCount(*features); featureIndex++) {
 			//f32 sign = SignF32(halfPeriod - match[featureIndex]);
-			f32 a1 = asset->features[featureIndex];
-			f32 a2 = asset->features[featureIndex] - 2 * halfPeriod;
+			f32 a1 = *features[featureIndex];
+			f32 a2 = *features[featureIndex] - 2 * halfPeriod;
 			f32 d1 = Abs(match[featureIndex] - a1);
 			f32 d2 = Abs(match[featureIndex] - a2);
 			f32 distance = Minimum(d1, d2);
@@ -1501,7 +1508,7 @@ LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleC
 	sound.sampleCount = Minimum(wavSampleCount - firstSampleIndex, chunkSampleCount);
 	Assert(sound.sampleCount != 0);
 	Assert((sound.sampleCount & 1) == 0);
-	u64 bytesToAllocate = sound.sampleCount * sizeof(f32) * (sound.nChannels + chunkOverlap);
+	u64 bytesToAllocate = (sound.sampleCount + chunkOverlap) * sizeof(f32) * sound.nChannels;
 	sound.samples[0] = ptrcast(f32, debugGlobalMemory->allocate(bytesToAllocate));
 	sound.samples[1] = sound.samples[0] + sound.sampleCount + chunkOverlap;
 	f32* dest[2] = { sound.samples[0], sound.samples[1] };
@@ -1639,8 +1646,8 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 internal
 void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
 	Assert(assets.assetCount > 0);
-	Asset* asset = GetAsset(assets, assets.assetCount - 1);
-	asset->features[fId] = value;
+	AssetFeatures* features = GetAssetFeatures(assets, assets.assetCount - 1);
+	*features[fId] = value;
 }
 
 internal
@@ -1650,6 +1657,7 @@ void AllocateAssets(TransientState* tranState) {
 	assets.tranState = tranState;
 	assets.assetMaxCount = 256 * Asset_Count;
 	assets.assets = PushArray(assets.arena, assets.assetMaxCount, Asset);
+	assets.features = PushArray(assets.arena, assets.assetMaxCount, AssetFeatures);
 	AddBmpAsset(assets, Asset_Null, 0);
 	AddBmpAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
 	AddFeature(assets, Feature_Height, 1.f);

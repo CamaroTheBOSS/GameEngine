@@ -19,6 +19,20 @@ Project("{911E67C6-3D85-4FCE-B560-20A9C3E3FF48}") = "win32_main", "..\build\win3
 		IORedirection = Auto
 	EndProjectSection
 EndProject
+Project("{911E67C6-3D85-4FCE-B560-20A9C3E3FF48}") = "engine_asset_file_composer", "..\build\engine_asset_file_composer.exe", "{7174BC4D-6F37-AC94-7584-8CD130492BB7}"
+	ProjectSection(DebuggerProjectSystem) = preProject
+		PortSupplier = 00000000-0000-0000-0000-000000000000
+		Executable = D:\Code\handmade\build\engine_asset_file_composer.exe
+		RemoteMachine = DESKTOP-0FVIQMF
+		StartingDirectory = D:\Code\handmade\data
+		Environment = Default
+		LaunchingEngine = 00000000-0000-0000-0000-000000000000
+		UseLegacyDebugEngines = No
+		LaunchSQLEngine = No
+		AttachLaunchAction = No
+		IORedirection = Auto
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -39,6 +53,10 @@ Global
 		{91024D9B-E428-EC36-EDBC-12CA503AA438}.Debug|x86.ActiveCfg = Release|x64
 		{91024D9B-E428-EC36-EDBC-12CA503AA438}.Release|x64.ActiveCfg = Release|x64
 		{91024D9B-E428-EC36-EDBC-12CA503AA438}.Release|x86.ActiveCfg = Release|x64
+		{7174BC4D-6F37-AC94-7584-8CD130492BB7}.Debug|x64.ActiveCfg = Release|x64
+		{7174BC4D-6F37-AC94-7584-8CD130492BB7}.Debug|x86.ActiveCfg = Release|x64
+		{7174BC4D-6F37-AC94-7584-8CD130492BB7}.Release|x64.ActiveCfg = Release|x64
+		{7174BC4D-6F37-AC94-7584-8CD130492BB7}.Release|x86.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

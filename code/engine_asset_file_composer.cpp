@@ -1,0 +1,422 @@
+#include "engine.h"
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <Windows.h>
+
+inline
+Asset* GetAsset(Assets& assets, u32 id) {
+	Asset* asset = &assets.assets[id];
+	return asset;
+}
+
+inline
+AssetFeatures* GetAssetFeatures(Assets& assets, u32 id) {
+	AssetFeatures* asset = &assets.features[id];
+	return asset;
+}
+
+inline
+FileData ReadEntireFile(const char* filename) {
+	if (!filename) {
+		return {};
+	}
+	FILE* file = 0;
+	errno_t err = fopen_s(&file, filename, "r");
+	Assert(file);
+	if (!file || err) {
+		return {};
+	}
+	FileData data = {};
+	fseek(file, 0, SEEK_END);
+	data.size = ftell(file);
+	data.content = VirtualAlloc(0, data.size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	if (!data.content) {
+		return {};
+	}
+	fseek(file, 0, SEEK_SET);
+	fread(data.content, data.size, 1, file);
+	fclose(file);
+	return data;
+}
+
+#define CHUNK_OVERLAP 8
+internal
+LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleCount) {
+#define CHUNK_ID(a, b, c, d) ((d << 24) + (c << 16) + (b << 8) + a)
+#pragma pack(push, 1)
+	struct RiffHeader {
+		u32 riffId;
+		u32 size;
+		u32 waveId;
+	};
+	struct ChunkHeader {
+		u32 chunkId;
+		u32 chunkSize;
+	};
+	struct FmtHeader {
+		u16 formatCode;
+		u16 nChannels;
+		u32 nSamplesPerSec;
+		u32 nAvgBytesPerSec;
+		u16 nBlockAlign;
+		u16 bitsPerSample;
+		u16 cbSize;
+		u16 validBitsPerSample;
+		u32 channelMask;
+		char subformat[16];
+	};
+#pragma pack(pop)
+	LoadedSound sound = {};
+	FileData data = ReadEntireFile(filename);
+	if (!data.content) {
+		return sound;
+	}
+
+	RiffHeader* riffHeader = ptrcast(RiffHeader, data.content);
+	Assert(riffHeader->riffId == CHUNK_ID('R', 'I', 'F', 'F'));
+	Assert(riffHeader->waveId == CHUNK_ID('W', 'A', 'V', 'E'));
+	u32 chunkSize = riffHeader->size - 4;
+	u8* ptr = ptrcast(u8, data.content) + sizeof(RiffHeader);
+	u32 sizeRead = 0;
+	i16* fileSamples = 0;
+	u32 samplesSizeInBytes = 0;
+	u32 nChannels = 0;
+	while (sizeRead < chunkSize) {
+		ChunkHeader* header = ptrcast(ChunkHeader, ptr);
+		sizeRead += sizeof(header);
+		ptr += sizeof(header);
+		switch (header->chunkId) {
+		case CHUNK_ID('f', 'm', 't', ' '): {
+			FmtHeader* fmt = ptrcast(FmtHeader, ptr);
+			Assert(fmt->nSamplesPerSec == 48000);
+			Assert(fmt->bitsPerSample == 16);
+			Assert(fmt->nChannels <= 2);
+			nChannels = fmt->nChannels;
+		} break;
+		case CHUNK_ID('d', 'a', 't', 'a'): {
+			fileSamples = ptrcast(i16, ptr);
+			samplesSizeInBytes = header->chunkSize;
+		} break;
+		}
+		u32 paddedSize = (header->chunkSize + 1) & ~1;
+		sizeRead += paddedSize;
+		ptr += paddedSize;
+	}
+	if (chunkSampleCount == 0) {
+		chunkSampleCount = U32_MAX;
+	}
+	u32 wavSampleCount = samplesSizeInBytes / (sizeof(i16) * nChannels);
+	Assert(samplesSizeInBytes > 0);
+	Assert(wavSampleCount > firstSampleIndex);
+	Assert(nChannels == 2);
+	sound.nChannels = nChannels;
+	sound.sampleCount = Minimum(wavSampleCount - firstSampleIndex, chunkSampleCount);
+	Assert(sound.sampleCount != 0);
+	Assert((sound.sampleCount & 1) == 0);
+	u64 bytesToAllocate = (sound.sampleCount + CHUNK_OVERLAP) * sizeof(f32) * sound.nChannels;
+	sound.samples[0] = ptrcast(f32, VirtualAlloc(0, bytesToAllocate, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+	sound.samples[1] = sound.samples[0] + sound.sampleCount + CHUNK_OVERLAP;
+	f32* dest[2] = { sound.samples[0], sound.samples[1] };
+	i16* src = fileSamples + sound.nChannels * firstSampleIndex;
+	f32 dividor = f4(I16_MAX);
+	// NOTE: copy a little bit more samples if this is not last chank to make sound seamless
+	bool lastChunk = (wavSampleCount - firstSampleIndex) <= chunkSampleCount;
+	u32 samplesToCopy = sound.sampleCount;
+	if (!lastChunk) {
+		samplesToCopy += CHUNK_OVERLAP;
+	}
+	for (u32 sampleIndex = 0; sampleIndex < samplesToCopy; sampleIndex++) {
+		for (u32 channelIndex = 0; channelIndex < sound.nChannels; channelIndex++) {
+			*dest[channelIndex]++ = f4(*src++) / dividor;
+		}
+	}
+	return sound;
+}
+
+inline
+V4 SRGB255ToLinear1(V4 input) {
+	V4 result = {};
+	f32 inv255 = 1.f / 255.f;
+	result.R = Squared(inv255 * input.R);
+	result.G = Squared(inv255 * input.G);
+	result.B = Squared(inv255 * input.B);
+	result.A = inv255 * input.A;
+	return result;
+}
+
+inline
+V4 Linear1ToSRGB255(V4 input) {
+	V4 result = {};
+	result.R = 255.f * SquareRoot(input.R);
+	result.G = 255.f * SquareRoot(input.G);
+	result.B = 255.f * SquareRoot(input.B);
+	result.A = 255.f * input.A;
+	return result;
+}
+
+internal
+LoadedBitmap LoadBmpFile(const char* filename, V2 bottomUpAlignRatio = V2{ 0.5f, 0.5f })
+{
+#pragma pack(push, 1)
+	struct BmpHeader {
+		u16 signature; // must be 0x42 = BMP
+		u32 fileSize;
+		u32 reservedZeros;
+		u32 bitmapOffset; // where pixels starts
+		u32 headerSize;
+		u32 width;
+		u32 height;
+		u16 planes;
+		u16 bitsPerPixel;
+		u32 compression;
+		u32 imageSize;
+		u32 resolutionPixPerMeterX;
+		u32 resolutionPixPerMeterY;
+		u32 colorsUsed;
+		u32 ColorsImportant;
+		u32 redMask;
+		u32 greenMask;
+		u32 blueMask;
+		u32 alphaMask;
+	};
+#pragma pack(pop)
+
+	FileData bmpData = ReadEntireFile(filename);
+	if (!bmpData.content) {
+		return {};
+	}
+	BmpHeader* header = ptrcast(BmpHeader, bmpData.content);
+	Assert(header->compression == 3);
+	Assert(header->bitsPerPixel == 32);
+	u32 redShift = LeastSignificantHighBit(header->redMask).index;
+	u32 greenShift = LeastSignificantHighBit(header->greenMask).index;
+	u32 blueShift = LeastSignificantHighBit(header->blueMask).index;
+	u32 alphaShift = LeastSignificantHighBit(header->alphaMask).index;
+
+	LoadedBitmap result = {};
+	result.bufferStart = ptrcast(void, ptrcast(u8, bmpData.content) + header->bitmapOffset);
+	result.height = header->height;
+	result.width = header->width;
+	result.widthOverHeight = f4(result.width) / f4(result.height);
+	Assert((header->bitsPerPixel / 8) == BITMAP_BYTES_PER_PIXEL);
+	result.pitch = result.width * BITMAP_BYTES_PER_PIXEL;
+	result.data = ptrcast(u32, result.bufferStart);
+	result.align = bottomUpAlignRatio;
+
+	u32* pixels = ptrcast(u32, result.bufferStart);
+	for (u32 Y = 0; Y < header->height; Y++) {
+		for (u32 X = 0; X < header->width; X++) {
+			V4 texel = {
+				f4((*pixels >> redShift) & 0xFF),
+				f4((*pixels >> greenShift) & 0xFF),
+				f4((*pixels >> blueShift) & 0xFF),
+				f4((*pixels >> alphaShift) & 0xFF),
+			};
+			texel = SRGB255ToLinear1(texel);
+			texel.RGB *= texel.A;
+			texel = Linear1ToSRGB255(texel);
+			*pixels++ = (u4(texel.A + 0.5f) << 24) +
+				(u4(texel.R + 0.5f) << 16) +
+				(u4(texel.G + 0.5f) << 8) +
+				(u4(texel.B + 0.5f) << 0);
+		}
+	}
+
+	return result;
+}
+
+inline
+void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment = V2{ 0.5f, 0.5f }) {
+	Assert(assets.assetCount < assets.assetMaxCount);
+	Asset* asset = &assets.assets[assets.assetCount];
+	asset->bitmap = LoadBmpFile(filename, alignment);
+	BitmapInfo* info = &asset->bitmapInfo;
+	info->filename = filename;
+	info->alignment = alignment;
+	info->typeId = id;
+	AssetGroup* group = &assets.groups[id];
+	if (group->firstAssetIndex == 0) {
+		group->firstAssetIndex = assets.assetCount;
+		group->lastAssetIndex = assets.assetCount;
+		group->type = AssetGroup_Bitmap;
+	}
+	else {
+		Assert(group->type == AssetGroup_Bitmap);
+		group->lastAssetIndex++;
+		if (assets.assetCount > 0) {
+			BitmapInfo* prevInfo = &assets.assets[assets.assetCount - 1].bitmapInfo;
+			Assert(prevInfo->typeId == info->typeId);
+		}
+	}
+	assets.assetCount++;
+}
+
+inline
+SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 firstSampleIndex = 0, u32 chunkSampleCount = 0) {
+	Assert(assets.assetCount < assets.assetMaxCount);
+	SoundId result = { assets.assetCount };
+	Asset* asset = &assets.assets[assets.assetCount];
+	asset->sound = LoadWAV(filename, firstSampleIndex, chunkSampleCount);
+	SoundInfo* info = &asset->soundInfo;
+	info->filename = filename;
+	info->typeId = id;
+	info->nextChunkId = { 0 };
+	info->firstSampleIndex = firstSampleIndex;
+	info->chunkSampleCount = chunkSampleCount;
+	AssetGroup* group = &assets.groups[id];
+	if (group->firstAssetIndex == 0) {
+		group->firstAssetIndex = assets.assetCount;
+		group->lastAssetIndex = assets.assetCount;
+		group->type = AssetGroup_Sound;
+	}
+	else {
+		Assert(group->type == AssetGroup_Sound);
+		group->lastAssetIndex++;
+		if (assets.assetCount > 0) {
+			SoundInfo* prevInfo = &assets.assets[assets.assetCount - 1].soundInfo;
+			Assert(prevInfo->typeId == info->typeId);
+		}
+	}
+	assets.assetCount++;
+	return result;
+}
+
+internal
+void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
+	Assert(assets.assetCount > 0);
+	AssetFeatures* features = GetAssetFeatures(assets, assets.assetCount - 1);
+	*features[fId] = value;
+}
+
+#define EAF_MAGIC_STRING(a, b, c, d) ((d << 24) + (c << 16) + (b << 8) + a)
+struct AssetFileHeader {
+	u32 magicString = EAF_MAGIC_STRING('a', 's', 's', 'f');
+	u32 version = 0;
+
+	u32 assetsCount;
+	u64 assetsOffset;
+};
+
+struct AssetFileBitmapInfo {
+	i32 height;
+	i32 width;
+	i32 pitch;
+	V2 alignment;
+	u32 dataOffset; //u32*
+};
+struct AssetFileSoundInfo {
+	u32 sampleCount;
+	u32 nChannels;
+	SoundId nextChunkId;
+	u32 samplesOffset[2]; //f32*
+};
+
+struct AssetFileInfo {
+	union {
+		AssetFileBitmapInfo bmp;
+		AssetFileSoundInfo sound;
+	};
+};
+
+
+
+int main() {
+	// NOTE: This is offline code, so doesn't need to be super cool
+	void* memory = VirtualAlloc(0, MB(12), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	Assets assets = {};
+	InitializeArena(assets.arena, memory, MB(12));
+	assets.assetMaxCount = 256 * Asset_Count;
+	assets.assets = PushArray(assets.arena, assets.assetMaxCount, Asset);
+	assets.features = PushArray(assets.arena, assets.assetMaxCount, AssetFeatures);
+	AddBmpAsset(assets, Asset_Null, 0);
+	AddBmpAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
+	AddFeature(assets, Feature_Height, 1.f);
+	AddBmpAsset(assets, Asset_Tree, "test/tree2.bmp", V2{ 0.5f, 0.25f });
+	AddFeature(assets, Feature_Height, 3.f);
+	AddBmpAsset(assets, Asset_Tree, "test/tree3.bmp", V2{ 0.5f, 0.25f });
+	AddFeature(assets, Feature_Height, 2.f);
+	AddBmpAsset(assets, Asset_Ground, "test/ground0.bmp");
+	AddBmpAsset(assets, Asset_Ground, "test/ground1.bmp");
+	AddBmpAsset(assets, Asset_Grass, "test/grass0.bmp");
+	AddBmpAsset(assets, Asset_Grass, "test/grass1.bmp");
+
+	V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
+	AddBmpAsset(assets, Asset_Player, "test/hero-right.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.f * TAU);
+	AddBmpAsset(assets, Asset_Player, "test/hero-up.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.25f * TAU);
+	AddBmpAsset(assets, Asset_Player, "test/hero-left.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
+	AddBmpAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
+
+	u32 silksongSampleCount = 7762944;
+	u32 chunkSampleCount = 4 * 48000;
+	u32 firstSampleIndex = 0;
+	Asset* prevAsset = 0;
+	// TODO: What with feature based asset retrieval? It is possible for asset system to return
+	// not first music chunk?
+	while (firstSampleIndex < silksongSampleCount) {
+		SoundId nextAssetId = AddSoundAsset(assets, Asset_Music, "sound/silksong.wav", firstSampleIndex, chunkSampleCount);
+		Asset* nextAsset = GetAsset(assets, nextAssetId.id);
+		if (prevAsset) {
+			prevAsset->soundInfo.nextChunkId = nextAssetId;
+		}
+		prevAsset = nextAsset;
+		firstSampleIndex += chunkSampleCount;
+	}
+	AddSoundAsset(assets, Asset_Bloop, "sound/bloop2.wav");
+	FILE* file;
+	fopen_s(&file, "test.assf", "wb");
+	if (!file) {
+		printf("Cannot open file\n");
+		exit(1);
+	}
+
+	AssetFileInfo* fileAssetInfos = PushArray(assets.arena, assets.assetCount, AssetFileInfo);
+	AssetFileHeader header;
+	header.assetsCount = assets.assetCount;
+	header.assetsOffset = sizeof(header);
+	fwrite(&header, sizeof(AssetFileHeader), 1, file);
+	fwrite(&assets.features, sizeof(AssetFeatures), assets.assetCount, file);
+	fwrite(&assets.groups, sizeof(AssetGroup), Asset_Count, file);
+	u32 assetFileInfoPos = ftell(file);
+	fseek(file, sizeof(AssetFileInfo) * assets.assetCount, SEEK_CUR);
+	for (u32 assetGroupIndex = 0; assetGroupIndex < ArrayCount(assets.groups); assetGroupIndex++) {
+		AssetGroup* group = assets.groups + assetGroupIndex;
+		if (group->firstAssetIndex == 0) {
+			continue;
+		}
+		for (u32 assetIndex = group->firstAssetIndex; assetIndex <= group->lastAssetIndex; assetIndex++) {
+			Asset* asset = GetAsset(assets, assetIndex);
+			AssetFileInfo* fileAssetInfo = fileAssetInfos + assetIndex;
+			if (group->type == AssetGroup_Bitmap) {
+				u32 size = asset->bitmap.pitch * asset->bitmap.height;
+				u32 dataPosition = ftell(file);
+				fwrite(asset->bitmap.data, size, 1, file);
+				fileAssetInfo->bmp.alignment = asset->bitmapInfo.alignment;
+				fileAssetInfo->bmp.height = asset->bitmap.height;
+				fileAssetInfo->bmp.width = asset->bitmap.width;
+				fileAssetInfo->bmp.pitch = asset->bitmap.pitch;
+				fileAssetInfo->bmp.dataOffset = dataPosition;
+			}
+			else if (group->type == AssetGroup_Sound) {
+				u32 samplesPosition0 = ftell(file);
+				u32 count = asset->sound.sampleCount + CHUNK_OVERLAP;
+				fwrite(asset->sound.samples[0], sizeof(f32), count, file);
+				u32 samplesPosition1 = ftell(file);
+				fwrite(asset->sound.samples[1], sizeof(f32), count, file);
+				fileAssetInfo->sound.nChannels = asset->sound.nChannels;
+				fileAssetInfo->sound.sampleCount = asset->sound.sampleCount;
+				fileAssetInfo->sound.nextChunkId = asset->sound.nextChunkId;
+				fileAssetInfo->sound.samplesOffset[0] = samplesPosition0;
+				fileAssetInfo->sound.samplesOffset[1] = samplesPosition1;
+			}
+		}
+	}
+	fseek(file, assetFileInfoPos, SEEK_SET);
+	fwrite(file, sizeof(AssetFileInfo), assets.assetCount, file);
+	fclose(file);
+	return 0;
+}

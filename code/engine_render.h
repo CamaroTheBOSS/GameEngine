@@ -164,7 +164,6 @@ struct Asset {
 			SoundInfo soundInfo;
 		};
 	};
-	AssetFeatures features;
 	AssetState state;
 };
 #pragma warning(pop)
@@ -187,6 +186,7 @@ struct Assets {
 	u32 assetCount;
 	u32 assetMaxCount;
 	Asset* assets;
+	AssetFeatures* features;
 	AssetGroup groups[Asset_Count];
 };
 

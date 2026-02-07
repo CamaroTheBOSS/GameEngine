@@ -7,6 +7,10 @@ set LinkerFlags= -incremental:no -opt:ref user32.lib gdi32.lib ole32.lib winmm.l
 pushd ..\build
   echo %cd%
   del *.pdb > NUL 2> NUL
+  REM Engine Asset Composer
+  cl %CompilerFlags% ..\code\engine_asset_file_composer.cpp /link -incremental:no
+
+  REM Platform layer + game code
   cl %CompilerFlags% ..\code\engine.cpp -LD /link -incremental:no -opt:ref -PDB:engine%random%.pdb -EXPORT:GameMainLoopFrame
   cl %CompilerFlags% ..\code\win32_main.cpp /link %LinkerFlags%
 popd
