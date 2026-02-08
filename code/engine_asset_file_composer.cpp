@@ -46,7 +46,6 @@ FileData ReadEntireFile(const char* filename) {
 	return data;
 }
 
-#define CHUNK_OVERLAP 8
 internal
 LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleCount) {
 #define CHUNK_ID(a, b, c, d) ((d << 24) + (c << 16) + (b << 8) + a)
@@ -120,9 +119,9 @@ LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleC
 	sound.sampleCount = Minimum(wavSampleCount - firstSampleIndex, chunkSampleCount);
 	Assert(sound.sampleCount != 0);
 	Assert((sound.sampleCount & 1) == 0);
-	u64 bytesToAllocate = (sound.sampleCount + CHUNK_OVERLAP) * sizeof(f32) * sound.nChannels;
+	u64 bytesToAllocate = (sound.sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP) * sizeof(f32) * sound.nChannels;
 	sound.samples[0] = ptrcast(f32, VirtualAlloc(0, bytesToAllocate, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-	sound.samples[1] = sound.samples[0] + sound.sampleCount + CHUNK_OVERLAP;
+	sound.samples[1] = sound.samples[0] + sound.sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
 	f32* dest[2] = { sound.samples[0], sound.samples[1] };
 	i16* src = fileSamples + sound.nChannels * firstSampleIndex;
 	f32 dividor = f4(I16_MAX);
@@ -130,7 +129,7 @@ LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleC
 	bool lastChunk = (wavSampleCount - firstSampleIndex) <= chunkSampleCount;
 	u32 samplesToCopy = sound.sampleCount;
 	if (!lastChunk) {
-		samplesToCopy += CHUNK_OVERLAP;
+		samplesToCopy += SOUND_CHUNK_SAMPLE_OVERLAP;
 	}
 	for (u32 sampleIndex = 0; sampleIndex < samplesToCopy; sampleIndex++) {
 		for (u32 channelIndex = 0; channelIndex < sound.nChannels; channelIndex++) {
@@ -237,10 +236,11 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 	Assert(assets.assetCount < assets.assetMaxCount);
 	Asset* asset = &assets.assets[assets.assetCount];
 	asset->bitmap = LoadBmpFile(filename, alignment);
-	BitmapInfo* info = &assets.metadatas[assets.assetCount].bitmapInfo;
-	info->filename = filename;
+	AssetFileBitmapInfo* info = &assets.metadatas[assets.assetCount]._bitmapInfo;
 	info->alignment = alignment;
-	info->typeId = id;
+	info->height = asset->bitmap.height;
+	info->width = asset->bitmap.width;
+	info->pitch = asset->bitmap.pitch;
 	asset->metadataId = assets.assetCount;
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
@@ -251,10 +251,6 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 	else {
 		Assert(group->type == AssetGroup_Bitmap);
 		group->onePastLastAssetIndex++;
-		if (assets.assetCount > 0) {
-			BitmapInfo* prevInfo = &assets.metadatas[assets.assetCount - 1].bitmapInfo;
-			Assert(prevInfo->typeId == info->typeId);
-		}
 	}
 	assets.assetCount++;
 }
@@ -265,12 +261,10 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 	SoundId result = { assets.assetCount };
 	Asset* asset = &assets.assets[assets.assetCount];
 	asset->sound = LoadWAV(filename, firstSampleIndex, chunkSampleCount);
-	SoundInfo* info = &assets.metadatas[assets.assetCount].soundInfo;
-	info->filename = filename;
-	info->typeId = id;
+	AssetFileSoundInfo* info = &assets.metadatas[assets.assetCount]._soundInfo;
 	info->chain = { SoundChain::None, 0 };
-	info->firstSampleIndex = firstSampleIndex;
-	info->chunkSampleCount = chunkSampleCount;
+	info->nChannels = asset->sound.nChannels;
+	info->sampleCount = asset->sound.sampleCount;
 	asset->metadataId = assets.assetCount;
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
@@ -281,10 +275,6 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 	else {
 		Assert(group->type == AssetGroup_Sound);
 		group->onePastLastAssetIndex++;
-		if (assets.assetCount > 0) {
-			SoundInfo* prevInfo = &assets.metadatas[assets.assetCount - 1].soundInfo;
-			Assert(prevInfo->typeId == info->typeId);
-		}
 	}
 	assets.assetCount++;
 	return result;
@@ -339,7 +329,7 @@ int main() {
 		Asset* nextAsset = GetAsset(assets, nextAssetId.id);
 		if (prevAsset) {
 			AssetMetadata* metadata = GetAssetMetadata(assets, *prevAsset);
-			metadata->soundInfo.chain = { SoundChain::Advance, 1 };
+			metadata->_soundInfo.chain = { SoundChain::Advance, 1 };
 		}
 		prevAsset = nextAsset;
 		firstSampleIndex += chunkSampleCount;
@@ -352,13 +342,12 @@ int main() {
 		exit(1);
 	}
 
-	AssetFileInfo* fileAssetInfos = PushArray(assets.arena, assets.assetCount, AssetFileInfo);
 	AssetFileHeader header;
 	header.assetsCount = assets.assetCount;
 	header.featuresOffset = sizeof(header);
 	header.assetGroupsOffset = header.featuresOffset + sizeof(AssetFeatures) * assets.assetCount;
-	header.assetInfosOffset = header.assetGroupsOffset + sizeof(AssetGroup) * Asset_Count;
-	header.assetsOffset = header.assetInfosOffset + sizeof(AssetFileInfo) * assets.assetCount;
+	header.assetMetadatasOffset = header.assetGroupsOffset + sizeof(AssetGroup) * Asset_Count;
+	header.assetsOffset = header.assetMetadatasOffset + sizeof(AssetMetadata) * assets.assetCount;
 	fwrite(&header, sizeof(AssetFileHeader), 1, file);
 	fwrite(&assets.features, sizeof(AssetFeatures), assets.assetCount, file);
 	fwrite(&assets.groups, sizeof(AssetGroup), Asset_Count, file);
@@ -368,33 +357,25 @@ int main() {
 		for (u32 assetIndex = group->firstAssetIndex; assetIndex < group->onePastLastAssetIndex; assetIndex++) {
 			Asset* asset = GetAsset(assets, assetIndex);
 			AssetMetadata* metadata = GetAssetMetadata(assets, *asset);
-			AssetFileInfo* fileAssetInfo = fileAssetInfos + assetIndex;
 			if (group->type == AssetGroup_Bitmap) {
 				u32 size = asset->bitmap.pitch * asset->bitmap.height;
 				u32 dataPosition = ftell(file);
 				fwrite(asset->bitmap.data, size, 1, file);
-				fileAssetInfo->bmp.alignment = metadata->bitmapInfo.alignment;
-				fileAssetInfo->bmp.height = asset->bitmap.height;
-				fileAssetInfo->bmp.width = asset->bitmap.width;
-				fileAssetInfo->bmp.pitch = asset->bitmap.pitch;
-				fileAssetInfo->bmp.dataOffset = dataPosition;
+				metadata->_bitmapInfo.dataOffset = dataPosition;
 			}
 			else if (group->type == AssetGroup_Sound) {
 				u32 samplesPosition0 = ftell(file);
-				u32 count = asset->sound.sampleCount + CHUNK_OVERLAP;
+				u32 count = asset->sound.sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
 				fwrite(asset->sound.samples[0], sizeof(f32), count, file);
 				u32 samplesPosition1 = ftell(file);
 				fwrite(asset->sound.samples[1], sizeof(f32), count, file);
-				fileAssetInfo->sound.nChannels = asset->sound.nChannels;
-				fileAssetInfo->sound.sampleCount = asset->sound.sampleCount;
-				fileAssetInfo->sound.chain = metadata->soundInfo.chain;
-				fileAssetInfo->sound.samplesOffset[0] = samplesPosition0;
-				fileAssetInfo->sound.samplesOffset[1] = samplesPosition1;
+				metadata->_soundInfo.samplesOffset[0] = samplesPosition0;
+				metadata->_soundInfo.samplesOffset[1] = samplesPosition1;
 			}
 		}
 	}
-	fseek(file, u4(header.assetInfosOffset), SEEK_SET);
-	fwrite(fileAssetInfos, sizeof(AssetFileInfo), assets.assetCount, file);
+	fseek(file, u4(header.assetMetadatasOffset), SEEK_SET);
+	fwrite(assets.metadatas, sizeof(AssetMetadata), assets.assetCount, file);
 	fclose(file);
 	return 0;
 }

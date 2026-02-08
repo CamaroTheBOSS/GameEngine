@@ -32,16 +32,16 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		if (!IsReady(asset)) {
 			// TESTING NOTE: That assert is handy in development, comment it out when want to test
 			// whether asset system is resistent on lack of assets loaded
-#if 1
+#if 0
 			// Note: Only first chunk shouldn't be ready, the rest needs to be here on time to avoid
 			// clicking!
-			Assert(GetAssetMetadata(assets, *asset)->soundInfo.firstSampleIndex == 0);
+			Assert(GetAssetMetadata(assets, *asset)->_soundInfo.firstSampleIndex == 0);
 #endif
 			prevSound = currSound;
 			currSound = currSound->next;
 			continue;
 		}
-		SoundInfo* soundInfo = &GetAssetMetadata(assets, *asset)->soundInfo;
+		AssetFileSoundInfo* soundInfo = &GetAssetMetadata(assets, *asset)->_soundInfo;
 		SoundId nextInChain = { 0 };
 		if (soundInfo->chain.op == SoundChain::Advance) {
 			nextInChain.id = currSound->soundId.id + soundInfo->chain.count;
@@ -122,7 +122,7 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		if (soundChunkFinished) {
 			if (IsValid(nextInChain)) {
 				currSound->soundId = nextInChain;
-				currSound->currentSample -= soundInfo->chunkSampleCount;
+				currSound->currentSample -= soundInfo->sampleCount;
 				destCurrentSample += CeilF32ToU32(samplesToPlay);
 				continue;
 			}

@@ -441,18 +441,74 @@ void Win32FileClose(PlatformFileHandle* handle) {
 }
 
 internal
-PlatformFileGroup Win32FileOpenAllWithExtension(const char* extension) {
-	PlatformFileGroup group = {};
+PlatformFileGroupNames Win32FileGetAllWithExtension(const char* extension) {
+	PlatformFileGroupNames group = {};
+	const char* base = "*.";
+	char searchPattern[8] = {'*', '.'};
+	char* dest = searchPattern + 2;
+	for (u32 index = 0; index < ArrayCount(searchPattern) - 2; index++) {
+		*dest++ = extension[index];
+		if (extension[index] == 0) {
+			break;
+		}
+	}
+	searchPattern[ArrayCount(searchPattern) - 1] = 0;
+	WIN32_FIND_DATAA findData;
+	HANDLE handle = FindFirstFileA(searchPattern, &findData);
+	while (handle != INVALID_HANDLE_VALUE) {
+		group.count++;
+		if (!FindNextFileA(handle, &findData)) {
+			break;
+		};
+	}
 
 	// TODO: Don't use virtual alloc here, it is just waste of memory!
-	group.files = ptrcast(PlatformFileHandle*, VirtualAlloc(0, sizeof(PlatformFileHandle*), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-	group.files[0] = Win32FileOpen("test.assf");
-	group.count = 1;
+	char* buffer = ptrcast(char, VirtualAlloc(0, sizeof(char) * group.count * MY_MAX_PATH, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+	group.names = ptrcast(char*, VirtualAlloc(0, sizeof(char*) * group.count, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+	handle = FindFirstFileA(searchPattern, &findData);
+	u32 it = 0;
+	dest = buffer;
+	while (handle != INVALID_HANDLE_VALUE) {
+		group.names[it] = dest;
+		bool nullTerminated = false;
+		for (u32 index = 0; index < ArrayCount(findData.cFileName); index++) {
+			*dest++ = findData.cFileName[index];
+			if (findData.cFileName[index] == 0) {
+				nullTerminated = true;
+				break;
+			}
+		}
+		if (!nullTerminated) {
+			*dest++ = 0;
+		}
+		if (!FindNextFileA(handle, &findData)) {
+			break;
+		};
+		it++;
+	}
 	return group;
 }
 
 internal
-void Win32FileCloseAllInGroup(PlatformFileGroup& group) {
+PlatformFileGroupHandles Win32FileOpenAllInGroup(PlatformFileGroupNames& names) {
+	// TODO: Don't use virtual alloc here, it is just waste of memory!
+	if (names.count == 0) {
+		return {};
+	}
+	PlatformFileGroupHandles handles = {};
+	handles.count = names.count;
+	handles.files = ptrcast(PlatformFileHandle*, VirtualAlloc(0, sizeof(PlatformFileHandle*) * 
+		handles.count, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+	for (u32 fileIndex = 0; fileIndex < handles.count; fileIndex++) {
+		PlatformFileHandle** handle = handles.files + fileIndex;
+		char* name = *(names.names + fileIndex);
+		*handle = Win32FileOpen(name);
+	}
+	return handles;
+}
+
+internal
+void Win32FileCloseAllInGroup(PlatformFileGroupHandles& group) {
 	// TODO: Don't use virtual alloc here, it is just waste of memory!
 	for (u32 fileIndex = 0; fileIndex < group.count; fileIndex++) {
 		PlatformFileHandle* handle = *(group.files + fileIndex);
@@ -977,7 +1033,8 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.platformAPI.QueueWaitForCompletion = Win32WaitForQueueCompletion;
 	programMemory.platformAPI.FileOpen = Win32FileOpen;
 	programMemory.platformAPI.FileClose = Win32FileClose;
-	programMemory.platformAPI.FileOpenAllWithExtension = Win32FileOpenAllWithExtension;
+	programMemory.platformAPI.FileGetAllWithExtension = Win32FileGetAllWithExtension;
+	programMemory.platformAPI.FileOpenAllInGroup = Win32FileOpenAllInGroup;
 	programMemory.platformAPI.FileCloseAllInGroup = Win32FileCloseAllInGroup;
 	programMemory.platformAPI.FileErrors = Win32FileErrors;
 	programMemory.platformAPI.FileRead = Win32FileRead;

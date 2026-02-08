@@ -1,4 +1,5 @@
 #pragma once
+#include "engine.h"
 
 /*
 	1) All coordinates outside the renderer are expected to be bottom-up in Y and
@@ -32,11 +33,11 @@ struct SoundId {
 	u32 id;
 };
 
+#define SOUND_CHUNK_SAMPLE_OVERLAP 8
 struct LoadedSound {
 	u32 sampleCount;
 	u32 nChannels;
 	f32* samples[2];
-	SoundId nextChunkId;
 };
 
 struct EnvironmentMap {
@@ -145,7 +146,7 @@ struct AssetFileHeader {
 	u32 assetsCount;
 	u64 featuresOffset;
 	u64 assetGroupsOffset;
-	u64 assetInfosOffset;
+	u64 assetMetadatasOffset;
 	u64 assetsOffset;
 };
 
@@ -154,7 +155,8 @@ struct AssetFileBitmapInfo {
 	i32 width;
 	i32 pitch;
 	V2 alignment;
-	u32 dataOffset; //u32*
+	u32 dataSizeInBytes;
+	u32 dataOffset;
 };
 enum class SoundChain {
 	None,
@@ -169,42 +171,16 @@ struct AssetFileSoundInfo {
 	u32 sampleCount;
 	u32 nChannels;
 	SoundChainInfo chain;
-	u32 samplesOffset[2]; //f32*
-};
-
-struct AssetFileInfo {
-	union {
-		AssetFileBitmapInfo bmp;
-		AssetFileSoundInfo sound;
-	};
-};
-
-struct BitmapInfo {
-	const char* filename;
-	AssetTypeID typeId;
-	V2 alignment;
-};
-
-struct SoundInfo {
-	const char* filename;
-	AssetTypeID typeId;
-	SoundChainInfo chain;
-	u32 firstSampleIndex;
-	u32 chunkSampleCount;
+	u32 dataSizeInBytes;
+	u32 samplesOffset[2]; 
 };
 
 #pragma warning(push)
 #pragma warning(disable : 4201)
 struct AssetMetadata {
 	union {
-		struct {
-			SoundInfo soundInfo;
-			AssetFileSoundInfo soundFileInfo;
-		};
-		struct {
-			BitmapInfo bitmapInfo;
-			AssetFileBitmapInfo bitmapFileInfo;
-		};
+		AssetFileSoundInfo _soundInfo;
+		AssetFileBitmapInfo _bitmapInfo;
 	};
 };
 
@@ -214,7 +190,7 @@ struct Asset {
 		LoadedBitmap bitmap;
 		LoadedSound sound;
 	};
-	PlatformFileHandle* fileHandle;
+	u32 filenameHandle;
 	u32 metadataId;
 	AssetState state;
 };
@@ -241,6 +217,8 @@ struct Assets {
 	AssetMetadata* metadatas;
 	AssetFeatures* features;
 	AssetGroup groups[Asset_Count];
+
+	char** filenames;
 };
 
 /*                Renderer API                  */

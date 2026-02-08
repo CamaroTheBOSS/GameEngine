@@ -1424,6 +1424,29 @@ bool NeedsFetching(Asset& asset) {
 	return asset.state == AssetState::NotReady;
 }
 
+struct LoadAssetTaskArgs {
+	const char* filename;
+	void* buffer;
+	u32 offset;
+	u32 size;
+	TaskWithMemory* task;
+	AssetState* state;
+};
+
+internal
+void LoadAssetBackgroundTask(void* data) {
+	// TODO: Can I do that without opening/closing file all the time?
+	LoadAssetTaskArgs* args = ptrcast(LoadAssetTaskArgs, data);
+	PlatformFileHandle* handle = Platform->FileOpen(args->filename);
+	Platform->FileRead(handle, args->offset, args->size, args->buffer);
+	if (!Platform->FileErrors(handle)) {
+		WriteCompilatorFence;
+		*args->state = AssetState::Ready;
+		EndBackgroundTask(args->task);
+	}
+	Platform->FileClose(handle);
+}
+
 internal
 bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	Asset& asset = assets.assets[bid.id];
@@ -1434,6 +1457,27 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	if (!task) {
 		return false;
 	}
+	AssetFileBitmapInfo* metadata = &GetAssetMetadata(assets, asset)->_bitmapInfo;
+	asset.bitmap.align = metadata->alignment;
+	asset.bitmap.height = metadata->height;
+	asset.bitmap.width = metadata->width;
+	asset.bitmap.pitch = metadata->pitch;
+	asset.bitmap.widthOverHeight = f4(metadata->width) / f4(metadata->height);
+	asset.bitmap.data = ptrcast(u32, PushArray(assets.arena, metadata->pitch * metadata->height, u8));
+	asset.state = AssetState::Pending;
+
+	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
+	args->filename = assets.filenames[asset.filenameHandle];
+	args->offset = metadata->dataOffset;
+	args->size = metadata->pitch * metadata->height;
+	args->buffer = asset.bitmap.data;
+	args->task = task;
+	args->state = &asset.state;
+
+	WriteCompilatorFence;
+	Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadAssetBackgroundTask, args);
+	return true;
+#if 0
 	BitmapInfo* info = &GetAssetMetadata(assets, asset)->bitmapInfo;
 	Assert(info->filename);
 	LoadBitmapTaskArgs* args = PushStructSize(task->arena, LoadBitmapTaskArgs);
@@ -1445,6 +1489,52 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	WriteCompilatorFence;
 	Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadBitmapBackgroundTask, args);
 	return true;
+#endif
+}
+
+internal
+bool PrefetchSound(Assets& assets, SoundId sid) {
+	Asset& asset = assets.assets[sid.id];
+	if (!IsValid(sid) || !NeedsFetching(asset)) {
+		return false;
+	}
+	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
+	if (!task) {
+		return false;
+	}
+
+	AssetFileSoundInfo* metadata = &GetAssetMetadata(assets, asset)->_soundInfo;
+	u32 floatsToAllocate = (metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP) * metadata->nChannels;
+	asset.sound.nChannels = metadata->nChannels;
+	asset.sound.sampleCount = metadata->sampleCount;
+	asset.sound.samples[0] = PushArray(assets.arena, floatsToAllocate, f32);
+	asset.sound.samples[1] = asset.sound.samples[0] + metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
+	asset.state = AssetState::Pending;
+
+	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
+	args->filename = assets.filenames[asset.filenameHandle];
+	args->offset = metadata->samplesOffset[0];
+	args->size = floatsToAllocate * sizeof(f32);
+	args->buffer = asset.bitmap.data;
+	args->task = task;
+	args->state = &asset.state;
+	WriteCompilatorFence;
+	Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadAssetBackgroundTask, args);
+	return true;
+#if 0
+	SoundInfo* info = &GetAssetMetadata(assets, asset)->soundInfo;
+	Assert(info->filename);
+	LoadSoundTaskArgs* args = PushStructSize(task->arena, LoadSoundTaskArgs);
+	args->asset = &asset;
+	args->task = task;
+	args->filename = info->filename;
+	args->firstSampleIndex = info->firstSampleIndex;
+	args->chunkSampleCount = info->chunkSampleCount;
+	asset.state = AssetState::Pending;
+	WriteCompilatorFence;
+	Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadSoundBackgroundTask, args);
+	return true;
+#endif
 }
 
 internal
@@ -1558,30 +1648,6 @@ void LoadSoundBackgroundTask(void* data) {
 	EndBackgroundTask(args->task);
 }
 
-internal
-bool PrefetchSound(Assets& assets, SoundId sid) {
-	Asset& asset = assets.assets[sid.id];
-	if (!IsValid(sid) || !NeedsFetching(asset)) {
-		return false;
-	}
-	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
-	if (!task) {
-		return false;
-	}
-	SoundInfo* info = &GetAssetMetadata(assets, asset)->soundInfo;
-	Assert(info->filename);
-	LoadSoundTaskArgs* args = PushStructSize(task->arena, LoadSoundTaskArgs);
-	args->asset = &asset;
-	args->task = task;
-	args->filename = info->filename;
-	args->firstSampleIndex = info->firstSampleIndex;
-	args->chunkSampleCount = info->chunkSampleCount;
-	asset.state = AssetState::Pending;
-	WriteCompilatorFence;
-	Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadSoundBackgroundTask, args);
-	return true;
-}
-
 inline
 bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
 	AssetGroup* group = GetAssetGroup(assets, typeId);
@@ -1604,6 +1670,7 @@ bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
 	return ready;
 }
 
+#if 0
 inline 
 void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment = V2{0.5f, 0.5f}) {
 	Assert(assets.assetCount < assets.assetMaxCount);
@@ -1666,12 +1733,14 @@ void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
 	AssetFeatures* features = GetAssetFeatures(assets, assets.assetCount - 1);
 	*features[fId] = value;
 }
+#endif
 
 internal
 void AllocateAssets(TransientState* tranState) {
-#if 0
+#if 1
 	u32 assetsCount = 0;
-	PlatformFileGroup fileGroup = Platform->FileOpenAllWithExtension("assf");
+	PlatformFileGroupNames fileGroupNames = Platform->FileGetAllWithExtension("assf");
+	PlatformFileGroupHandles fileGroup = Platform->FileOpenAllInGroup(fileGroupNames);
 	// NOTE: Read how many assets do we have at all first!
 	for (u32 fileIndex = 0; fileIndex < fileGroup.count; fileIndex++) {
 		PlatformFileHandle* file = *(fileGroup.files + fileIndex);
@@ -1687,12 +1756,13 @@ void AllocateAssets(TransientState* tranState) {
 		assetsCount += header.assetsCount - 1;
 	}
 	Assets& assets = tranState->assets;
-	SubArena(assets.arena, tranState->arena, MB(12));
+	SubArena(assets.arena, tranState->arena, MB(512));
 	assets.tranState = tranState;
 	assets.assetCount = assetsCount + 1;
 	assets.assets = PushArray(assets.arena, assets.assetCount, Asset);
 	assets.features = PushArray(assets.arena, assets.assetCount, AssetFeatures);
-	
+	assets.metadatas = PushArray(assets.arena, assets.assetCount, AssetMetadata);
+	assets.filenames = fileGroupNames.names;
 
 	TemporaryMemory scratchMemory = BeginTempMemory(assets.arena);
 	AssetFileHeader* headers = PushArray(assets.arena, fileGroup.count, AssetFileHeader);
@@ -1737,25 +1807,26 @@ void AllocateAssets(TransientState* tranState) {
 				sizeof(AssetFeatures) * fileAssetCountInGroup,
 				assets.features + readAssetsCount
 			);
-
-			AssetFileInfo* fileAssetInfos = PushArray(assets.arena, fileAssetCountInGroup, AssetFileInfo);
 			Platform->FileRead(
 				file,
-				u4(header->assetInfosOffset) + sizeof(AssetFileInfo) * fileAssetGroup->firstAssetIndex,
-				sizeof(AssetFileInfo) * fileAssetCountInGroup,
-				fileAssetInfos
+				u4(header->assetMetadatasOffset) + sizeof(AssetMetadata) * fileAssetGroup->firstAssetIndex,
+				sizeof(AssetMetadata) * fileAssetCountInGroup,
+				assets.metadatas + readAssetsCount
 			);
 			if (Platform->FileErrors(file)) {
 				// TODO: Inform user about IO error
 				continue;
 			}
 			for (u32 baseIndex = 0; baseIndex < fileAssetCountInGroup; baseIndex++) {
-				AssetFileInfo* srcAssetInfo = fileAssetInfos + baseIndex;
 				Asset* dstAsset = assets.assets + readAssetsCount + baseIndex;
+				dstAsset->filenameHandle = fileIndex;
+				dstAsset->metadataId = readAssetsCount + baseIndex;
+#if 0
+				AssetMetadata* dstMetadata = assets.metadatas + readAssetsCount + baseIndex;
 				switch (fileAssetGroup->type) {
 				case AssetGroup_Bitmap: {
 					// TODO: Shouldn't it be flat loading?
-					dstAsset->bitmapFileInfo = srcAssetInfo->bmp;
+					dstMetadata->_bitmapInfo = srcAssetInfo->bmp;
 					dstAsset->fileHandle = file;
 					// TODO: TypeId is only needed for assertion, so maybe it can be structured
 					// in other way to just delete it?
@@ -1765,10 +1836,8 @@ void AllocateAssets(TransientState* tranState) {
 				} break;
 				case AssetGroup_Sound: {
 					// TODO: Shouldn't it be flat loading?
-					dstAsset->soundFileInfo = srcAssetInfo->sound;
+					dstMetadata->_soundInfo = srcAssetInfo->sound;
 					dstAsset->fileHandle = file;
-					
-					dstAsset->soundInfo.chain = srcAssetInfo->sound.chain;
 					/*
 					TODO: Again not relevant stuff here
 					asset->soundInfo.chunkSampleCount = assetFileInfo->sound.sampleCount;
@@ -1778,6 +1847,7 @@ void AllocateAssets(TransientState* tranState) {
 				} break;
 				InvalidDefaultCase;
 				}
+#endif
 			}
 			combinedAssetGroup->firstAssetIndex = readAssetsCount;
 			combinedAssetGroup->onePastLastAssetIndex = readAssetsCount + fileAssetCountInGroup;
@@ -1787,13 +1857,14 @@ void AllocateAssets(TransientState* tranState) {
 	}
 	Assert(assets.assetCount == readAssetsCount);
 
+	// NOTE: CLOSE THE FKING HANDLES!
 	Platform->FileCloseAllInGroup(fileGroup);
 	EndTempMemory(scratchMemory);
 	CheckArena(assets.arena);
 	
 #endif
 
-#if 1
+#if 0
 	Assets& assets = tranState->assets;
 	SubArena(assets.arena, tranState->arena, MB(12));
 	assets.tranState = tranState;
