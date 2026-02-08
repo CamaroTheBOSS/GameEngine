@@ -195,21 +195,27 @@ struct SoundInfo {
 
 #pragma warning(push)
 #pragma warning(disable : 4201)
-struct PlatformFileHandle;
-struct Asset {
+struct AssetMetadata {
 	union {
 		struct {
-			LoadedBitmap bitmap;
-			BitmapInfo bitmapInfo;
-			AssetFileBitmapInfo bitmapFileInfo;
-		};
-		struct {
-			LoadedSound sound;
 			SoundInfo soundInfo;
 			AssetFileSoundInfo soundFileInfo;
 		};
+		struct {
+			BitmapInfo bitmapInfo;
+			AssetFileBitmapInfo bitmapFileInfo;
+		};
+	};
+};
+
+struct PlatformFileHandle;
+struct Asset {
+	union {
+		LoadedBitmap bitmap;
+		LoadedSound sound;
 	};
 	PlatformFileHandle* fileHandle;
+	u32 metadataId;
 	AssetState state;
 };
 #pragma warning(pop)
@@ -232,6 +238,7 @@ struct Assets {
 	u32 assetCount;
 	u32 assetMaxCount;
 	Asset* assets;
+	AssetMetadata* metadatas;
 	AssetFeatures* features;
 	AssetGroup groups[Asset_Count];
 };

@@ -11,6 +11,12 @@ Asset* GetAsset(Assets& assets, u32 id) {
 }
 
 inline
+AssetMetadata* GetAssetMetadata(Assets& assets, Asset& asset) {
+	AssetMetadata* metadata = &assets.metadatas[asset.metadataId];
+	return metadata;
+}
+
+inline
 AssetFeatures* GetAssetFeatures(Assets& assets, u32 id) {
 	AssetFeatures* asset = &assets.features[id];
 	return asset;
@@ -231,10 +237,11 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 	Assert(assets.assetCount < assets.assetMaxCount);
 	Asset* asset = &assets.assets[assets.assetCount];
 	asset->bitmap = LoadBmpFile(filename, alignment);
-	BitmapInfo* info = &asset->bitmapInfo;
+	BitmapInfo* info = &assets.metadatas[assets.assetCount].bitmapInfo;
 	info->filename = filename;
 	info->alignment = alignment;
 	info->typeId = id;
+	asset->metadataId = assets.assetCount;
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
 		group->firstAssetIndex = assets.assetCount;
@@ -245,7 +252,7 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 		Assert(group->type == AssetGroup_Bitmap);
 		group->onePastLastAssetIndex++;
 		if (assets.assetCount > 0) {
-			BitmapInfo* prevInfo = &assets.assets[assets.assetCount - 1].bitmapInfo;
+			BitmapInfo* prevInfo = &assets.metadatas[assets.assetCount - 1].bitmapInfo;
 			Assert(prevInfo->typeId == info->typeId);
 		}
 	}
@@ -258,12 +265,13 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 	SoundId result = { assets.assetCount };
 	Asset* asset = &assets.assets[assets.assetCount];
 	asset->sound = LoadWAV(filename, firstSampleIndex, chunkSampleCount);
-	SoundInfo* info = &asset->soundInfo;
+	SoundInfo* info = &assets.metadatas[assets.assetCount].soundInfo;
 	info->filename = filename;
 	info->typeId = id;
 	info->chain = { SoundChain::None, 0 };
 	info->firstSampleIndex = firstSampleIndex;
 	info->chunkSampleCount = chunkSampleCount;
+	asset->metadataId = assets.assetCount;
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
 		group->firstAssetIndex = assets.assetCount;
@@ -274,7 +282,7 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 		Assert(group->type == AssetGroup_Sound);
 		group->onePastLastAssetIndex++;
 		if (assets.assetCount > 0) {
-			SoundInfo* prevInfo = &assets.assets[assets.assetCount - 1].soundInfo;
+			SoundInfo* prevInfo = &assets.metadatas[assets.assetCount - 1].soundInfo;
 			Assert(prevInfo->typeId == info->typeId);
 		}
 	}
@@ -297,6 +305,7 @@ int main() {
 	assets.assetMaxCount = 256 * Asset_Count;
 	assets.assets = PushArray(assets.arena, assets.assetMaxCount, Asset);
 	assets.features = PushArray(assets.arena, assets.assetMaxCount, AssetFeatures);
+	assets.metadatas = PushArray(assets.arena, assets.assetMaxCount, AssetMetadata);
 	AddBmpAsset(assets, Asset_Null, 0);
 	AddBmpAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
 	AddFeature(assets, Feature_Height, 1.f);
@@ -329,7 +338,8 @@ int main() {
 		SoundId nextAssetId = AddSoundAsset(assets, Asset_Music, "sound/silksong.wav", firstSampleIndex, chunkSampleCount);
 		Asset* nextAsset = GetAsset(assets, nextAssetId.id);
 		if (prevAsset) {
-			prevAsset->soundInfo.chain = { SoundChain::Advance, 1 };
+			AssetMetadata* metadata = GetAssetMetadata(assets, *prevAsset);
+			metadata->soundInfo.chain = { SoundChain::Advance, 1 };
 		}
 		prevAsset = nextAsset;
 		firstSampleIndex += chunkSampleCount;
@@ -357,12 +367,13 @@ int main() {
 		AssetGroup* group = assets.groups + assetGroupIndex;
 		for (u32 assetIndex = group->firstAssetIndex; assetIndex < group->onePastLastAssetIndex; assetIndex++) {
 			Asset* asset = GetAsset(assets, assetIndex);
+			AssetMetadata* metadata = GetAssetMetadata(assets, *asset);
 			AssetFileInfo* fileAssetInfo = fileAssetInfos + assetIndex;
 			if (group->type == AssetGroup_Bitmap) {
 				u32 size = asset->bitmap.pitch * asset->bitmap.height;
 				u32 dataPosition = ftell(file);
 				fwrite(asset->bitmap.data, size, 1, file);
-				fileAssetInfo->bmp.alignment = asset->bitmapInfo.alignment;
+				fileAssetInfo->bmp.alignment = metadata->bitmapInfo.alignment;
 				fileAssetInfo->bmp.height = asset->bitmap.height;
 				fileAssetInfo->bmp.width = asset->bitmap.width;
 				fileAssetInfo->bmp.pitch = asset->bitmap.pitch;
@@ -376,7 +387,7 @@ int main() {
 				fwrite(asset->sound.samples[1], sizeof(f32), count, file);
 				fileAssetInfo->sound.nChannels = asset->sound.nChannels;
 				fileAssetInfo->sound.sampleCount = asset->sound.sampleCount;
-				fileAssetInfo->sound.chain = asset->soundInfo.chain;
+				fileAssetInfo->sound.chain = metadata->soundInfo.chain;
 				fileAssetInfo->sound.samplesOffset[0] = samplesPosition0;
 				fileAssetInfo->sound.samplesOffset[1] = samplesPosition1;
 			}

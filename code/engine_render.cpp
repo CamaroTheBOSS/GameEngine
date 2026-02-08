@@ -1309,6 +1309,12 @@ Asset* GetAsset(Assets& assets, u32 id) {
 }
 
 inline
+AssetMetadata* GetAssetMetadata(Assets& assets, Asset& asset) {
+	AssetMetadata* metadata = &assets.metadatas[asset.metadataId];
+	return metadata;
+}
+
+inline
 AssetFeatures* GetAssetFeatures(Assets& assets, u32 id) {
 	AssetFeatures* asset = &assets.features[id];
 	return asset;
@@ -1428,7 +1434,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	if (!task) {
 		return false;
 	}
-	BitmapInfo* info = &assets.assets[bid.id].bitmapInfo;
+	BitmapInfo* info = &GetAssetMetadata(assets, asset)->bitmapInfo;
 	Assert(info->filename);
 	LoadBitmapTaskArgs* args = PushStructSize(task->arena, LoadBitmapTaskArgs);
 	args->asset = &asset;
@@ -1562,7 +1568,7 @@ bool PrefetchSound(Assets& assets, SoundId sid) {
 	if (!task) {
 		return false;
 	}
-	SoundInfo* info = &assets.assets[sid.id].soundInfo;
+	SoundInfo* info = &GetAssetMetadata(assets, asset)->soundInfo;
 	Assert(info->filename);
 	LoadSoundTaskArgs* args = PushStructSize(task->arena, LoadSoundTaskArgs);
 	args->asset = &asset;
@@ -1601,10 +1607,12 @@ bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
 inline 
 void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment = V2{0.5f, 0.5f}) {
 	Assert(assets.assetCount < assets.assetMaxCount);
-	BitmapInfo* info = &assets.assets[assets.assetCount].bitmapInfo;
+	Asset* asset = &assets.assets[assets.assetCount];
+	BitmapInfo* info = &assets.metadatas[assets.assetCount].bitmapInfo;
 	info->filename = filename;
 	info->alignment = alignment;
 	info->typeId = id;
+	asset->metadataId = assets.assetCount;
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
 		group->firstAssetIndex = assets.assetCount;
@@ -1615,7 +1623,7 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 		Assert(group->type == AssetGroup_Bitmap);
 		group->onePastLastAssetIndex++;
 		if (assets.assetCount > 0) {
-			BitmapInfo* prevInfo = &assets.assets[assets.assetCount - 1].bitmapInfo;
+			BitmapInfo* prevInfo = &assets.metadatas[assets.assetCount - 1].bitmapInfo;
 			Assert(prevInfo->typeId == info->typeId);
 		}
 	}
@@ -1626,12 +1634,14 @@ inline
 SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 firstSampleIndex = 0, u32 chunkSampleCount = 0) {
 	Assert(assets.assetCount < assets.assetMaxCount);
 	SoundId result = { assets.assetCount };
-	SoundInfo* info = &assets.assets[assets.assetCount].soundInfo;
+	Asset* asset = &assets.assets[assets.assetCount];
+	SoundInfo* info = &assets.metadatas[assets.assetCount].soundInfo;
 	info->filename = filename;
 	info->typeId = id;
 	info->chain = { SoundChain::None, 0 };
 	info->firstSampleIndex = firstSampleIndex;
 	info->chunkSampleCount = chunkSampleCount;
+	asset->metadataId = assets.assetCount;
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
 		group->firstAssetIndex = assets.assetCount;
@@ -1642,7 +1652,7 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 		Assert(group->type == AssetGroup_Sound);
 		group->onePastLastAssetIndex++;
 		if (assets.assetCount > 0) {
-			SoundInfo* prevInfo = &assets.assets[assets.assetCount - 1].soundInfo;
+			SoundInfo* prevInfo = &assets.metadatas[assets.assetCount - 1].soundInfo;
 			Assert(prevInfo->typeId == info->typeId);
 		}
 	}
@@ -1659,10 +1669,7 @@ void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
 
 internal
 void AllocateAssets(TransientState* tranState) {
-#if 1
-	FileData debugData = debugGlobalMemory->readEntireFile("test.assf");
-#endif
-#if 1
+#if 0
 	u32 assetsCount = 0;
 	PlatformFileGroup fileGroup = Platform->FileOpenAllWithExtension("assf");
 	// NOTE: Read how many assets do we have at all first!
@@ -1786,13 +1793,14 @@ void AllocateAssets(TransientState* tranState) {
 	
 #endif
 
-#if 0
+#if 1
 	Assets& assets = tranState->assets;
 	SubArena(assets.arena, tranState->arena, MB(12));
 	assets.tranState = tranState;
 	assets.assetMaxCount = 256 * Asset_Count;
 	assets.assets = PushArray(assets.arena, assets.assetMaxCount, Asset);
 	assets.features = PushArray(assets.arena, assets.assetMaxCount, AssetFeatures);
+	assets.metadatas = PushArray(assets.arena, assets.assetMaxCount, AssetMetadata);
 	AddBmpAsset(assets, Asset_Null, 0);
 	AddBmpAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
 	AddFeature(assets, Feature_Height, 1.f);
@@ -1825,7 +1833,8 @@ void AllocateAssets(TransientState* tranState) {
 		SoundId nextAssetId = AddSoundAsset(assets, Asset_Music, "sound/silksong.wav", firstSampleIndex, chunkSampleCount);
 		Asset* nextAsset = GetAsset(assets, nextAssetId.id);
 		if (prevAsset) {
-			prevAsset->soundInfo.chain = { SoundChain::Advance, 1 };
+			AssetMetadata* metadata = GetAssetMetadata(assets, *prevAsset);
+			metadata->soundInfo.chain = { SoundChain::Advance, 1 };
 		}
 		prevAsset = nextAsset;
 		firstSampleIndex += chunkSampleCount;

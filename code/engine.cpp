@@ -29,22 +29,22 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		// TODO: Hunt for this assertion and check whether it is still needed, probably not
 		// Assert(destCurrentSample < outBufferSampleCount);
 		Asset* asset = GetAsset(assets, currSound->soundId.id);
-		SoundInfo* soundInfo = &asset->soundInfo;
 		if (!IsReady(asset)) {
 			// TESTING NOTE: That assert is handy in development, comment it out when want to test
 			// whether asset system is resistent on lack of assets loaded
 #if 1
 			// Note: Only first chunk shouldn't be ready, the rest needs to be here on time to avoid
 			// clicking!
-			Assert(soundInfo->firstSampleIndex == 0);
+			Assert(GetAssetMetadata(assets, *asset)->soundInfo.firstSampleIndex == 0);
 #endif
 			prevSound = currSound;
 			currSound = currSound->next;
 			continue;
 		}
+		SoundInfo* soundInfo = &GetAssetMetadata(assets, *asset)->soundInfo;
 		SoundId nextInChain = { 0 };
-		if (asset->soundInfo.chain.op == SoundChain::Advance) {
-			nextInChain.id = currSound->soundId.id + asset->soundInfo.chain.count;
+		if (soundInfo->chain.op == SoundChain::Advance) {
+			nextInChain.id = currSound->soundId.id + soundInfo->chain.count;
 		}
 		PrefetchSound(assets, nextInChain);
 		LoadedSound* assetSound = &asset->sound;
