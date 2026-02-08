@@ -1629,7 +1629,7 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 	SoundInfo* info = &assets.assets[assets.assetCount].soundInfo;
 	info->filename = filename;
 	info->typeId = id;
-	info->nextChunkId = { 0 };
+	info->chain = { SoundChain::None, 0 };
 	info->firstSampleIndex = firstSampleIndex;
 	info->chunkSampleCount = chunkSampleCount;
 	AssetGroup* group = &assets.groups[id];
@@ -1683,40 +1683,118 @@ void AllocateAssets(TransientState* tranState) {
 	assets.assets = PushArray(assets.arena, assetsCount, Asset);
 	assets.features = PushArray(assets.arena, assetsCount, AssetFeatures);
 
-	u32 currentMergedAssetIndex = 0;
-	TemporaryMemory scratchMemory = BeginTempMemory(assets.arena);
-	for (u32 fileIndex = 0; fileIndex < files.count; fileIndex++) {
+	u32 readAssets = 0;
+	for (u32 fileIndex = 0; fileIndex < files.count; fileIndex++) {	
 		PlatformFileHandle* file = files.files + fileIndex;
 		PlatformFileOpen(file);
 		AssetFileHeader header;
 		PlatformReadFromFile(file, 0, sizeof(header), &header);
+		PlatformReadFromFile(
+			file, 
+			file.streamPos,
+			sizeof(AssetFeatures) * header.assetsCount, 
+			assets.features + readAssets
+		);
+
+		TemporaryMemory scratchMemory = BeginTempMemory(assets.arena);
+		AssetGroup* assetFileGroups = PushArray(assets.arena, header.assetsCount, AssetGroup);
+		AssetFileInfo* assetFileInfos = PushArray(assets.arena, header.assetsCount, AssetFileInfo);
+		PlatformReadFromFile(
+			file,
+			file.streamPos,
+			sizeof(AssetGroup) * header.assetsCount,
+			assetFileGroups
+		);
+		PlatformReadFromFile(
+			file,
+			file.streamPos,
+			sizeof(AssetFileInfo) * header.assetsCount,
+			assetFileInfos
+		);
 		if (PlatformFileErrors(file) ||
 			header.magicString != EAF_MAGIC_STRING('a', 's', 's', 'f') ||
 			header.version != 0) {
 			// TODO: Inform user about IO error
 			continue;
 		}
-		PlatformReadFromFile(
-			file, 
-			sizeof(header), 
-			sizeof(AssetFeatures) * header.assetsCount, 
-			&assets.features
-		);
-		AssetGroup* assetFileGroups = PushArray(assets.arena, header.assetsCount, AssetFileGroup);
-		for (u32 assetGroupIndex = 0; assetGroupIndex < header.assetsCount, assetGroupIndex++) {
+
+		u32 currentMergedAssetIndex = readAssets;
+		for (u32 assetGroupIndex = 0; assetGroupIndex < header.assetsCount; assetGroupIndex++) {
 			AssetGroup* assetFileGroup = assetFileGroups + assetGroupIndex;
 			AssetGroup* mergedAssetGroup = assets.groups + assetGroupIndex;
+			u32 assetFileCountInGroup = assetFileGroup->onePastLastAssetIndex - assetFileGroup->firstAssetIndex;
 			if (!mergedAssetGroup->firstAssetIndex) {
-				u32 assetFileCountInGroup = assetFileGroup->lastAssetIndex - assetFileGroup->firstAssetIndex;
 				mergedAssetGroup->firstAssetIndex = currentMergedAssetIndex;
-				mergedAssetGroup->lastAssetIndex = currentMergedAssetIndex;
+				mergedAssetGroup->onePastLastAssetIndex = currentMergedAssetIndex + assetFileCountInGroup;
 				mergedAssetGroup->type = assetFileGroup->type;
 			}
 			else {
-
+				Assert(mergedAssetGroup->type == assetFileGroup->type);
+				mergedAssetGroup->onePastLastAssetIndex += assetFileCountInGroup;
 			}
-			
+
+			for (u32 relativeGroupIndex = 0; relativeGroupIndex < assetFileCountInGroup; relativeGroupIndex++)
+			{
+				u32 assetFileInfoIndex = assetFileGroup->firstAssetIndex + relativeGroupIndex;
+				u32 assetIndex = currentMergedAssetIndex + relativeGroupIndex;
+				AssetFileInfo* assetFileInfo = assetFileInfos + assetFileInfoIndex;
+				Asset* asset = assets.assets + assetIndex;
+				switch (mergedAssetGroup->type) {
+				case AssetGroup_Bitmap: {
+					// TODO: Shouldn't it be flat loading?
+					asset->bitmapFileInfo = assetFileInfo->bmp;
+					asset->fileHandle = file;
+					// TODO: TypeId is only needed for assertion, so maybe it can be structured
+					// in other way to just delete it?
+					// Also filename is not relevant
+					// asset->bitmapInfo.typeId = assetFileInfo->bmp.
+					// asset->bitmapInfo.filename = 0;
+				} break;
+				case AssetGroup_Sound: {
+					// TODO: Shouldn't it be flat loading?
+					// TODO: NextChunkID from file is busted relative to merged one!
+					asset->soundFileInfo = assetFileInfo->sound;
+					asset->fileHandle = file;
+					asset->soundInfo.nextChunkId = assetFileInfo->sound.nextChunkId;
+					/*
+					TODO: Again not relevant stuff here
+					asset->soundInfo.chunkSampleCount = assetFileInfo->sound.sampleCount;
+					asset->soundInfo.firstSampleIndex = 0;
+					asset->soundInfo.filename = 0;
+					*/
+				} break;
+				InvalidDefaultCase;
+				}
+			}
+
+			currentMergedAssetIndex += assetFileCountInGroup;
 		}
+		Assert((currentMergedAssetIndex - readAssets) == header.assetsCount);
+
+		
+		struct AssetFileInfo {
+			struct AssetFileBitmapInfo {
+				i32 height;
+				i32 width;
+				i32 pitch;
+				V2 alignment;
+				u32 dataOffset; //u32*
+			};
+			struct AssetFileSoundInfo {
+				u32 sampleCount;
+				u32 nChannels;
+				SoundId nextChunkId;
+				u32 samplesOffset[2]; //f32*
+			};
+			union {
+				AssetFileBitmapInfo bmp;
+				AssetFileSoundInfo sound;
+			};
+		};
+		
+		
+
+
 
 		assetsCount += header.assetsCount;
 		PlatformFileClose(file);
@@ -1762,7 +1840,7 @@ void AllocateAssets(TransientState* tranState) {
 		SoundId nextAssetId = AddSoundAsset(assets, Asset_Music, "sound/silksong.wav", firstSampleIndex, chunkSampleCount);
 		Asset* nextAsset = GetAsset(assets, nextAssetId.id);
 		if (prevAsset) {
-			prevAsset->soundInfo.nextChunkId = nextAssetId;
+			prevAsset->soundInfo.chain = { SoundChain::Advance, 1 };
 		}
 		prevAsset = nextAsset;
 		firstSampleIndex += chunkSampleCount;

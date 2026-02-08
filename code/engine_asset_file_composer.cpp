@@ -261,7 +261,7 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 	SoundInfo* info = &asset->soundInfo;
 	info->filename = filename;
 	info->typeId = id;
-	info->nextChunkId = { 0 };
+	info->chain = { SoundChain::None, 0 };
 	info->firstSampleIndex = firstSampleIndex;
 	info->chunkSampleCount = chunkSampleCount;
 	AssetGroup* group = &assets.groups[id];
@@ -288,38 +288,6 @@ void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
 	AssetFeatures* features = GetAssetFeatures(assets, assets.assetCount - 1);
 	*features[fId] = value;
 }
-
-#define EAF_MAGIC_STRING(a, b, c, d) ((d << 24) + (c << 16) + (b << 8) + a)
-struct AssetFileHeader {
-	u32 magicString = EAF_MAGIC_STRING('a', 's', 's', 'f');
-	u32 version = 0;
-
-	u32 assetsCount;
-	u64 assetsOffset;
-};
-
-struct AssetFileBitmapInfo {
-	i32 height;
-	i32 width;
-	i32 pitch;
-	V2 alignment;
-	u32 dataOffset; //u32*
-};
-struct AssetFileSoundInfo {
-	u32 sampleCount;
-	u32 nChannels;
-	SoundId nextChunkId;
-	u32 samplesOffset[2]; //f32*
-};
-
-struct AssetFileInfo {
-	union {
-		AssetFileBitmapInfo bmp;
-		AssetFileSoundInfo sound;
-	};
-};
-
-
 
 int main() {
 	// NOTE: This is offline code, so doesn't need to be super cool
@@ -361,7 +329,7 @@ int main() {
 		SoundId nextAssetId = AddSoundAsset(assets, Asset_Music, "sound/silksong.wav", firstSampleIndex, chunkSampleCount);
 		Asset* nextAsset = GetAsset(assets, nextAssetId.id);
 		if (prevAsset) {
-			prevAsset->soundInfo.nextChunkId = nextAssetId;
+			prevAsset->soundInfo.chain = { SoundChain::Advance, 1 };
 		}
 		prevAsset = nextAsset;
 		firstSampleIndex += chunkSampleCount;
@@ -409,7 +377,7 @@ int main() {
 				fwrite(asset->sound.samples[1], sizeof(f32), count, file);
 				fileAssetInfo->sound.nChannels = asset->sound.nChannels;
 				fileAssetInfo->sound.sampleCount = asset->sound.sampleCount;
-				fileAssetInfo->sound.nextChunkId = asset->sound.nextChunkId;
+				fileAssetInfo->sound.chain = asset->soundInfo.chain;
 				fileAssetInfo->sound.samplesOffset[0] = samplesPosition0;
 				fileAssetInfo->sound.samplesOffset[1] = samplesPosition1;
 			}

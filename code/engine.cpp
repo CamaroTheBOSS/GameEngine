@@ -42,7 +42,11 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 			currSound = currSound->next;
 			continue;
 		}
-		PrefetchSound(assets, asset->soundInfo.nextChunkId);
+		SoundId nextInChain = { 0 };
+		if (asset->soundInfo.chain.op == SoundChain::Advance) {
+			nextInChain.id = currSound->soundId.id + asset->soundInfo.chain.count;
+		}
+		PrefetchSound(assets, nextInChain);
 		LoadedSound* assetSound = &asset->sound;
 		PlayingSound* nextSound = currSound->next;
 
@@ -116,8 +120,8 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 			continue;
 		}
 		if (soundChunkFinished) {
-			if (IsValid(soundInfo->nextChunkId)) {
-				currSound->soundId = soundInfo->nextChunkId;
+			if (IsValid(nextInChain)) {
+				currSound->soundId = nextInChain;
 				currSound->currentSample -= soundInfo->chunkSampleCount;
 				destCurrentSample += CeilF32ToU32(samplesToPlay);
 				continue;

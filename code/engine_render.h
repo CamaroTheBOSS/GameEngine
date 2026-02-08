@@ -137,6 +137,45 @@ enum class AssetState {
 
 using AssetFeatures = f32[Feature_Count];
 
+#define EAF_MAGIC_STRING(a, b, c, d) ((d << 24) + (c << 16) + (b << 8) + a)
+struct AssetFileHeader {
+	u32 magicString = EAF_MAGIC_STRING('a', 's', 's', 'f');
+	u32 version = 0;
+
+	u32 assetsCount;
+	u64 assetsOffset;
+};
+
+struct AssetFileBitmapInfo {
+	i32 height;
+	i32 width;
+	i32 pitch;
+	V2 alignment;
+	u32 dataOffset; //u32*
+};
+enum class SoundChain {
+	None,
+	Advance
+};
+struct SoundChainInfo {
+	SoundChain op;
+	u32 count;
+};
+
+struct AssetFileSoundInfo {
+	u32 sampleCount;
+	u32 nChannels;
+	SoundChainInfo chain;
+	u32 samplesOffset[2]; //f32*
+};
+
+struct AssetFileInfo {
+	union {
+		AssetFileBitmapInfo bmp;
+		AssetFileSoundInfo sound;
+	};
+};
+
 struct BitmapInfo {
 	const char* filename;
 	AssetTypeID typeId;
@@ -146,7 +185,7 @@ struct BitmapInfo {
 struct SoundInfo {
 	const char* filename;
 	AssetTypeID typeId;
-	SoundId nextChunkId;
+	SoundChainInfo chain;
 	u32 firstSampleIndex;
 	u32 chunkSampleCount;
 };
@@ -158,12 +197,15 @@ struct Asset {
 		struct {
 			LoadedBitmap bitmap;
 			BitmapInfo bitmapInfo;
+			AssetFileBitmapInfo bitmapFileInfo;
 		};
 		struct {
 			LoadedSound sound;
 			SoundInfo soundInfo;
+			AssetFileSoundInfo soundFileInfo;
 		};
 	};
+	u32 fileHandle;
 	AssetState state;
 };
 #pragma warning(pop)
