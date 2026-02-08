@@ -403,6 +403,98 @@ void InitializeQueue(PlatformQueue& queue, DWORD threadCount) {
 	queue.semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
 }
 
+// Platform API
+struct Win32FileHandle {
+	PlatformFileHandle base;
+	HANDLE handle;
+	DWORD errCode;
+};
+
+internal
+PlatformFileHandle* Win32FileOpen(const char* filename) {
+	// TODO: Don't use virtual alloc here, it is just waste of memory!
+	Win32FileHandle* file = ptrcast(Win32FileHandle, VirtualAlloc(0, sizeof(Win32FileHandle), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+	if (!file) {
+		return 0;
+	}
+
+	file->handle = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+	if (file->handle == INVALID_HANDLE_VALUE) {
+		file->errCode = GetLastError();
+		return 0;
+	}
+
+	PlatformFileHandle* result = ptrcast(PlatformFileHandle, file);
+	return result;
+}
+
+internal
+void Win32FileClose(PlatformFileHandle* handle) {
+	if (!handle) {
+		return;
+	}
+	Win32FileHandle* file = ptrcast(Win32FileHandle, handle);
+	if (file->handle) {
+		CloseHandle(file->handle);
+	}
+	VirtualFree(file, 0, MEM_RELEASE);
+}
+
+internal
+PlatformFileGroup Win32FileOpenAllWithExtension(const char* extension) {
+	PlatformFileGroup group = {};
+
+	// TODO: Don't use virtual alloc here, it is just waste of memory!
+	group.files = ptrcast(PlatformFileHandle*, VirtualAlloc(0, sizeof(PlatformFileHandle*), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+	group.files[0] = Win32FileOpen("test.assf");
+	group.count = 1;
+	return group;
+}
+
+internal
+void Win32FileCloseAllInGroup(PlatformFileGroup& group) {
+	// TODO: Don't use virtual alloc here, it is just waste of memory!
+	for (u32 fileIndex = 0; fileIndex < group.count; fileIndex++) {
+		PlatformFileHandle* handle = *(group.files + fileIndex);
+		Win32FileClose(handle);
+	}
+	VirtualFree(group.files, 0, MEM_RELEASE);
+	group.count = 0;
+}
+
+internal
+bool Win32FileErrors(PlatformFileHandle* handle) {
+	if (!handle) {
+		return true;
+	}
+	Win32FileHandle* file = ptrcast(Win32FileHandle, handle);
+	return file->errCode;
+}
+
+internal
+void Win32FileRead(PlatformFileHandle* handle, u32 offset, u32 size, void* dst) {
+	Win32FileHandle* file = ptrcast(Win32FileHandle, handle);
+	if (!file || file->handle == INVALID_HANDLE_VALUE) {
+		return;
+	}
+	// TODO: Change FILE API to support 64bit offsets and sizes
+	Assert(offset < I32_MAX);
+	LONG low = scast(LONG, offset);
+
+	DWORD readBytes = 0;
+	SetFilePointer(file->handle, low, 0, FILE_BEGIN);
+	if (!ReadFile(file->handle, dst, scast(DWORD, size), &readBytes, nullptr) && readBytes != size) {
+		if (readBytes > 0) {
+			// NOTE: That means, we didn't read the size we expected to read
+#define PREMATURE_READ_END_ERROR 9999
+			file->errCode = PREMATURE_READ_END_ERROR; 
+		}
+		else {
+			file->errCode = GetLastError();
+		}
+	}
+}
+
 internal
 void* DebugAllocate(u64 size) {
 	void* result = VirtualAlloc(nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
@@ -883,6 +975,13 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	);
 	programMemory.platformAPI.QueuePushTask = Win32PushTask;
 	programMemory.platformAPI.QueueWaitForCompletion = Win32WaitForQueueCompletion;
+	programMemory.platformAPI.FileOpen = Win32FileOpen;
+	programMemory.platformAPI.FileClose = Win32FileClose;
+	programMemory.platformAPI.FileOpenAllWithExtension = Win32FileOpenAllWithExtension;
+	programMemory.platformAPI.FileCloseAllInGroup = Win32FileCloseAllInGroup;
+	programMemory.platformAPI.FileErrors = Win32FileErrors;
+	programMemory.platformAPI.FileRead = Win32FileRead;
+
 	programMemory.highPriorityQueue = &globalHighPriorityQueue;
 	programMemory.lowPriorityQueue = &globalLowPriorityQueue;
 	return programMemory;

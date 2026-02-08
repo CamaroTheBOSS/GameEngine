@@ -1659,91 +1659,97 @@ void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
 
 internal
 void AllocateAssets(TransientState* tranState) {
-#if 0
+#if 1
+	FileData debugData = debugGlobalMemory->readEntireFile("test.assf");
+#endif
+#if 1
 	u32 assetsCount = 0;
-	PlatformFileGroup files GetAllFilesWithExtension("assf");
-	for (u32 fileIndex = 0; fileIndex < files.count; fileIndex++) {
-		PlatformFileHandle* file = files.files + fileIndex;
-		PlatformFileOpen(file);
+	PlatformFileGroup fileGroup = Platform->FileOpenAllWithExtension("assf");
+	// NOTE: Read how many assets do we have at all first!
+	for (u32 fileIndex = 0; fileIndex < fileGroup.count; fileIndex++) {
+		PlatformFileHandle* file = *(fileGroup.files + fileIndex);
 		AssetFileHeader header;
-		PlatformReadFromFile(file, 0, sizeof(header), &header);
-		if (PlatformFileErrors(file) || 
+		Platform->FileRead(file, 0, sizeof(header), &header);
+		if (Platform->FileErrors(file) || 
 			header.magicString != EAF_MAGIC_STRING('a', 's', 's', 'f') ||
 			header.version != 0) {
 			// TODO: Inform user about IO error
 			continue;
 		}
-		assetsCount += header.assetsCount;
-		PlatformFileClose(file);
+		// NOTE: First asset is null asset, it shouldn't be taken into account
+		assetsCount += header.assetsCount - 1;
 	}
-
 	Assets& assets = tranState->assets;
 	SubArena(assets.arena, tranState->arena, MB(12));
 	assets.tranState = tranState;
-	assets.assets = PushArray(assets.arena, assetsCount, Asset);
-	assets.features = PushArray(assets.arena, assetsCount, AssetFeatures);
+	assets.assetCount = assetsCount + 1;
+	assets.assets = PushArray(assets.arena, assets.assetCount, Asset);
+	assets.features = PushArray(assets.arena, assets.assetCount, AssetFeatures);
+	
 
-	u32 readAssets = 0;
-	for (u32 fileIndex = 0; fileIndex < files.count; fileIndex++) {	
-		PlatformFileHandle* file = files.files + fileIndex;
-		PlatformFileOpen(file);
-		AssetFileHeader header;
-		PlatformReadFromFile(file, 0, sizeof(header), &header);
-		PlatformReadFromFile(
-			file, 
-			file.streamPos,
-			sizeof(AssetFeatures) * header.assetsCount, 
-			assets.features + readAssets
-		);
-
-		TemporaryMemory scratchMemory = BeginTempMemory(assets.arena);
-		AssetGroup* assetFileGroups = PushArray(assets.arena, header.assetsCount, AssetGroup);
-		AssetFileInfo* assetFileInfos = PushArray(assets.arena, header.assetsCount, AssetFileInfo);
-		PlatformReadFromFile(
-			file,
-			file.streamPos,
-			sizeof(AssetGroup) * header.assetsCount,
-			assetFileGroups
-		);
-		PlatformReadFromFile(
-			file,
-			file.streamPos,
-			sizeof(AssetFileInfo) * header.assetsCount,
-			assetFileInfos
-		);
-		if (PlatformFileErrors(file) ||
-			header.magicString != EAF_MAGIC_STRING('a', 's', 's', 'f') ||
-			header.version != 0) {
+	TemporaryMemory scratchMemory = BeginTempMemory(assets.arena);
+	AssetFileHeader* headers = PushArray(assets.arena, fileGroup.count, AssetFileHeader);
+	// NOTE: Read the headers first!
+	for (u32 fileIndex = 0; fileIndex < fileGroup.count; fileIndex++) {
+		AssetFileHeader* header = headers + fileIndex;
+		PlatformFileHandle* file = *(fileGroup.files + fileIndex);
+		Platform->FileRead(file, 0, sizeof(AssetFileHeader), header);
+		if (Platform->FileErrors(file) ||
+			header->magicString != EAF_MAGIC_STRING('a', 's', 's', 'f') ||
+			header->version != 0) {
 			// TODO: Inform user about IO error
 			continue;
 		}
+	}
 
-		u32 currentMergedAssetIndex = readAssets;
-		for (u32 assetGroupIndex = 0; assetGroupIndex < header.assetsCount; assetGroupIndex++) {
-			AssetGroup* assetFileGroup = assetFileGroups + assetGroupIndex;
-			AssetGroup* mergedAssetGroup = assets.groups + assetGroupIndex;
-			u32 assetFileCountInGroup = assetFileGroup->onePastLastAssetIndex - assetFileGroup->firstAssetIndex;
-			if (!mergedAssetGroup->firstAssetIndex) {
-				mergedAssetGroup->firstAssetIndex = currentMergedAssetIndex;
-				mergedAssetGroup->onePastLastAssetIndex = currentMergedAssetIndex + assetFileCountInGroup;
-				mergedAssetGroup->type = assetFileGroup->type;
-			}
-			else {
-				Assert(mergedAssetGroup->type == assetFileGroup->type);
-				mergedAssetGroup->onePastLastAssetIndex += assetFileCountInGroup;
-			}
+	// NOTE: The first asset is NULL asset, so readAssetsCount must start from first NON NULL asset
+	// NOTE: Also, first group in the file is NULL group, so start from NON NULL group
+	u32 readAssetsCount = 1;
+	for (u32 groupIndex = 1; groupIndex < Asset_Count; groupIndex++) {
+		AssetGroup* combinedAssetGroup = assets.groups + groupIndex;
+		AssetGroup* fileAssetGroup = PushStructSize(assets.arena, AssetGroup);
+		
+		for (u32 fileIndex = 0; fileIndex < fileGroup.count; fileIndex++) {
+			PlatformFileHandle* file = *(fileGroup.files + fileIndex);
+			AssetFileHeader* header = headers + fileIndex;
 
-			for (u32 relativeGroupIndex = 0; relativeGroupIndex < assetFileCountInGroup; relativeGroupIndex++)
-			{
-				u32 assetFileInfoIndex = assetFileGroup->firstAssetIndex + relativeGroupIndex;
-				u32 assetIndex = currentMergedAssetIndex + relativeGroupIndex;
-				AssetFileInfo* assetFileInfo = assetFileInfos + assetFileInfoIndex;
-				Asset* asset = assets.assets + assetIndex;
-				switch (mergedAssetGroup->type) {
+			Platform->FileRead(
+				file,
+				u4(header->assetGroupsOffset) + sizeof(AssetGroup) * groupIndex,
+				sizeof(AssetGroup),
+				fileAssetGroup
+			);
+			Assert(fileAssetGroup->firstAssetIndex != 0);
+			Assert(fileAssetGroup->onePastLastAssetIndex != 0);
+			Assert(fileAssetGroup->firstAssetIndex < header->assetsCount);
+			u32 fileAssetCountInGroup = fileAssetGroup->onePastLastAssetIndex - fileAssetGroup->firstAssetIndex;
+
+			Platform->FileRead(
+				file,
+				u4(header->featuresOffset) + sizeof(AssetFeatures) * fileAssetGroup->firstAssetIndex,
+				sizeof(AssetFeatures) * fileAssetCountInGroup,
+				assets.features + readAssetsCount
+			);
+
+			AssetFileInfo* fileAssetInfos = PushArray(assets.arena, fileAssetCountInGroup, AssetFileInfo);
+			Platform->FileRead(
+				file,
+				u4(header->assetInfosOffset) + sizeof(AssetFileInfo) * fileAssetGroup->firstAssetIndex,
+				sizeof(AssetFileInfo) * fileAssetCountInGroup,
+				fileAssetInfos
+			);
+			if (Platform->FileErrors(file)) {
+				// TODO: Inform user about IO error
+				continue;
+			}
+			for (u32 baseIndex = 0; baseIndex < fileAssetCountInGroup; baseIndex++) {
+				AssetFileInfo* srcAssetInfo = fileAssetInfos + baseIndex;
+				Asset* dstAsset = assets.assets + readAssetsCount + baseIndex;
+				switch (fileAssetGroup->type) {
 				case AssetGroup_Bitmap: {
 					// TODO: Shouldn't it be flat loading?
-					asset->bitmapFileInfo = assetFileInfo->bmp;
-					asset->fileHandle = file;
+					dstAsset->bitmapFileInfo = srcAssetInfo->bmp;
+					dstAsset->fileHandle = file;
 					// TODO: TypeId is only needed for assertion, so maybe it can be structured
 					// in other way to just delete it?
 					// Also filename is not relevant
@@ -1752,9 +1758,10 @@ void AllocateAssets(TransientState* tranState) {
 				} break;
 				case AssetGroup_Sound: {
 					// TODO: Shouldn't it be flat loading?
-					asset->soundFileInfo = assetFileInfo->sound;
-					asset->fileHandle = file;
-					asset->soundInfo.chain = assetFileInfo->sound.chain;
+					dstAsset->soundFileInfo = srcAssetInfo->sound;
+					dstAsset->fileHandle = file;
+					
+					dstAsset->soundInfo.chain = srcAssetInfo->sound.chain;
 					/*
 					TODO: Again not relevant stuff here
 					asset->soundInfo.chunkSampleCount = assetFileInfo->sound.sampleCount;
@@ -1765,42 +1772,21 @@ void AllocateAssets(TransientState* tranState) {
 				InvalidDefaultCase;
 				}
 			}
-
-			currentMergedAssetIndex += assetFileCountInGroup;
+			combinedAssetGroup->firstAssetIndex = readAssetsCount;
+			combinedAssetGroup->onePastLastAssetIndex = readAssetsCount + fileAssetCountInGroup;
+			combinedAssetGroup->type = fileAssetGroup->type;
+			readAssetsCount += fileAssetCountInGroup;
 		}
-		Assert((currentMergedAssetIndex - readAssets) == header.assetsCount);
-
-		
-		struct AssetFileInfo {
-			struct AssetFileBitmapInfo {
-				i32 height;
-				i32 width;
-				i32 pitch;
-				V2 alignment;
-				u32 dataOffset; //u32*
-			};
-			struct AssetFileSoundInfo {
-				u32 sampleCount;
-				u32 nChannels;
-				SoundId nextChunkId;
-				u32 samplesOffset[2]; //f32*
-			};
-			union {
-				AssetFileBitmapInfo bmp;
-				AssetFileSoundInfo sound;
-			};
-		};
-		
-		
-
-
-
-		assetsCount += header.assetsCount;
-		PlatformFileClose(file);
 	}
+	Assert(assets.assetCount == readAssetsCount);
+
+	Platform->FileCloseAllInGroup(fileGroup);
+	EndTempMemory(scratchMemory);
+	CheckArena(assets.arena);
+	
 #endif
 
-#if 1
+#if 0
 	Assets& assets = tranState->assets;
 	SubArena(assets.arena, tranState->arena, MB(12));
 	assets.tranState = tranState;

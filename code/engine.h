@@ -76,12 +76,6 @@ struct FileData {
 	u64 size;
 };
 
-struct FilenameArray {
-	const char** filenames;
-	u32 count;
-};
-
-struct PlatformFileHandle {};
 
 /* Functionalities served by the platform layer for program layer */
 // DEBUG API
@@ -95,11 +89,23 @@ typedef DEBUG_FREE_FILE(debug_free_file);
 typedef DEBUG_ALLOCATE(debug_allocate);
 
 // File API
+struct PlatformFileHandle {};
+struct PlatformFileGroup {
+	PlatformFileHandle** files;
+	u32 count;
+};
 typedef PlatformFileHandle* (*_PlatformFileOpen)(const char* filename);
 typedef void				(*_PlatformFileClose)(PlatformFileHandle* file);
-typedef FilenameArray		(*_PlatformFileGetAllWithExtensions)(const char* extension);
+typedef PlatformFileGroup	(*_PlatformFileOpenAllWithExtension)(const char* extension);
+typedef void				(*_PlatformFileCloseAllInGroup)(PlatformFileGroup& group);
 typedef bool				(*_PlatformFileErrors)(PlatformFileHandle* file);
 typedef void				(*_PlatformFileRead)(PlatformFileHandle* file, u32 offset, u32 size, void* dst);
+
+// Queue API
+struct PlatformQueue;
+typedef void	(*PlatformQueueCallback)(void* data);
+typedef void	(*_PlatformWaitForQueueCompletion)(PlatformQueue* queue);
+typedef bool	(*_PlatformPushTaskToQueue)(PlatformQueue* queue, PlatformQueueCallback callback, void* args);
 
 enum DebugPerformanceCountersType {
 	DPCT_GameMainLoop,
@@ -128,11 +134,6 @@ struct DebugMemory {
 #define END_TIMED_SECTION(id) END_TIMED_SECTION_COUNTED(id, 1)
 DebugMemory* debugGlobalMemory;
 
-// PlatformQueue
-struct PlatformQueue;
-typedef void (*PlatformQueueCallback)(void* data);
-typedef void(*_PlatformWaitForQueueCompletion)(PlatformQueue* queue);
-typedef bool(*_PlatformPushTaskToQueue)(PlatformQueue* queue, PlatformQueueCallback callback, void* args);
 /*----------------------------------------------------------------*/
 struct PlatformAPI {
 	// Thread Queue API
@@ -142,7 +143,8 @@ struct PlatformAPI {
 	// File API
 	_PlatformFileOpen FileOpen;
 	_PlatformFileClose FileClose;
-	_PlatformFileGetAllWithExtensions FileGetAllWithExtensions;
+	_PlatformFileOpenAllWithExtension FileOpenAllWithExtension;
+	_PlatformFileCloseAllInGroup FileCloseAllInGroup;
 	_PlatformFileErrors FileErrors;
 	_PlatformFileRead FileRead;
 };

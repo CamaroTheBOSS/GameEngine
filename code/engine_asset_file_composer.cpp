@@ -345,17 +345,16 @@ int main() {
 	AssetFileInfo* fileAssetInfos = PushArray(assets.arena, assets.assetCount, AssetFileInfo);
 	AssetFileHeader header;
 	header.assetsCount = assets.assetCount;
-	header.assetsOffset = sizeof(header);
+	header.featuresOffset = sizeof(header);
+	header.assetGroupsOffset = header.featuresOffset + sizeof(AssetFeatures) * assets.assetCount;
+	header.assetInfosOffset = header.assetGroupsOffset + sizeof(AssetGroup) * Asset_Count;
+	header.assetsOffset = header.assetInfosOffset + sizeof(AssetFileInfo) * assets.assetCount;
 	fwrite(&header, sizeof(AssetFileHeader), 1, file);
 	fwrite(&assets.features, sizeof(AssetFeatures), assets.assetCount, file);
 	fwrite(&assets.groups, sizeof(AssetGroup), Asset_Count, file);
-	u32 assetFileInfoPos = ftell(file);
-	fseek(file, sizeof(AssetFileInfo) * assets.assetCount, SEEK_CUR);
+	fseek(file, u4(header.assetsOffset), SEEK_SET);
 	for (u32 assetGroupIndex = 0; assetGroupIndex < ArrayCount(assets.groups); assetGroupIndex++) {
 		AssetGroup* group = assets.groups + assetGroupIndex;
-		if (group->firstAssetIndex == 0) {
-			continue;
-		}
 		for (u32 assetIndex = group->firstAssetIndex; assetIndex < group->onePastLastAssetIndex; assetIndex++) {
 			Asset* asset = GetAsset(assets, assetIndex);
 			AssetFileInfo* fileAssetInfo = fileAssetInfos + assetIndex;
@@ -383,8 +382,8 @@ int main() {
 			}
 		}
 	}
-	fseek(file, assetFileInfoPos, SEEK_SET);
-	fwrite(file, sizeof(AssetFileInfo), assets.assetCount, file);
+	fseek(file, u4(header.assetInfosOffset), SEEK_SET);
+	fwrite(fileAssetInfos, sizeof(AssetFileInfo), assets.assetCount, file);
 	fclose(file);
 	return 0;
 }

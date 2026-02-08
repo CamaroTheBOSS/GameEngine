@@ -143,6 +143,9 @@ struct AssetFileHeader {
 	u32 version = 0;
 
 	u32 assetsCount;
+	u64 featuresOffset;
+	u64 assetGroupsOffset;
+	u64 assetInfosOffset;
 	u64 assetsOffset;
 };
 
@@ -192,6 +195,7 @@ struct SoundInfo {
 
 #pragma warning(push)
 #pragma warning(disable : 4201)
+struct PlatformFileHandle;
 struct Asset {
 	union {
 		struct {
@@ -205,7 +209,7 @@ struct Asset {
 			AssetFileSoundInfo soundFileInfo;
 		};
 	};
-	u32 fileHandle;
+	PlatformFileHandle* fileHandle;
 	AssetState state;
 };
 #pragma warning(pop)
