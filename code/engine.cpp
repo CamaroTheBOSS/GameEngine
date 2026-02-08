@@ -31,9 +31,13 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		Asset* asset = GetAsset(assets, currSound->soundId.id);
 		SoundInfo* soundInfo = &asset->soundInfo;
 		if (!IsReady(asset)) {
+			// TESTING NOTE: That assert is handy in development, comment it out when want to test
+			// whether asset system is resistent on lack of assets loaded
+#if 1
 			// Note: Only first chunk shouldn't be ready, the rest needs to be here on time to avoid
 			// clicking!
 			Assert(soundInfo->firstSampleIndex == 0);
+#endif
 			prevSound = currSound;
 			currSound = currSound->next;
 			continue;

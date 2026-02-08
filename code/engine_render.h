@@ -174,7 +174,7 @@ enum AssetGroupType {
 
 struct AssetGroup {
 	u32 firstAssetIndex;
-	u32 lastAssetIndex;
+	u32 onePastLastAssetIndex;
 	AssetGroupType type;
 };
 

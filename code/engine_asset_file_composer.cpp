@@ -238,12 +238,12 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
 		group->firstAssetIndex = assets.assetCount;
-		group->lastAssetIndex = assets.assetCount;
+		group->onePastLastAssetIndex = group->firstAssetIndex + 1;
 		group->type = AssetGroup_Bitmap;
 	}
 	else {
 		Assert(group->type == AssetGroup_Bitmap);
-		group->lastAssetIndex++;
+		group->onePastLastAssetIndex++;
 		if (assets.assetCount > 0) {
 			BitmapInfo* prevInfo = &assets.assets[assets.assetCount - 1].bitmapInfo;
 			Assert(prevInfo->typeId == info->typeId);
@@ -267,12 +267,12 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
 		group->firstAssetIndex = assets.assetCount;
-		group->lastAssetIndex = assets.assetCount;
+		group->onePastLastAssetIndex = group->firstAssetIndex + 1;
 		group->type = AssetGroup_Sound;
 	}
 	else {
 		Assert(group->type == AssetGroup_Sound);
-		group->lastAssetIndex++;
+		group->onePastLastAssetIndex++;
 		if (assets.assetCount > 0) {
 			SoundInfo* prevInfo = &assets.assets[assets.assetCount - 1].soundInfo;
 			Assert(prevInfo->typeId == info->typeId);
@@ -388,7 +388,7 @@ int main() {
 		if (group->firstAssetIndex == 0) {
 			continue;
 		}
-		for (u32 assetIndex = group->firstAssetIndex; assetIndex <= group->lastAssetIndex; assetIndex++) {
+		for (u32 assetIndex = group->firstAssetIndex; assetIndex < group->onePastLastAssetIndex; assetIndex++) {
 			Asset* asset = GetAsset(assets, assetIndex);
 			AssetFileInfo* fileAssetInfo = fileAssetInfos + assetIndex;
 			if (group->type == AssetGroup_Bitmap) {

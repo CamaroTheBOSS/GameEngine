@@ -1323,8 +1323,12 @@ inline
 AssetGroup* GetAssetGroup(Assets& assets, AssetTypeID typeId) {
 	AssetGroup* group = &assets.groups[typeId];
 	Assert(group);
+	// TESTING NOTE: These are handy in development, comment it out when want to test
+	// whether asset system is resistent on lack of assets loaded
+#if 1
 	Assert(group->firstAssetIndex != 0);
-	Assert(group->firstAssetIndex <= group->lastAssetIndex);
+	Assert(group->firstAssetIndex < group->onePastLastAssetIndex);
+#endif
 	return group;
 }
 
@@ -1337,7 +1341,7 @@ u32 _GetFirstAssetIdWithType(Assets& assets, AssetTypeID typeId) {
 inline
 u32 _GetRandomAssetId(Assets& assets, AssetTypeID typeId, RandomSeries& series) {
 	AssetGroup* group = GetAssetGroup(assets, typeId);
-	u32 id = RandomChoiceBetween(series, group->firstAssetIndex, group->lastAssetIndex + 1);
+	u32 id = RandomChoiceBetween(series, group->firstAssetIndex, group->onePastLastAssetIndex);
 	return id;
 }
 
@@ -1347,10 +1351,13 @@ u32 _GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures match, 
 	u32 best = {};
 	f32 bestScore = F32_MAX;
 	for (u32 assetIndex = group->firstAssetIndex;
-		assetIndex <= group->lastAssetIndex;
+		assetIndex < group->onePastLastAssetIndex;
 		assetIndex++
 		) {
 		Asset* asset = GetAsset(assets, assetIndex);
+		if (!asset) {
+			continue;
+		}
 		AssetFeatures* features = GetAssetFeatures(assets, assetIndex);
 		f32 score = 0;
 		for (u32 featureIndex = 0; featureIndex < ArrayCount(*features); featureIndex++) {
@@ -1574,7 +1581,7 @@ bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
 	AssetGroup* group = GetAssetGroup(assets, typeId);
 	bool ready = true;
 	for (u32 assetIndex = group->firstAssetIndex; 
-		assetIndex <= group->lastAssetIndex; 
+		assetIndex < group->onePastLastAssetIndex;
 		assetIndex++) 
 	{
 		Asset* asset = GetAsset(assets, assetIndex);
@@ -1601,12 +1608,12 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
 		group->firstAssetIndex = assets.assetCount;
-		group->lastAssetIndex = assets.assetCount;
+		group->onePastLastAssetIndex = group->firstAssetIndex + 1;
 		group->type = AssetGroup_Bitmap;
 	}
 	else {
 		Assert(group->type == AssetGroup_Bitmap);
-		group->lastAssetIndex++;
+		group->onePastLastAssetIndex++;
 		if (assets.assetCount > 0) {
 			BitmapInfo* prevInfo = &assets.assets[assets.assetCount - 1].bitmapInfo;
 			Assert(prevInfo->typeId == info->typeId);
@@ -1628,12 +1635,12 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
 		group->firstAssetIndex = assets.assetCount;
-		group->lastAssetIndex = assets.assetCount;
+		group->onePastLastAssetIndex = group->firstAssetIndex + 1;
 		group->type = AssetGroup_Sound;
 	}
 	else {
 		Assert(group->type == AssetGroup_Sound);
-		group->lastAssetIndex++;
+		group->onePastLastAssetIndex++;
 		if (assets.assetCount > 0) {
 			SoundInfo* prevInfo = &assets.assets[assets.assetCount - 1].soundInfo;
 			Assert(prevInfo->typeId == info->typeId);
@@ -1652,6 +1659,71 @@ void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
 
 internal
 void AllocateAssets(TransientState* tranState) {
+#if 0
+	u32 assetsCount = 0;
+	PlatformFileGroup files GetAllFilesWithExtension();
+	for (u32 fileIndex = 0; fileIndex < files.count; fileIndex++) {
+		PlatformFileHandle* file = files.files + fileIndex;
+		PlatformFileOpen(file);
+		AssetFileHeader header;
+		PlatformReadFromFile(file, 0, sizeof(header), &header);
+		if (PlatformFileErrors(file) || 
+			header.magicString != EAF_MAGIC_STRING('a', 's', 's', 'f') ||
+			header.version != 0) {
+			// TODO: Inform user about IO error
+			continue;
+		}
+		assetsCount += header.assetsCount;
+		PlatformFileClose(file);
+	}
+
+	Assets& assets = tranState->assets;
+	SubArena(assets.arena, tranState->arena, MB(12));
+	assets.tranState = tranState;
+	assets.assets = PushArray(assets.arena, assetsCount, Asset);
+	assets.features = PushArray(assets.arena, assetsCount, AssetFeatures);
+
+	u32 currentMergedAssetIndex = 0;
+	TemporaryMemory scratchMemory = BeginTempMemory(assets.arena);
+	for (u32 fileIndex = 0; fileIndex < files.count; fileIndex++) {
+		PlatformFileHandle* file = files.files + fileIndex;
+		PlatformFileOpen(file);
+		AssetFileHeader header;
+		PlatformReadFromFile(file, 0, sizeof(header), &header);
+		if (PlatformFileErrors(file) ||
+			header.magicString != EAF_MAGIC_STRING('a', 's', 's', 'f') ||
+			header.version != 0) {
+			// TODO: Inform user about IO error
+			continue;
+		}
+		PlatformReadFromFile(
+			file, 
+			sizeof(header), 
+			sizeof(AssetFeatures) * header.assetsCount, 
+			&assets.features
+		);
+		AssetGroup* assetFileGroups = PushArray(assets.arena, header.assetsCount, AssetFileGroup);
+		for (u32 assetGroupIndex = 0; assetGroupIndex < header.assetsCount, assetGroupIndex++) {
+			AssetGroup* assetFileGroup = assetFileGroups + assetGroupIndex;
+			AssetGroup* mergedAssetGroup = assets.groups + assetGroupIndex;
+			if (!mergedAssetGroup->firstAssetIndex) {
+				u32 assetFileCountInGroup = assetFileGroup->lastAssetIndex - assetFileGroup->firstAssetIndex;
+				mergedAssetGroup->firstAssetIndex = currentMergedAssetIndex;
+				mergedAssetGroup->lastAssetIndex = currentMergedAssetIndex;
+				mergedAssetGroup->type = assetFileGroup->type;
+			}
+			else {
+
+			}
+			
+		}
+
+		assetsCount += header.assetsCount;
+		PlatformFileClose(file);
+	}
+#endif
+
+#if 1
 	Assets& assets = tranState->assets;
 	SubArena(assets.arena, tranState->arena, MB(12));
 	assets.tranState = tranState;
@@ -1696,6 +1768,7 @@ void AllocateAssets(TransientState* tranState) {
 		firstSampleIndex += chunkSampleCount;
 	}
 	AddSoundAsset(assets, Asset_Bloop, "sound/bloop2.wav");
+#endif
 }
 
 #define Text(text) text
