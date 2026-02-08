@@ -881,8 +881,8 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 		MEM_RESERVE | MEM_COMMIT,
 		PAGE_READWRITE
 	);
-	programMemory.PlatformPushTaskToQueue = Win32PushTask;
-	programMemory.PlatformWaitForQueueCompletion = Win32WaitForQueueCompletion;
+	programMemory.platformAPI.QueuePushTask = Win32PushTask;
+	programMemory.platformAPI.QueueWaitForCompletion = Win32WaitForQueueCompletion;
 	programMemory.highPriorityQueue = &globalHighPriorityQueue;
 	programMemory.lowPriorityQueue = &globalLowPriorityQueue;
 	return programMemory;

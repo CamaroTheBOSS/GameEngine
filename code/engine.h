@@ -76,7 +76,15 @@ struct FileData {
 	u64 size;
 };
 
+struct FilenameArray {
+	const char** filenames;
+	u32 count;
+};
+
+struct PlatformFileHandle {};
+
 /* Functionalities served by the platform layer for program layer */
+// DEBUG API
 #define DEBUG_READ_ENTIRE_FILE(name) FileData name(const char* filename)
 #define DEBUG_WRITE_FILE(name) bool name(const char* filename, void* buffer, u64 size)
 #define DEBUG_FREE_FILE(name) void name(FileData& file)
@@ -85,6 +93,14 @@ typedef DEBUG_READ_ENTIRE_FILE(debug_read_entire_file);
 typedef DEBUG_WRITE_FILE(debug_write_file);
 typedef DEBUG_FREE_FILE(debug_free_file);
 typedef DEBUG_ALLOCATE(debug_allocate);
+
+// File API
+typedef PlatformFileHandle* (*_PlatformFileOpen)(const char* filename);
+typedef void				(*_PlatformFileClose)(PlatformFileHandle* file);
+typedef FilenameArray		(*_PlatformFileGetAllWithExtensions)(const char* extension);
+typedef bool				(*_PlatformFileErrors)(PlatformFileHandle* file);
+typedef void				(*_PlatformFileRead)(PlatformFileHandle* file, u32 offset, u32 size, void* dst);
+
 enum DebugPerformanceCountersType {
 	DPCT_GameMainLoop,
 	DPCT_RenderRectangleSlowly,
@@ -117,11 +133,21 @@ struct PlatformQueue;
 typedef void (*PlatformQueueCallback)(void* data);
 typedef void(*_PlatformWaitForQueueCompletion)(PlatformQueue* queue);
 typedef bool(*_PlatformPushTaskToQueue)(PlatformQueue* queue, PlatformQueueCallback callback, void* args);
-_PlatformWaitForQueueCompletion PlatformWaitForQueueCompletion;
-_PlatformPushTaskToQueue PlatformPushTaskToQueue;
-
-
 /*----------------------------------------------------------------*/
+struct PlatformAPI {
+	// Thread Queue API
+	_PlatformWaitForQueueCompletion QueueWaitForCompletion;
+	_PlatformPushTaskToQueue QueuePushTask;
+
+	// File API
+	_PlatformFileOpen FileOpen;
+	_PlatformFileClose FileClose;
+	_PlatformFileGetAllWithExtensions FileGetAllWithExtensions;
+	_PlatformFileErrors FileErrors;
+	_PlatformFileRead FileRead;
+};
+PlatformAPI* Platform;
+
 struct ProgramMemory {
 	// Platform independent memory arenas
 	// NOTE: memoryBlock is whole memory block whereas the rest of the blocks are blocks inside memoryBlock
@@ -136,8 +162,7 @@ struct ProgramMemory {
 	PlatformQueue* lowPriorityQueue;
 
 	DebugMemory debug;
-	_PlatformWaitForQueueCompletion PlatformWaitForQueueCompletion;
-	_PlatformPushTaskToQueue PlatformPushTaskToQueue;
+	PlatformAPI platformAPI;
 };
 
 struct PlayerControls {

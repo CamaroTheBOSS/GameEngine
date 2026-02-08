@@ -1105,13 +1105,13 @@ void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Platf
 			args->dstBuffer = &dstBuffer;
 			args->group = &group;
 #if 1 // Switch on = multithreaded rendering
-			PlatformPushTaskToQueue(queue, RenderTiled, args);
+			Platform->QueuePushTask(queue, RenderTiled, args);
 #else
 			RenderTiled(args);
 #endif
 		}
 	}
-	PlatformWaitForQueueCompletion(queue);
+	Platform->QueueWaitForCompletion(queue);
 }
 
 internal
@@ -1437,7 +1437,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	args->filename = info->filename;
 	asset.state = AssetState::Pending;
 	WriteCompilatorFence;
-	PlatformPushTaskToQueue(assets.tranState->lowPriorityQueue, LoadBitmapBackgroundTask, args);
+	Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadBitmapBackgroundTask, args);
 	return true;
 }
 
@@ -1572,7 +1572,7 @@ bool PrefetchSound(Assets& assets, SoundId sid) {
 	args->chunkSampleCount = info->chunkSampleCount;
 	asset.state = AssetState::Pending;
 	WriteCompilatorFence;
-	PlatformPushTaskToQueue(assets.tranState->lowPriorityQueue, LoadSoundBackgroundTask, args);
+	Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadSoundBackgroundTask, args);
 	return true;
 }
 
@@ -1661,7 +1661,7 @@ internal
 void AllocateAssets(TransientState* tranState) {
 #if 0
 	u32 assetsCount = 0;
-	PlatformFileGroup files GetAllFilesWithExtension();
+	PlatformFileGroup files GetAllFilesWithExtension("assf");
 	for (u32 fileIndex = 0; fileIndex < files.count; fileIndex++) {
 		PlatformFileHandle* file = files.files + fileIndex;
 		PlatformFileOpen(file);
@@ -1752,10 +1752,9 @@ void AllocateAssets(TransientState* tranState) {
 				} break;
 				case AssetGroup_Sound: {
 					// TODO: Shouldn't it be flat loading?
-					// TODO: NextChunkID from file is busted relative to merged one!
 					asset->soundFileInfo = assetFileInfo->sound;
 					asset->fileHandle = file;
-					asset->soundInfo.nextChunkId = assetFileInfo->sound.nextChunkId;
+					asset->soundInfo.chain = assetFileInfo->sound.chain;
 					/*
 					TODO: Again not relevant stuff here
 					asset->soundInfo.chunkSampleCount = assetFileInfo->sound.sampleCount;

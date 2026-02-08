@@ -249,7 +249,7 @@ bool FillGroundBuffer(TransientState* tranState, ProgramState* state, GroundBuff
 	dstBuffer.pos = chunkPos;
 	dstBuffer.state = GroundBufferState::Pending;
 	WriteCompilatorFence;
-	PlatformPushTaskToQueue(queue, FillGroundBufferBackgroundTask, args);
+	Platform->QueuePushTask(queue, FillGroundBufferBackgroundTask, args);
 	return true;
 }
 
@@ -962,8 +962,7 @@ void ChangePitch(PlayingSound* sound, f32 pitch) {
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	debugGlobalMemory = &memory.debug;
-	PlatformPushTaskToQueue = memory.PlatformPushTaskToQueue;
-	PlatformWaitForQueueCompletion = memory.PlatformWaitForQueueCompletion;
+	Platform = &memory.platformAPI;
 	BEGIN_TIMED_SECTION(GameMainLoop);
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	World& world = state->world;
