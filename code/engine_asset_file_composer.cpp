@@ -284,7 +284,8 @@ internal
 void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
 	Assert(assets.assetCount > 0);
 	AssetFeatures* features = GetAssetFeatures(assets, assets.assetCount - 1);
-	*features[fId] = value;
+	
+	(*features)[fId] = value;
 }
 
 int main() {
@@ -349,7 +350,7 @@ int main() {
 	header.assetMetadatasOffset = header.assetGroupsOffset + sizeof(AssetGroup) * Asset_Count;
 	header.assetsOffset = header.assetMetadatasOffset + sizeof(AssetMetadata) * assets.assetCount;
 	fwrite(&header, sizeof(AssetFileHeader), 1, file);
-	fwrite(&assets.features, sizeof(AssetFeatures), assets.assetCount, file);
+	fwrite(assets.features, sizeof(AssetFeatures), assets.assetCount, file);
 	fwrite(&assets.groups, sizeof(AssetGroup), Asset_Count, file);
 	fseek(file, u4(header.assetsOffset), SEEK_SET);
 	for (u32 assetGroupIndex = 0; assetGroupIndex < ArrayCount(assets.groups); assetGroupIndex++) {

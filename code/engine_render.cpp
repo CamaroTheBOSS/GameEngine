@@ -1368,8 +1368,8 @@ u32 _GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures match, 
 		f32 score = 0;
 		for (u32 featureIndex = 0; featureIndex < ArrayCount(*features); featureIndex++) {
 			//f32 sign = SignF32(halfPeriod - match[featureIndex]);
-			f32 a1 = *features[featureIndex];
-			f32 a2 = *features[featureIndex] - 2 * halfPeriod;
+			f32 a1 = (*features)[featureIndex];
+			f32 a2 = (*features)[featureIndex] - 2 * halfPeriod;
 			f32 d1 = Abs(match[featureIndex] - a1);
 			f32 d2 = Abs(match[featureIndex] - a2);
 			f32 distance = Minimum(d1, d2);
