@@ -1,5 +1,4 @@
 #pragma once
-#include "engine.h"
 
 /*
 	1) All coordinates outside the renderer are expected to be bottom-up in Y and
@@ -184,13 +183,13 @@ struct AssetMetadata {
 	};
 };
 
-struct PlatformFileHandle;
+struct PlatformFileGroup;
 struct Asset {
 	union {
 		LoadedBitmap bitmap;
 		LoadedSound sound;
 	};
-	u32 filenameHandle;
+	u32 fileSourceIndex;
 	u32 metadataId;
 	AssetState state;
 };
@@ -218,7 +217,7 @@ struct Assets {
 	AssetFeatures* features;
 	AssetGroup groups[Asset_Count];
 
-	char** filenames;
+	PlatformFileGroup* sources;
 };
 
 /*                Renderer API                  */

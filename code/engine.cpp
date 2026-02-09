@@ -1375,7 +1375,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
 			AssetFeatures match = {};
 			AssetFeatures weight = {};
-			match[Feature_Height] = 1.5f;
+			match[Feature_Height] = 3.5f;
 			weight[Feature_Height] = 1.f;
 			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Tree, match, weight, 10000);
 			PushBitmap(renderGroup, tranState->assets, bmp, groundLevelPos, treeHeight, 

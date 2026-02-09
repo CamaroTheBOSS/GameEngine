@@ -90,7 +90,7 @@ typedef DEBUG_ALLOCATE(debug_allocate);
 
 // File API
 struct PlatformFileHandle {};
-struct PlatformFileGroupHandles {
+struct PlatformFileGroup {
 	PlatformFileHandle** files;
 	u32 count;
 };
@@ -100,9 +100,8 @@ struct PlatformFileGroupNames {
 };
 typedef PlatformFileHandle*		(*_PlatformFileOpen)(const char* filename);
 typedef void					(*_PlatformFileClose)(PlatformFileHandle* file);
-typedef PlatformFileGroupNames	(*_PlatformFileGetAllWithExtension)(const char* extension);
-typedef PlatformFileGroupHandles(*_PlatformFileOpenAllInGroup)(PlatformFileGroupNames& group);
-typedef void					(*_PlatformFileCloseAllInGroup)(PlatformFileGroupHandles& group);
+typedef PlatformFileGroup*		(*_PlatformFileOpenAllWithExtension)(const char* extension);
+typedef void					(*_PlatformFileCloseAllInGroup)(PlatformFileGroup* group);
 typedef bool					(*_PlatformFileErrors)(PlatformFileHandle* file);
 typedef void					(*_PlatformFileRead)(PlatformFileHandle* file, u32 offset, u32 size, void* dst);
 
@@ -148,8 +147,7 @@ struct PlatformAPI {
 	// File API
 	_PlatformFileOpen FileOpen;
 	_PlatformFileClose FileClose;
-	_PlatformFileGetAllWithExtension FileGetAllWithExtension;
-	_PlatformFileOpenAllInGroup FileOpenAllInGroup;
+	_PlatformFileOpenAllWithExtension FileOpenAllWithExtension;
 	_PlatformFileCloseAllInGroup FileCloseAllInGroup;
 	_PlatformFileErrors FileErrors;
 	_PlatformFileRead FileRead;

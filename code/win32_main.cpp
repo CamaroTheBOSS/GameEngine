@@ -441,8 +441,7 @@ void Win32FileClose(PlatformFileHandle* handle) {
 }
 
 internal
-PlatformFileGroupNames Win32FileGetAllWithExtension(const char* extension) {
-	PlatformFileGroupNames group = {};
+PlatformFileGroup* Win32FileGetAllWithExtension(const char* extension) {
 	const char* base = "*.";
 	char searchPattern[8] = {'*', '.'};
 	char* dest = searchPattern + 2;
@@ -453,34 +452,27 @@ PlatformFileGroupNames Win32FileGetAllWithExtension(const char* extension) {
 		}
 	}
 	searchPattern[ArrayCount(searchPattern) - 1] = 0;
+
+	PlatformFileGroup* group = ptrcast(PlatformFileGroup,
+		VirtualAlloc(0, sizeof(PlatformFileGroup), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)
+	);
 	WIN32_FIND_DATAA findData;
 	HANDLE handle = FindFirstFileA(searchPattern, &findData);
 	while (handle != INVALID_HANDLE_VALUE) {
-		group.count++;
+		group->count++;
 		if (!FindNextFileA(handle, &findData)) {
 			break;
 		};
 	}
 
 	// TODO: Don't use virtual alloc here, it is just waste of memory!
-	char* buffer = ptrcast(char, VirtualAlloc(0, sizeof(char) * group.count * MY_MAX_PATH, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-	group.names = ptrcast(char*, VirtualAlloc(0, sizeof(char*) * group.count, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+	group->files = ptrcast(PlatformFileHandle*, VirtualAlloc(0,
+		sizeof(PlatformFileHandle*) * group->count, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)
+	);
 	handle = FindFirstFileA(searchPattern, &findData);
 	u32 it = 0;
-	dest = buffer;
 	while (handle != INVALID_HANDLE_VALUE) {
-		group.names[it] = dest;
-		bool nullTerminated = false;
-		for (u32 index = 0; index < ArrayCount(findData.cFileName); index++) {
-			*dest++ = findData.cFileName[index];
-			if (findData.cFileName[index] == 0) {
-				nullTerminated = true;
-				break;
-			}
-		}
-		if (!nullTerminated) {
-			*dest++ = 0;
-		}
+		group->files[it] = Win32FileOpen(findData.cFileName);;
 		if (!FindNextFileA(handle, &findData)) {
 			break;
 		};
@@ -490,32 +482,17 @@ PlatformFileGroupNames Win32FileGetAllWithExtension(const char* extension) {
 }
 
 internal
-PlatformFileGroupHandles Win32FileOpenAllInGroup(PlatformFileGroupNames& names) {
-	// TODO: Don't use virtual alloc here, it is just waste of memory!
-	if (names.count == 0) {
-		return {};
+void Win32FileCloseAllInGroup(PlatformFileGroup* group) {
+	if (!group) {
+		return;
 	}
-	PlatformFileGroupHandles handles = {};
-	handles.count = names.count;
-	handles.files = ptrcast(PlatformFileHandle*, VirtualAlloc(0, sizeof(PlatformFileHandle*) * 
-		handles.count, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-	for (u32 fileIndex = 0; fileIndex < handles.count; fileIndex++) {
-		PlatformFileHandle** handle = handles.files + fileIndex;
-		char* name = *(names.names + fileIndex);
-		*handle = Win32FileOpen(name);
-	}
-	return handles;
-}
-
-internal
-void Win32FileCloseAllInGroup(PlatformFileGroupHandles& group) {
 	// TODO: Don't use virtual alloc here, it is just waste of memory!
-	for (u32 fileIndex = 0; fileIndex < group.count; fileIndex++) {
-		PlatformFileHandle* handle = *(group.files + fileIndex);
+	for (u32 fileIndex = 0; fileIndex < group->count; fileIndex++) {
+		PlatformFileHandle* handle = *(group->files + fileIndex);
 		Win32FileClose(handle);
 	}
-	VirtualFree(group.files, 0, MEM_RELEASE);
-	group.count = 0;
+	VirtualFree(group->files, 0, MEM_RELEASE);
+	VirtualFree(group, 0, MEM_RELEASE);
 }
 
 internal
@@ -538,8 +515,9 @@ void Win32FileRead(PlatformFileHandle* handle, u32 offset, u32 size, void* dst) 
 	LONG low = scast(LONG, offset);
 
 	DWORD readBytes = 0;
-	SetFilePointer(file->handle, low, 0, FILE_BEGIN);
-	if (!ReadFile(file->handle, dst, scast(DWORD, size), &readBytes, nullptr) && readBytes != size) {
+	OVERLAPPED overlap = {};
+	overlap.Offset = offset;
+	if (!ReadFile(file->handle, dst, scast(DWORD, size), &readBytes, &overlap) && readBytes != size) {
 		if (readBytes > 0) {
 			// NOTE: That means, we didn't read the size we expected to read
 #define PREMATURE_READ_END_ERROR 9999
@@ -1033,8 +1011,7 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.platformAPI.QueueWaitForCompletion = Win32WaitForQueueCompletion;
 	programMemory.platformAPI.FileOpen = Win32FileOpen;
 	programMemory.platformAPI.FileClose = Win32FileClose;
-	programMemory.platformAPI.FileGetAllWithExtension = Win32FileGetAllWithExtension;
-	programMemory.platformAPI.FileOpenAllInGroup = Win32FileOpenAllInGroup;
+	programMemory.platformAPI.FileOpenAllWithExtension = Win32FileGetAllWithExtension;
 	programMemory.platformAPI.FileCloseAllInGroup = Win32FileCloseAllInGroup;
 	programMemory.platformAPI.FileErrors = Win32FileErrors;
 	programMemory.platformAPI.FileRead = Win32FileRead;

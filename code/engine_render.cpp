@@ -1320,6 +1320,13 @@ AssetFeatures* GetAssetFeatures(Assets& assets, u32 id) {
 	return asset;
 }
 
+inline 
+PlatformFileHandle* GetAssetSource(Assets& assets, u32 index) {
+	Assert(index < assets.sources->count);
+	PlatformFileHandle* handle = *(assets.sources->files + index);
+	return handle;
+}
+
 inline
 bool IsReady(Asset* asset) {
 	return asset && asset->state == AssetState::Ready;
@@ -1425,7 +1432,7 @@ bool NeedsFetching(Asset& asset) {
 }
 
 struct LoadAssetTaskArgs {
-	const char* filename;
+	PlatformFileHandle* source;
 	void* buffer;
 	u32 offset;
 	u32 size;
@@ -1437,14 +1444,17 @@ internal
 void LoadAssetBackgroundTask(void* data) {
 	// TODO: Can I do that without opening/closing file all the time?
 	LoadAssetTaskArgs* args = ptrcast(LoadAssetTaskArgs, data);
-	PlatformFileHandle* handle = Platform->FileOpen(args->filename);
-	Platform->FileRead(handle, args->offset, args->size, args->buffer);
-	if (!Platform->FileErrors(handle)) {
+	Platform->FileRead(args->source, args->offset, args->size, args->buffer);
+	if (!Platform->FileErrors(args->source)) {
 		WriteCompilatorFence;
 		*args->state = AssetState::Ready;
 		EndBackgroundTask(args->task);
 	}
-	Platform->FileClose(handle);
+	else {
+		WriteCompilatorFence;
+		Assert(!"Something bad happened with our file during the program, it shouldn't happen!");
+		*args->state = AssetState::NotReady;
+	}
 }
 
 internal
@@ -1467,7 +1477,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	asset.state = AssetState::Pending;
 
 	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
-	args->filename = assets.filenames[asset.filenameHandle];
+	args->source = GetAssetSource(assets, asset.fileSourceIndex);
 	args->offset = metadata->dataOffset;
 	args->size = metadata->pitch * metadata->height;
 	args->buffer = asset.bitmap.data;
@@ -1512,7 +1522,7 @@ bool PrefetchSound(Assets& assets, SoundId sid) {
 	asset.state = AssetState::Pending;
 
 	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
-	args->filename = assets.filenames[asset.filenameHandle];
+	args->source = GetAssetSource(assets, asset.fileSourceIndex);
 	args->offset = metadata->samplesOffset[0];
 	args->size = floatsToAllocate * sizeof(f32);
 	args->buffer = asset.bitmap.data;
@@ -1739,11 +1749,10 @@ internal
 void AllocateAssets(TransientState* tranState) {
 #if 1
 	u32 assetsCount = 0;
-	PlatformFileGroupNames fileGroupNames = Platform->FileGetAllWithExtension("assf");
-	PlatformFileGroupHandles fileGroup = Platform->FileOpenAllInGroup(fileGroupNames);
+	PlatformFileGroup* fileGroup = Platform->FileOpenAllWithExtension("assf");
 	// NOTE: Read how many assets do we have at all first!
-	for (u32 fileIndex = 0; fileIndex < fileGroup.count; fileIndex++) {
-		PlatformFileHandle* file = *(fileGroup.files + fileIndex);
+	for (u32 fileIndex = 0; fileIndex < fileGroup->count; fileIndex++) {
+		PlatformFileHandle* file = *(fileGroup->files + fileIndex);
 		AssetFileHeader header;
 		Platform->FileRead(file, 0, sizeof(header), &header);
 		if (Platform->FileErrors(file) || 
@@ -1762,14 +1771,14 @@ void AllocateAssets(TransientState* tranState) {
 	assets.assets = PushArray(assets.arena, assets.assetCount, Asset);
 	assets.features = PushArray(assets.arena, assets.assetCount, AssetFeatures);
 	assets.metadatas = PushArray(assets.arena, assets.assetCount, AssetMetadata);
-	assets.filenames = fileGroupNames.names;
+	assets.sources = fileGroup;
 
 	TemporaryMemory scratchMemory = BeginTempMemory(assets.arena);
-	AssetFileHeader* headers = PushArray(assets.arena, fileGroup.count, AssetFileHeader);
+	AssetFileHeader* headers = PushArray(assets.arena, fileGroup->count, AssetFileHeader);
 	// NOTE: Read the headers first!
-	for (u32 fileIndex = 0; fileIndex < fileGroup.count; fileIndex++) {
+	for (u32 fileIndex = 0; fileIndex < fileGroup->count; fileIndex++) {
 		AssetFileHeader* header = headers + fileIndex;
-		PlatformFileHandle* file = *(fileGroup.files + fileIndex);
+		PlatformFileHandle* file = *(fileGroup->files + fileIndex);
 		Platform->FileRead(file, 0, sizeof(AssetFileHeader), header);
 		if (Platform->FileErrors(file) ||
 			header->magicString != EAF_MAGIC_STRING('a', 's', 's', 'f') ||
@@ -1786,8 +1795,8 @@ void AllocateAssets(TransientState* tranState) {
 		AssetGroup* combinedAssetGroup = assets.groups + groupIndex;
 		AssetGroup* fileAssetGroup = PushStructSize(assets.arena, AssetGroup);
 		
-		for (u32 fileIndex = 0; fileIndex < fileGroup.count; fileIndex++) {
-			PlatformFileHandle* file = *(fileGroup.files + fileIndex);
+		for (u32 fileIndex = 0; fileIndex < fileGroup->count; fileIndex++) {
+			PlatformFileHandle* file = *(fileGroup->files + fileIndex);
 			AssetFileHeader* header = headers + fileIndex;
 
 			Platform->FileRead(
@@ -1819,7 +1828,7 @@ void AllocateAssets(TransientState* tranState) {
 			}
 			for (u32 baseIndex = 0; baseIndex < fileAssetCountInGroup; baseIndex++) {
 				Asset* dstAsset = assets.assets + readAssetsCount + baseIndex;
-				dstAsset->filenameHandle = fileIndex;
+				dstAsset->fileSourceIndex = fileIndex;
 				dstAsset->metadataId = readAssetsCount + baseIndex;
 #if 0
 				AssetMetadata* dstMetadata = assets.metadatas + readAssetsCount + baseIndex;
@@ -1857,8 +1866,8 @@ void AllocateAssets(TransientState* tranState) {
 	}
 	Assert(assets.assetCount == readAssetsCount);
 
-	// NOTE: CLOSE THE FKING HANDLES!
-	Platform->FileCloseAllInGroup(fileGroup);
+	// NOTE: Keep files opened!
+	//Platform->FileCloseAllInGroup(fileGroup);
 	EndTempMemory(scratchMemory);
 	CheckArena(assets.arena);
 	
