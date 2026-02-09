@@ -1,26 +1,9 @@
-#include "engine.h"
+#include "engine_render.cpp"
+#include "engine_assets.cpp"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <Windows.h>
-
-inline
-Asset* GetAsset(Assets& assets, u32 id) {
-	Asset* asset = &assets.assets[id];
-	return asset;
-}
-
-inline
-AssetMetadata* GetAssetMetadata(Assets& assets, Asset& asset) {
-	AssetMetadata* metadata = &assets.metadatas[asset.metadataId];
-	return metadata;
-}
-
-inline
-AssetFeatures* GetAssetFeatures(Assets& assets, u32 id) {
-	AssetFeatures* asset = &assets.features[id];
-	return asset;
-}
 
 inline
 FileData ReadEntireFile(const char* filename) {
@@ -44,6 +27,77 @@ FileData ReadEntireFile(const char* filename) {
 	fread(data.content, data.size, 1, file);
 	fclose(file);
 	return data;
+}
+
+internal
+LoadedBitmap LoadBmpFile(const char* filename, V2 bottomUpAlignRatio = V2{ 0.5f, 0.5f })
+{
+#pragma pack(push, 1)
+	struct BmpHeader {
+		u16 signature; // must be 0x42 = BMP
+		u32 fileSize;
+		u32 reservedZeros;
+		u32 bitmapOffset; // where pixels starts
+		u32 headerSize;
+		u32 width;
+		u32 height;
+		u16 planes;
+		u16 bitsPerPixel;
+		u32 compression;
+		u32 imageSize;
+		u32 resolutionPixPerMeterX;
+		u32 resolutionPixPerMeterY;
+		u32 colorsUsed;
+		u32 ColorsImportant;
+		u32 redMask;
+		u32 greenMask;
+		u32 blueMask;
+		u32 alphaMask;
+	};
+#pragma pack(pop)
+
+	FileData bmpData = ReadEntireFile(filename);
+	if (!bmpData.content) {
+		return {};
+	}
+	BmpHeader* header = ptrcast(BmpHeader, bmpData.content);
+	Assert(header->compression == 3);
+	Assert(header->bitsPerPixel == 32);
+	u32 redShift = LeastSignificantHighBit(header->redMask).index;
+	u32 greenShift = LeastSignificantHighBit(header->greenMask).index;
+	u32 blueShift = LeastSignificantHighBit(header->blueMask).index;
+	u32 alphaShift = LeastSignificantHighBit(header->alphaMask).index;
+
+	LoadedBitmap result = {};
+	result.bufferStart = ptrcast(void, ptrcast(u8, bmpData.content) + header->bitmapOffset);
+	result.height = header->height;
+	result.width = header->width;
+	result.widthOverHeight = f4(result.width) / f4(result.height);
+	Assert((header->bitsPerPixel / 8) == BITMAP_BYTES_PER_PIXEL);
+	result.pitch = result.width * BITMAP_BYTES_PER_PIXEL;
+	result.data = ptrcast(u32, result.bufferStart);
+	result.align = bottomUpAlignRatio;
+
+	u32* pixels = ptrcast(u32, result.bufferStart);
+	for (u32 Y = 0; Y < header->height; Y++) {
+		for (u32 X = 0; X < header->width; X++) {
+			V4 texel = {
+				f4((*pixels >> redShift) & 0xFF),
+				f4((*pixels >> greenShift) & 0xFF),
+				f4((*pixels >> blueShift) & 0xFF),
+				f4((*pixels >> alphaShift) & 0xFF),
+			};
+			texel = SRGB255ToLinear1(texel);
+			texel.RGB *= texel.A;
+			texel = Linear1ToSRGB255(texel);
+			*pixels++ = (u4(texel.A + 0.5f) << 24) +
+				(u4(texel.R + 0.5f) << 16) +
+				(u4(texel.G + 0.5f) << 8) +
+				(u4(texel.B + 0.5f) << 0);
+		}
+	}
+
+	return result;
 }
 
 internal
@@ -137,98 +191,6 @@ LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleC
 		}
 	}
 	return sound;
-}
-
-inline
-V4 SRGB255ToLinear1(V4 input) {
-	V4 result = {};
-	f32 inv255 = 1.f / 255.f;
-	result.R = Squared(inv255 * input.R);
-	result.G = Squared(inv255 * input.G);
-	result.B = Squared(inv255 * input.B);
-	result.A = inv255 * input.A;
-	return result;
-}
-
-inline
-V4 Linear1ToSRGB255(V4 input) {
-	V4 result = {};
-	result.R = 255.f * SquareRoot(input.R);
-	result.G = 255.f * SquareRoot(input.G);
-	result.B = 255.f * SquareRoot(input.B);
-	result.A = 255.f * input.A;
-	return result;
-}
-
-internal
-LoadedBitmap LoadBmpFile(const char* filename, V2 bottomUpAlignRatio = V2{ 0.5f, 0.5f })
-{
-#pragma pack(push, 1)
-	struct BmpHeader {
-		u16 signature; // must be 0x42 = BMP
-		u32 fileSize;
-		u32 reservedZeros;
-		u32 bitmapOffset; // where pixels starts
-		u32 headerSize;
-		u32 width;
-		u32 height;
-		u16 planes;
-		u16 bitsPerPixel;
-		u32 compression;
-		u32 imageSize;
-		u32 resolutionPixPerMeterX;
-		u32 resolutionPixPerMeterY;
-		u32 colorsUsed;
-		u32 ColorsImportant;
-		u32 redMask;
-		u32 greenMask;
-		u32 blueMask;
-		u32 alphaMask;
-	};
-#pragma pack(pop)
-
-	FileData bmpData = ReadEntireFile(filename);
-	if (!bmpData.content) {
-		return {};
-	}
-	BmpHeader* header = ptrcast(BmpHeader, bmpData.content);
-	Assert(header->compression == 3);
-	Assert(header->bitsPerPixel == 32);
-	u32 redShift = LeastSignificantHighBit(header->redMask).index;
-	u32 greenShift = LeastSignificantHighBit(header->greenMask).index;
-	u32 blueShift = LeastSignificantHighBit(header->blueMask).index;
-	u32 alphaShift = LeastSignificantHighBit(header->alphaMask).index;
-
-	LoadedBitmap result = {};
-	result.bufferStart = ptrcast(void, ptrcast(u8, bmpData.content) + header->bitmapOffset);
-	result.height = header->height;
-	result.width = header->width;
-	result.widthOverHeight = f4(result.width) / f4(result.height);
-	Assert((header->bitsPerPixel / 8) == BITMAP_BYTES_PER_PIXEL);
-	result.pitch = result.width * BITMAP_BYTES_PER_PIXEL;
-	result.data = ptrcast(u32, result.bufferStart);
-	result.align = bottomUpAlignRatio;
-
-	u32* pixels = ptrcast(u32, result.bufferStart);
-	for (u32 Y = 0; Y < header->height; Y++) {
-		for (u32 X = 0; X < header->width; X++) {
-			V4 texel = {
-				f4((*pixels >> redShift) & 0xFF),
-				f4((*pixels >> greenShift) & 0xFF),
-				f4((*pixels >> blueShift) & 0xFF),
-				f4((*pixels >> alphaShift) & 0xFF),
-			};
-			texel = SRGB255ToLinear1(texel);
-			texel.RGB *= texel.A;
-			texel = Linear1ToSRGB255(texel);
-			*pixels++ = (u4(texel.A + 0.5f) << 24) +
-				(u4(texel.R + 0.5f) << 16) +
-				(u4(texel.G + 0.5f) << 8) +
-				(u4(texel.B + 0.5f) << 0);
-		}
-	}
-
-	return result;
 }
 
 inline
