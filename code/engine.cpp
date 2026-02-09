@@ -2,7 +2,9 @@
 #include "engine_world.cpp"
 #include "engine_simulation.cpp"
 #include "engine_rand.cpp"
+#include "engine_assets.cpp"
 #include "engine_render.cpp"
+
 
 internal
 void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {

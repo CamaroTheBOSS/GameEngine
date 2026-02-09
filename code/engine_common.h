@@ -102,6 +102,12 @@ struct TemporaryMemory {
 	u64 usedFingerprint;
 };
 
+struct TaskWithMemory {
+	MemoryArena arena;
+	TemporaryMemory memory;
+	volatile u32 done;
+};
+
 inline 
 void InitializeArena(MemoryArena& arena, void* data, u64 capacity) {
 	arena.data = ptrcast(u8, data);

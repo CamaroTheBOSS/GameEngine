@@ -3,6 +3,8 @@
 #include "engine_world.h"
 #include "engine_simulation.h"
 #include "engine_render.h"
+#include "engine_rand.h"
+#include "engine_assets.h"
 
 // BitmapData has to have 4 bytes per pixel which is defined by BITMAP_BYTES_PER_PIXEL = 4 in engine_render.h
 struct BitmapData {
@@ -232,12 +234,6 @@ struct GroundBuffer {
 	GroundBufferState state;
 };
 
-struct TaskWithMemory {
-	MemoryArena arena;
-	TemporaryMemory memory;
-	volatile u32 done;
-};
-
 struct TransientState {
 	MemoryArena arena;
 	GroundBuffer groundBuffers[256];
@@ -251,6 +247,28 @@ struct TransientState {
 	EnvironmentMap middleEnvMap;
 	EnvironmentMap bottomEnvMap;
 };
+
+inline
+TaskWithMemory* TryBeginBackgroundTask(TransientState* tranState) {
+	TaskWithMemory* result = 0;
+	for (u32 taskIndex = 0; taskIndex < ArrayCount(tranState->tasks); taskIndex++) {
+		TaskWithMemory* task = tranState->tasks + taskIndex;
+		if (AtomicCompareExchange(&task->done, 0, 1)) {
+			CheckArena(task->arena);
+			task->memory = BeginTempMemory(task->arena);
+			result = task;
+			break;
+		}
+	}
+	return result;
+}
+
+inline
+void EndBackgroundTask(TaskWithMemory* task) {
+	EndTempMemory(task->memory);
+	WriteCompilatorFence;
+	task->done = true;
+}
 
 /* Functionalities served by the program layer for platform layer */
 #define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, InputData& input)
