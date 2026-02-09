@@ -144,7 +144,6 @@ struct Assets {
 /* ------------------ Asset System API -------------------- */
 internal bool PrefetchBitmap(Assets& assets, BitmapId bid);
 internal bool PrefetchSound(Assets& assets, SoundId sid);
-internal void LoadAssetBackgroundTask(void* data);
 inline Asset* GetAsset(Assets& assets, u32 id);
 inline AssetMetadata* GetAssetMetadata(Assets& assets, Asset& asset);
 inline AssetFeatures* GetAssetFeatures(Assets& assets, u32 id);

@@ -135,6 +135,7 @@
     <None Include="clang_build.bat" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="engine_assets.cpp" />
     <ClCompile Include="engine_asset_file_composer.cpp" />
     <ClCompile Include="engine_intrinsics.h" />
     <ClCompile Include="engine_math.h" />
@@ -147,6 +148,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="engine.h" />
+    <ClInclude Include="engine_assets.h" />
     <ClInclude Include="engine_common.h" />
     <ClInclude Include="engine_rand.h" />
     <ClInclude Include="engine_render.h" />

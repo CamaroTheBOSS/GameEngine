@@ -50,6 +50,9 @@
     <ClCompile Include="engine_asset_file_composer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="engine_assets.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="engine.h">
@@ -68,6 +71,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="engine_rand.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="engine_assets.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

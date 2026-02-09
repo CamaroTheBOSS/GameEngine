@@ -250,7 +250,7 @@ void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
 	(*features)[fId] = value;
 }
 
-int main() {
+Assets InitializeAssets() {
 	// NOTE: This is offline code, so doesn't need to be super cool
 	void* memory = VirtualAlloc(0, MB(12), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	Assets assets = {};
@@ -259,50 +259,15 @@ int main() {
 	assets.assets = PushArray(assets.arena, assets.assetMaxCount, Asset);
 	assets.features = PushArray(assets.arena, assets.assetMaxCount, AssetFeatures);
 	assets.metadatas = PushArray(assets.arena, assets.assetMaxCount, AssetMetadata);
-	AddBmpAsset(assets, Asset_Null, 0);
-	AddBmpAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
-	AddFeature(assets, Feature_Height, 1.f);
-	AddBmpAsset(assets, Asset_Tree, "test/tree2.bmp", V2{ 0.5f, 0.25f });
-	AddFeature(assets, Feature_Height, 3.f);
-	AddBmpAsset(assets, Asset_Tree, "test/tree3.bmp", V2{ 0.5f, 0.25f });
-	AddFeature(assets, Feature_Height, 2.f);
-	AddBmpAsset(assets, Asset_Ground, "test/ground0.bmp");
-	AddBmpAsset(assets, Asset_Ground, "test/ground1.bmp");
-	AddBmpAsset(assets, Asset_Grass, "test/grass0.bmp");
-	AddBmpAsset(assets, Asset_Grass, "test/grass1.bmp");
+	return assets;
+}
 
-	V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
-	AddBmpAsset(assets, Asset_Player, "test/hero-right.bmp", playerBitmapsAlignment);
-	AddFeature(assets, Feature_FacingDirection, 0.f * TAU);
-	AddBmpAsset(assets, Asset_Player, "test/hero-up.bmp", playerBitmapsAlignment);
-	AddFeature(assets, Feature_FacingDirection, 0.25f * TAU);
-	AddBmpAsset(assets, Asset_Player, "test/hero-left.bmp", playerBitmapsAlignment);
-	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
-	AddBmpAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
-	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
-
-	u32 silksongSampleCount = 7762944;
-	u32 chunkSampleCount = 4 * 48000;
-	u32 firstSampleIndex = 0;
-	Asset* prevAsset = 0;
-	// TODO: What with feature based asset retrieval? It is possible for asset system to return
-	// not first music chunk?
-	while (firstSampleIndex < silksongSampleCount) {
-		SoundId nextAssetId = AddSoundAsset(assets, Asset_Music, "sound/silksong.wav", firstSampleIndex, chunkSampleCount);
-		Asset* nextAsset = GetAsset(assets, nextAssetId.id);
-		if (prevAsset) {
-			AssetMetadata* metadata = GetAssetMetadata(assets, *prevAsset);
-			metadata->_soundInfo.chain = { SoundChain::Advance, 1 };
-		}
-		prevAsset = nextAsset;
-		firstSampleIndex += chunkSampleCount;
-	}
-	AddSoundAsset(assets, Asset_Bloop, "sound/bloop2.wav");
+void WriteAssetsToFile(Assets& assets, const char* filename) {
 	FILE* file;
-	fopen_s(&file, "test.assf", "wb");
+	fopen_s(&file, filename, "wb");
 	if (!file) {
 		printf("Cannot open file\n");
-		exit(1);
+		return;
 	}
 
 	AssetFileHeader header;
@@ -340,5 +305,58 @@ int main() {
 	fseek(file, u4(header.assetMetadatasOffset), SEEK_SET);
 	fwrite(assets.metadatas, sizeof(AssetMetadata), assets.assetCount, file);
 	fclose(file);
+}
+
+void WriteSounds() {
+	Assets assets = InitializeAssets();
+	V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
+	AddBmpAsset(assets, Asset_Player, "test/hero-right.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.f * TAU);
+	AddBmpAsset(assets, Asset_Player, "test/hero-up.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.25f * TAU);
+	AddBmpAsset(assets, Asset_Player, "test/hero-left.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
+	AddBmpAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
+
+	u32 silksongSampleCount = 7762944;
+	u32 chunkSampleCount = 4 * 48000;
+	u32 firstSampleIndex = 0;
+	Asset* prevAsset = 0;
+	// TODO: What with feature based asset retrieval? It is possible for asset system to return
+	// not first music chunk?
+	while (firstSampleIndex < silksongSampleCount) {
+		SoundId nextAssetId = AddSoundAsset(assets, Asset_Music, "sound/silksong.wav", firstSampleIndex, chunkSampleCount);
+		Asset* nextAsset = GetAsset(assets, nextAssetId.id);
+		if (prevAsset) {
+			AssetMetadata* metadata = GetAssetMetadata(assets, *prevAsset);
+			metadata->_soundInfo.chain = { SoundChain::Advance, 1 };
+		}
+		prevAsset = nextAsset;
+		firstSampleIndex += chunkSampleCount;
+	}
+	AddSoundAsset(assets, Asset_Bloop, "sound/bloop2.wav");
+	WriteAssetsToFile(assets, "sounds.assf");
+}
+
+void WriteBitmaps() {
+	Assets assets = InitializeAssets();
+	AddBmpAsset(assets, Asset_Null, 0);
+	AddBmpAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
+	AddFeature(assets, Feature_Height, 1.f);
+	AddBmpAsset(assets, Asset_Tree, "test/tree2.bmp", V2{ 0.5f, 0.25f });
+	AddFeature(assets, Feature_Height, 3.f);
+	AddBmpAsset(assets, Asset_Tree, "test/tree3.bmp", V2{ 0.5f, 0.25f });
+	AddFeature(assets, Feature_Height, 2.f);
+	AddBmpAsset(assets, Asset_Ground, "test/ground0.bmp");
+	AddBmpAsset(assets, Asset_Ground, "test/ground1.bmp");
+	AddBmpAsset(assets, Asset_Grass, "test/grass0.bmp");
+	AddBmpAsset(assets, Asset_Grass, "test/grass1.bmp");
+	WriteAssetsToFile(assets, "bitmaps.assf");
+}
+
+int main() {
+	WriteSounds();
+	WriteBitmaps();
 	return 0;
 }

@@ -309,8 +309,8 @@ void AllocateAssets(TransientState* tranState) {
 				sizeof(AssetGroup),
 				fileAssetGroup
 			);
-			Assert(fileAssetGroup->firstAssetIndex != 0);
-			Assert(fileAssetGroup->onePastLastAssetIndex != 0);
+			//Assert(fileAssetGroup->firstAssetIndex != 0);
+			//Assert(fileAssetGroup->onePastLastAssetIndex != 0);
 			Assert(fileAssetGroup->firstAssetIndex < header->assetsCount);
 			u32 fileAssetCountInGroup = fileAssetGroup->onePastLastAssetIndex - fileAssetGroup->firstAssetIndex;
 
@@ -335,9 +335,15 @@ void AllocateAssets(TransientState* tranState) {
 				dstAsset->fileSourceIndex = fileIndex;
 				dstAsset->metadataId = readAssetsCount + baseIndex;
 			}
-			combinedAssetGroup->firstAssetIndex = readAssetsCount;
-			combinedAssetGroup->onePastLastAssetIndex = readAssetsCount + fileAssetCountInGroup;
-			combinedAssetGroup->type = fileAssetGroup->type;
+			u32 combinedAssetGroupCount = combinedAssetGroup->onePastLastAssetIndex - combinedAssetGroup->firstAssetIndex;
+			if (combinedAssetGroupCount == 0) {
+				combinedAssetGroup->firstAssetIndex = readAssetsCount;
+				combinedAssetGroup->onePastLastAssetIndex = readAssetsCount + fileAssetCountInGroup;
+				combinedAssetGroup->type = fileAssetGroup->type;
+			}
+			else {
+				combinedAssetGroup->onePastLastAssetIndex += fileAssetCountInGroup;
+			}
 			readAssetsCount += fileAssetCountInGroup;
 		}
 	}
