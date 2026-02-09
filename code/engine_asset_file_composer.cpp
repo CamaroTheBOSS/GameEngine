@@ -259,6 +259,7 @@ Assets InitializeAssets() {
 	assets.assets = PushArray(assets.arena, assets.assetMaxCount, Asset);
 	assets.features = PushArray(assets.arena, assets.assetMaxCount, AssetFeatures);
 	assets.metadatas = PushArray(assets.arena, assets.assetMaxCount, AssetMetadata);
+	AddBmpAsset(assets, Asset_Null, 0);
 	return assets;
 }
 
@@ -309,16 +310,6 @@ void WriteAssetsToFile(Assets& assets, const char* filename) {
 
 void WriteSounds() {
 	Assets assets = InitializeAssets();
-	V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
-	AddBmpAsset(assets, Asset_Player, "test/hero-right.bmp", playerBitmapsAlignment);
-	AddFeature(assets, Feature_FacingDirection, 0.f * TAU);
-	AddBmpAsset(assets, Asset_Player, "test/hero-up.bmp", playerBitmapsAlignment);
-	AddFeature(assets, Feature_FacingDirection, 0.25f * TAU);
-	AddBmpAsset(assets, Asset_Player, "test/hero-left.bmp", playerBitmapsAlignment);
-	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
-	AddBmpAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
-	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
-
 	u32 silksongSampleCount = 7762944;
 	u32 chunkSampleCount = 4 * 48000;
 	u32 firstSampleIndex = 0;
@@ -341,7 +332,6 @@ void WriteSounds() {
 
 void WriteBitmaps() {
 	Assets assets = InitializeAssets();
-	AddBmpAsset(assets, Asset_Null, 0);
 	AddBmpAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
 	AddFeature(assets, Feature_Height, 1.f);
 	AddBmpAsset(assets, Asset_Tree, "test/tree2.bmp", V2{ 0.5f, 0.25f });
@@ -352,6 +342,17 @@ void WriteBitmaps() {
 	AddBmpAsset(assets, Asset_Ground, "test/ground1.bmp");
 	AddBmpAsset(assets, Asset_Grass, "test/grass0.bmp");
 	AddBmpAsset(assets, Asset_Grass, "test/grass1.bmp");
+
+	V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
+	AddBmpAsset(assets, Asset_Player, "test/hero-right.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.f * TAU);
+	AddBmpAsset(assets, Asset_Player, "test/hero-up.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.25f * TAU);
+	AddBmpAsset(assets, Asset_Player, "test/hero-left.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
+	AddBmpAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
+	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
+
 	WriteAssetsToFile(assets, "bitmaps.assf");
 }
 

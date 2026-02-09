@@ -309,8 +309,10 @@ void AllocateAssets(TransientState* tranState) {
 				sizeof(AssetGroup),
 				fileAssetGroup
 			);
-			//Assert(fileAssetGroup->firstAssetIndex != 0);
-			//Assert(fileAssetGroup->onePastLastAssetIndex != 0);
+#if 0	// Asset group might be actually empty
+			Assert(fileAssetGroup->firstAssetIndex != 0);
+			Assert(fileAssetGroup->onePastLastAssetIndex != 0);
+#endif
 			Assert(fileAssetGroup->firstAssetIndex < header->assetsCount);
 			u32 fileAssetCountInGroup = fileAssetGroup->onePastLastAssetIndex - fileAssetGroup->firstAssetIndex;
 
