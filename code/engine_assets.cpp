@@ -181,7 +181,13 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	asset.bitmap.width = metadata->width;
 	asset.bitmap.pitch = metadata->pitch;
 	asset.bitmap.widthOverHeight = f4(metadata->width) / f4(metadata->height);
+#if 0
 	asset.bitmap.data = ptrcast(u32, PushArray(assets.arena, metadata->pitch * metadata->height, u8));
+#else
+	u32 assetSize = metadata->pitch * metadata->height * BITMAP_BYTES_PER_PIXEL;
+	asset.bitmap.data = ptrcast(u32, Platform->MemoryAllocate(assetSize));
+	assets.totalMemoryUsed += assetSize;
+#endif
 	asset.state = AssetState::Pending;
 
 	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
@@ -212,8 +218,15 @@ bool PrefetchSound(Assets& assets, SoundId sid) {
 	u32 floatsToAllocate = (metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP) * metadata->nChannels;
 	asset.sound.nChannels = metadata->nChannels;
 	asset.sound.sampleCount = metadata->sampleCount;
+#if 0
 	asset.sound.samples[0] = PushArray(assets.arena, floatsToAllocate, f32);
 	asset.sound.samples[1] = asset.sound.samples[0] + metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
+#else
+	u32 assetSize = floatsToAllocate * sizeof(f32);
+	asset.sound.samples[0] = ptrcast(f32, Platform->MemoryAllocate(assetSize));
+	asset.sound.samples[1] = asset.sound.samples[0] + metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
+	assets.totalMemoryUsed += assetSize;
+#endif
 	asset.state = AssetState::Pending;
 
 	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
@@ -269,13 +282,15 @@ void AllocateAssets(TransientState* tranState) {
 		assetsCount += header.assetsCount - 1;
 	}
 	Assets& assets = tranState->assets;
-	SubArena(assets.arena, tranState->arena, MB(512));
+	SubArena(assets.arena, tranState->arena, MB(4));
 	assets.tranState = tranState;
 	assets.assetCount = assetsCount + 1;
 	assets.assets = PushArray(assets.arena, assets.assetCount, Asset);
 	assets.features = PushArray(assets.arena, assets.assetCount, AssetFeatures);
 	assets.metadatas = PushArray(assets.arena, assets.assetCount, AssetMetadata);
 	assets.sources = fileGroup;
+	assets.totalMemoryMax = MB(4);
+	assets.totalMemoryUsed = 0;
 
 	TemporaryMemory scratchMemory = BeginTempMemory(assets.arena);
 	AssetFileHeader* headers = PushArray(assets.arena, fileGroup->count, AssetFileHeader);

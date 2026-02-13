@@ -107,6 +107,10 @@ typedef void					(*_PlatformFileCloseAllInGroup)(PlatformFileGroup* group);
 typedef bool					(*_PlatformFileErrors)(PlatformFileHandle* file);
 typedef void					(*_PlatformFileRead)(PlatformFileHandle* file, u32 offset, u32 size, void* dst);
 
+// Memory API
+typedef void*	(*_PlatformMemoryAllocate)(u32 size);
+typedef void	(*_PlatformMemoryFree)(void* memory);
+
 // Queue API
 struct PlatformQueue;
 typedef void	(*PlatformQueueCallback)(void* data);
@@ -153,6 +157,10 @@ struct PlatformAPI {
 	_PlatformFileCloseAllInGroup FileCloseAllInGroup;
 	_PlatformFileErrors FileErrors;
 	_PlatformFileRead FileRead;
+
+	// Memory API
+	_PlatformMemoryAllocate MemoryAllocate;
+	_PlatformMemoryFree MemoryFree;
 };
 PlatformAPI* Platform;
 

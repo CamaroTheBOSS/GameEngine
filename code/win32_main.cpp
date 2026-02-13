@@ -965,6 +965,17 @@ void ResetInput(Controller& controller) {
 }
 
 inline
+void* Win32AllocateMemory(u32 bytes) {
+	void* result = VirtualAlloc(0, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	return result;
+}
+
+inline
+void Win32FreeMemory(void* memory) {
+	VirtualFree(memory, 0, MEM_RELEASE);
+}
+
+inline
 u64 Win32GetCurrentTimestamp() {
 	LARGE_INTEGER timestamp = {};
 	QueryPerformanceCounter(&timestamp);
@@ -1015,6 +1026,8 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.platformAPI.FileCloseAllInGroup = Win32FileCloseAllInGroup;
 	programMemory.platformAPI.FileErrors = Win32FileErrors;
 	programMemory.platformAPI.FileRead = Win32FileRead;
+	programMemory.platformAPI.MemoryAllocate = Win32AllocateMemory;
+	programMemory.platformAPI.MemoryFree = Win32FreeMemory;
 
 	programMemory.highPriorityQueue = &globalHighPriorityQueue;
 	programMemory.lowPriorityQueue = &globalLowPriorityQueue;

@@ -139,6 +139,9 @@ struct Assets {
 	AssetGroup groups[Asset_Count];
 
 	PlatformFileGroup* sources;
+
+	u32 totalMemoryMax;
+	u32 totalMemoryUsed;
 };
 
 /* ------------------ Asset System API -------------------- */
