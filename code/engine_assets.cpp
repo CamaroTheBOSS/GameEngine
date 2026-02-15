@@ -210,37 +210,44 @@ void LoadAssetBackgroundTask(void* data) {
 }
 
 inline
-void ReleaseAssetMemory(Assets& assets, Asset* asset) {
-	u32 totalSize = asset->memory->assetSize + sizeof(AssetMemoryHeader);
-	RemoveMemoryHeaderFromList(asset->memory);
-	Platform->MemoryFree(asset->memory);
-	assets.totalMemoryUsed -= totalSize;
-	asset->memory = 0;
-	asset->state = AssetState::NotReady;
+void ReleaseAssetMemory(Assets& assets, void* memory, u32 size) {
+	if (memory) {
+		Platform->MemoryFree(memory);
+		assets.totalMemoryUsed -= size;
+	}
 }
 
 inline
-AssetMemoryHeader* AcquireAssetMemory(Assets& assets, u32 assetSize) {
-	u32 requestedSize = assetSize + sizeof(AssetMemoryHeader);
+void* AcquireAssetMemory(Assets& assets, u32 size) {
 	// Evict assets when we don't have enough memory
-	while (assets.totalMemoryUsed + requestedSize > assets.totalMemoryMax) {
+	while (assets.totalMemoryUsed + size > assets.totalMemoryMax) {
 		AssetMemoryHeader* leastUsed = assets.lruSentinel.prev;
 		while (leastUsed != &assets.lruSentinel) {
 			Assert(leastUsed->assetIndex);
 			Asset* asset = GetAsset(assets, leastUsed->assetIndex);
 			if (asset->state == AssetState::Ready) {
 				Assert(asset->memory == leastUsed);
-				ReleaseAssetMemory(assets, asset);
+				RemoveMemoryHeaderFromList(asset->memory);
+				ReleaseAssetMemory(assets, asset->memory, asset->memory->totalSize);
+				asset->memory = 0;
+				asset->state = AssetState::NotReady;
 				break;
 			}
 			leastUsed = leastUsed->prev;
 		}
 	}
-	AssetMemoryHeader* header = ptrcast(AssetMemoryHeader, Platform->MemoryAllocate(requestedSize));
-	header->assetSize = assetSize;
-	assets.totalMemoryUsed += requestedSize;
-	AddMemoryHeaderToList(assets, header);
-	return header;
+#if 1
+	// NOTE: OS allocation path
+	void* result = Platform->MemoryAllocate(size);
+	if (result) {
+		assets.totalMemoryUsed += size;
+	}
+#else
+	AssetMemoryBlock* block = FindBlockWithSize(assets, requestedSize);
+	AssetMemoryHeader* header = ptrcast(AssetMemoryHeader, ptrcast(u8, block) + block->totalUsed);
+	block->totalUsed += requestedSize;
+#endif
+	return result;
 }
 
 internal
@@ -255,7 +262,8 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	}
 	AssetFileBitmapInfo* metadata = &GetAssetMetadata(assets, asset)->_bitmapInfo;
 	u32 assetSize = metadata->pitch * metadata->height * BITMAP_BYTES_PER_PIXEL;
-	asset.memory = AcquireAssetMemory(assets, assetSize);
+	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
+	asset.memory = ptrcast(AssetMemoryHeader, AcquireAssetMemory(assets, allocSize));
 	asset.memory->bitmap.align = metadata->alignment;
 	asset.memory->bitmap.height = metadata->height;
 	asset.memory->bitmap.width = metadata->width;
@@ -264,7 +272,9 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	asset.memory->bitmap.data = ptrcast(u32, asset.memory + 1);
 	asset.memory->type = AssetData_Bitmap;
 	asset.memory->assetIndex = bid.id;
+	asset.memory->totalSize = allocSize;
 	asset.state = AssetState::Pending;
+	AddMemoryHeaderToList(assets, asset.memory);
 
 	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
 	args->source = GetAssetSource(assets, asset.fileSourceIndex);
@@ -293,14 +303,17 @@ bool PrefetchSound(Assets& assets, SoundId sid) {
 	AssetFileSoundInfo* metadata = &GetAssetMetadata(assets, asset)->_soundInfo;
 	u32 assetSize = (metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP) * 
 		metadata->nChannels * sizeof(f32);
-	asset.memory = AcquireAssetMemory(assets, assetSize);
+	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
+	asset.memory = ptrcast(AssetMemoryHeader, AcquireAssetMemory(assets, allocSize));
 	asset.memory->sound.nChannels = metadata->nChannels;
 	asset.memory->sound.sampleCount = metadata->sampleCount;
 	asset.memory->sound.samples[0] = ptrcast(f32, asset.memory + 1);
 	asset.memory->sound.samples[1] = asset.memory->sound.samples[0] + metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
 	asset.memory->type = AssetData_Sound;
 	asset.memory->assetIndex = sid.id;
+	asset.memory->totalSize = allocSize;
 	asset.state = AssetState::Pending;
+	AddMemoryHeaderToList(assets, asset.memory);
 
 	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
 	args->source = GetAssetSource(assets, asset.fileSourceIndex);
@@ -356,14 +369,21 @@ void AllocateAssets(TransientState* tranState) {
 	}
 	Assets& assets = tranState->assets;
 	SubArena(assets.arena, tranState->arena, MB(4));
-	assets.lruSentinel.next = &assets.lruSentinel;
-	assets.lruSentinel.prev = &assets.lruSentinel;
 	assets.tranState = tranState;
 	assets.assetCount = assetsCount + 1;
+	assets.lruSentinel.next = &assets.lruSentinel;
+	assets.lruSentinel.prev = &assets.lruSentinel;
+	// NOTE: The first stuff on the arena should be AssetMemoryBlock which contains
+	// all the memory on that arena
+	assets.memorySentinel = PushStructSize(assets.arena, AssetMemoryBlock);
+	assets.memorySentinel->next = assets.memorySentinel;
+	assets.memorySentinel->prev = assets.memorySentinel;
 	assets.assets = PushArray(assets.arena, assets.assetCount, Asset);
 	assets.features = PushArray(assets.arena, assets.assetCount, AssetFeatures);
 	assets.metadatas = PushArray(assets.arena, assets.assetCount, AssetMetadata);
 	assets.sources = fileGroup;
+	assets.memorySentinel->totalSize = assets.arena.capacity;
+	assets.memorySentinel->totalUsed = assets.arena.used;
 	assets.totalMemoryMax = MB(6);
 	assets.totalMemoryUsed = 0;
 
@@ -441,8 +461,9 @@ void AllocateAssets(TransientState* tranState) {
 	}
 	Assert(assets.assetCount == readAssetsCount);
 
-	// NOTE: Keep files opened!
-	//Platform->FileCloseAllInGroup(fileGroup);
+	// NOTE: Keep files open!
 	EndTempMemory(scratchMemory);
 	CheckArena(assets.arena);
+	// NOTE: Lock the arena (memory for that arena is used in General Allocator)
+	assets.arena.used = assets.arena.capacity;
 }
