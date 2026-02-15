@@ -224,14 +224,7 @@ AssetMemoryBlock* TryMergeMemoryBlocks(AssetMemoryBlock* prev, AssetMemoryBlock*
 }
 
 inline
-void ReleaseAssetMemory(Assets& assets, void* memory, u32 size) {
-#if 0
-	// This is OS allocation path
-	if (memory) {
-		Platform->MemoryFree(memory);
-		assets.totalMemoryUsed -= size;
-	}
-#else
+AssetMemoryBlock* ReleaseAssetMemory(Assets& assets, void* memory, u32 size) {
 	AssetMemoryBlock* block = ptrcast(AssetMemoryBlock, memory) - 1;
 	// Assert that next and prev blocks are determined by the sizes of the blocks
 	Assert(((uptr)(block + 1) + block->size + size) == (uptr)block->next);
@@ -242,31 +235,14 @@ void ReleaseAssetMemory(Assets& assets, void* memory, u32 size) {
 		block = TryMergeMemoryBlocks(block->prev, block);
 	}
 	TryMergeMemoryBlocks(block, block->next);
-#endif
-}
-
-inline
-void EvictAssetsIfNeccessary(Assets& assets, u32 requestedSize) {
-	while (assets.totalMemoryUsed + requestedSize > assets.totalMemoryMax) {
-		AssetMemoryHeader* leastUsed = assets.lruSentinel.prev;
-		while (leastUsed != &assets.lruSentinel) {
-			Assert(leastUsed->assetIndex);
-			Asset* asset = GetAsset(assets, leastUsed->assetIndex);
-			if (asset->state == AssetState::Ready) {
-				Assert(asset->memory == leastUsed);
-				RemoveMemoryHeaderFromList(asset->memory);
-				ReleaseAssetMemory(assets, asset->memory, asset->memory->totalSize);
-				asset->memory = 0;
-				asset->state = AssetState::NotReady;
-				break;
-			}
-			leastUsed = leastUsed->prev;
-		}
-	}
+	return block;
 }
 
 inline
 AssetMemoryBlock* FindMemoryBlockWithSize(Assets& assets, u32 size) {
+	// TODO: This is exteremely unefficient for huge amount of assets loaded in memory
+	// Every time we allocate new asset we need to traverse through thousands of links
+	// to find a block. The search system should be created on top of that memory system.
 	for (AssetMemoryBlock* block = assets.memorySentinel.next;
 		block != &assets.memorySentinel;
 		block = block->next
@@ -294,19 +270,10 @@ void InsertNewMemoryBlock(AssetMemoryBlock* prev, void* memory, u32 size) {
 
 internal
 void* AcquireAssetMemory(Assets& assets, u32 size) {
-#if 0
-	// NOTE: OS allocation path
-	EvictAssetsIfNeccessary(assets, size);
-	void* result = Platform->MemoryAllocate(size);
-	if (result) {
-		assets.totalMemoryUsed += size;
-	}
-#else
 	void* result = 0;
+	AssetMemoryBlock* block = FindMemoryBlockWithSize(assets, size);
 	for (;;) {
-		AssetMemoryBlock* block = FindMemoryBlockWithSize(assets, size);
-		if (block) {
-			Assert(size <= block->size);
+		if (block && size <= block->size) {
 			assets.totalMemoryUsed += size;
 
 			result = ptrcast(u8, block + 1);
@@ -331,7 +298,10 @@ void* AcquireAssetMemory(Assets& assets, u32 size) {
 			if (asset->state == AssetState::Ready) {
 				Assert(asset->memory == leastUsed);
 				RemoveMemoryHeaderFromList(asset->memory);
-				ReleaseAssetMemory(assets, asset->memory, asset->memory->totalSize);
+				// NOTE: When we don't find any block and we evicted one asset, only the block
+				// from evicted asset can be used to check whether more assets needs to be evicted
+				// or allocation can take place
+				block = ReleaseAssetMemory(assets, asset->memory, asset->memory->totalSize);
 				asset->memory = 0;
 				asset->state = AssetState::NotReady;
 				break;
@@ -339,8 +309,6 @@ void* AcquireAssetMemory(Assets& assets, u32 size) {
 			leastUsed = leastUsed->prev;
 		}
 	}
-	
-#endif
 	return result;
 }
 
