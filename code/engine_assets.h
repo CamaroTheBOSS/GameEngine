@@ -110,11 +110,14 @@ struct AssetMetadata {
 
 struct AssetMemoryHeader {
 	u32 assetSize;
+	u32 assetIndex;
 	u32 type;
 	union {
 		LoadedBitmap bitmap;
 		LoadedSound sound;
 	};
+	AssetMemoryHeader* next;
+	AssetMemoryHeader* prev;
 };
 
 struct Asset {
@@ -152,6 +155,7 @@ struct Assets {
 
 	u32 totalMemoryMax;
 	u32 totalMemoryUsed;
+	AssetMemoryHeader lruSentinel;
 };
 
 /* ------------------ Asset System API -------------------- */

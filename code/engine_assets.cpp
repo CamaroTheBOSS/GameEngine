@@ -1,6 +1,26 @@
 #include "engine.h"
 
 inline
+void AddMemoryHeaderToList(Assets& assets, AssetMemoryHeader* header) {
+	header->next = assets.lruSentinel.next;
+	header->prev = &assets.lruSentinel;
+	header->next->prev = header;
+	header->prev->next = header;
+}
+
+inline
+void RemoveMemoryHeaderFromList(AssetMemoryHeader* header) {
+	header->next->prev = header->prev;
+	header->prev->next = header->next;
+}
+
+inline
+void MoveMemoryHeaderToFront(Assets& assets, AssetMemoryHeader* header) {
+	RemoveMemoryHeaderFromList(header);
+	AddMemoryHeaderToList(assets, header);
+}
+
+inline
 bool IsValid(SoundId sid) {
 	return sid.id > 0;
 }
@@ -23,6 +43,7 @@ LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid) {
 		return 0;
 	}
 	Assert(asset->memory->type == AssetData_Bitmap);
+	MoveMemoryHeaderToFront(assets, asset->memory);
 	LoadedBitmap* bitmap = &asset->memory->bitmap;
 	return bitmap;
 }
@@ -34,6 +55,7 @@ LoadedSound* GetSound(Assets& assets, SoundId sid) {
 		return 0;
 	}
 	Assert(asset->memory->type == AssetData_Sound);
+	MoveMemoryHeaderToFront(assets, asset->memory);
 	LoadedSound* sound = &asset->memory->sound;
 	return sound;
 }
@@ -188,19 +210,37 @@ void LoadAssetBackgroundTask(void* data) {
 }
 
 inline
-AssetMemoryHeader* AcquireAssetMemory(Assets& assets, u32 assetSize) {
-	u32 totalSize = assetSize + sizeof(AssetMemoryHeader);
-	AssetMemoryHeader* header = ptrcast(AssetMemoryHeader, Platform->MemoryAllocate(totalSize));
-	header->assetSize = assetSize;
-	assets.totalMemoryUsed += totalSize;
-	return header;
+void ReleaseAssetMemory(Assets& assets, Asset* asset) {
+	u32 totalSize = asset->memory->assetSize + sizeof(AssetMemoryHeader);
+	RemoveMemoryHeaderFromList(asset->memory);
+	Platform->MemoryFree(asset->memory);
+	assets.totalMemoryUsed -= totalSize;
+	asset->memory = 0;
+	asset->state = AssetState::NotReady;
 }
 
 inline
-void ReleaseAssetMemory(Assets& assets, AssetMemoryHeader* memory) {
-	u32 totalSize = memory->assetSize + sizeof(AssetMemoryHeader);
-	Platform->MemoryFree(memory);
-	assets.totalMemoryUsed -= totalSize;
+AssetMemoryHeader* AcquireAssetMemory(Assets& assets, u32 assetSize) {
+	u32 requestedSize = assetSize + sizeof(AssetMemoryHeader);
+	// Evict assets when we don't have enough memory
+	while (assets.totalMemoryUsed + requestedSize > assets.totalMemoryMax) {
+		AssetMemoryHeader* leastUsed = assets.lruSentinel.prev;
+		while (leastUsed != &assets.lruSentinel) {
+			Assert(leastUsed->assetIndex);
+			Asset* asset = GetAsset(assets, leastUsed->assetIndex);
+			if (asset->state == AssetState::Ready) {
+				Assert(asset->memory == leastUsed);
+				ReleaseAssetMemory(assets, asset);
+				break;
+			}
+			leastUsed = leastUsed->prev;
+		}
+	}
+	AssetMemoryHeader* header = ptrcast(AssetMemoryHeader, Platform->MemoryAllocate(requestedSize));
+	header->assetSize = assetSize;
+	assets.totalMemoryUsed += requestedSize;
+	AddMemoryHeaderToList(assets, header);
+	return header;
 }
 
 internal
@@ -223,6 +263,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	asset.memory->bitmap.widthOverHeight = f4(metadata->width) / f4(metadata->height);
 	asset.memory->bitmap.data = ptrcast(u32, asset.memory + 1);
 	asset.memory->type = AssetData_Bitmap;
+	asset.memory->assetIndex = bid.id;
 	asset.state = AssetState::Pending;
 
 	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
@@ -258,6 +299,7 @@ bool PrefetchSound(Assets& assets, SoundId sid) {
 	asset.memory->sound.samples[0] = ptrcast(f32, asset.memory + 1);
 	asset.memory->sound.samples[1] = asset.memory->sound.samples[0] + metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
 	asset.memory->type = AssetData_Sound;
+	asset.memory->assetIndex = sid.id;
 	asset.state = AssetState::Pending;
 
 	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
@@ -314,13 +356,15 @@ void AllocateAssets(TransientState* tranState) {
 	}
 	Assets& assets = tranState->assets;
 	SubArena(assets.arena, tranState->arena, MB(4));
+	assets.lruSentinel.next = &assets.lruSentinel;
+	assets.lruSentinel.prev = &assets.lruSentinel;
 	assets.tranState = tranState;
 	assets.assetCount = assetsCount + 1;
 	assets.assets = PushArray(assets.arena, assets.assetCount, Asset);
 	assets.features = PushArray(assets.arena, assets.assetCount, AssetFeatures);
 	assets.metadatas = PushArray(assets.arena, assets.assetCount, AssetMetadata);
 	assets.sources = fileGroup;
-	assets.totalMemoryMax = MB(3);
+	assets.totalMemoryMax = MB(6);
 	assets.totalMemoryUsed = 0;
 
 	TemporaryMemory scratchMemory = BeginTempMemory(assets.arena);
