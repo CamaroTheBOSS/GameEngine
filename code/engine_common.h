@@ -181,4 +181,5 @@ void CheckArena(MemoryArena& arena) {
 
 #define ZeroStruct(obj) ZeroSize_(ptrcast(u8, &obj), sizeof(obj))
 #define PushStructSize(arena, type, ...) ptrcast(type, PushSize_(arena, sizeof(type), ##__VA_ARGS__))
+#define PushSize(arena, size, ...) PushSize_(arena, size, ##__VA_ARGS__)
 #define PushArray(arena, length, type, ...) ptrcast(type, PushSize_(arena, (length) * sizeof(type), ##__VA_ARGS__))

@@ -256,12 +256,10 @@ void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
 
 Assets InitializeAssets() {
 	// NOTE: This is offline code, so doesn't need to be super cool
-	void* memory = VirtualAlloc(0, MB(12), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	Assets assets = {};
-	InitializeArena(assets.arena, memory, MB(12));
-	assets.assets = PushArray(assets.arena, ASSET_MAX_COUNT, Asset);
-	assets.features = PushArray(assets.arena, ASSET_MAX_COUNT, AssetFeatures);
-	assets.metadatas = PushArray(assets.arena, ASSET_MAX_COUNT, AssetMetadata);
+	assets.assets = ptrcast(Asset, malloc(ASSET_MAX_COUNT * sizeof(Asset)));
+	assets.features = ptrcast(AssetFeatures, malloc(ASSET_MAX_COUNT * sizeof(AssetFeatures)));
+	assets.metadatas = ptrcast(AssetMetadata, malloc(ASSET_MAX_COUNT * sizeof(AssetMetadata)));
 	AddBmpAsset(assets, Asset_Null, 0);
 	return assets;
 }

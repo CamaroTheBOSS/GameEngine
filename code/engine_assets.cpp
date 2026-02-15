@@ -210,17 +210,44 @@ void LoadAssetBackgroundTask(void* data) {
 }
 
 inline
+AssetMemoryBlock* TryMergeMemoryBlocks(AssetMemoryBlock* prev, AssetMemoryBlock* block) {
+	if ((prev->flags & AssetMemory_BlockUsed) ||
+		(block->flags & AssetMemory_BlockUsed)
+		) {
+		return block;
+	}
+	prev->size += block->size + sizeof(AssetMemoryBlock);
+	prev->flags |= block->flags;
+	block->prev->next = block->next;
+	block->next->prev = block->prev;
+	return prev;
+}
+
+inline
 void ReleaseAssetMemory(Assets& assets, void* memory, u32 size) {
+#if 0
+	// This is OS allocation path
 	if (memory) {
 		Platform->MemoryFree(memory);
 		assets.totalMemoryUsed -= size;
 	}
+#else
+	AssetMemoryBlock* block = ptrcast(AssetMemoryBlock, memory) - 1;
+	// Assert that next and prev blocks are determined by the sizes of the blocks
+	Assert(((uptr)(block + 1) + block->size + size) == (uptr)block->next);
+	block->flags &= ~AssetMemory_BlockUsed;
+	block->size += size;
+
+	if (block->prev != &assets.memorySentinel) {
+		block = TryMergeMemoryBlocks(block->prev, block);
+	}
+	TryMergeMemoryBlocks(block, block->next);
+#endif
 }
 
 inline
-void* AcquireAssetMemory(Assets& assets, u32 size) {
-	// Evict assets when we don't have enough memory
-	while (assets.totalMemoryUsed + size > assets.totalMemoryMax) {
+void EvictAssetsIfNeccessary(Assets& assets, u32 requestedSize) {
+	while (assets.totalMemoryUsed + requestedSize > assets.totalMemoryMax) {
 		AssetMemoryHeader* leastUsed = assets.lruSentinel.prev;
 		while (leastUsed != &assets.lruSentinel) {
 			Assert(leastUsed->assetIndex);
@@ -236,16 +263,83 @@ void* AcquireAssetMemory(Assets& assets, u32 size) {
 			leastUsed = leastUsed->prev;
 		}
 	}
-#if 1
+}
+
+inline
+AssetMemoryBlock* FindMemoryBlockWithSize(Assets& assets, u32 size) {
+	for (AssetMemoryBlock* block = assets.memorySentinel.next;
+		block != &assets.memorySentinel;
+		block = block->next
+		) {
+		if ((block->flags & AssetMemory_BlockUsed) ||
+			(block->size < size)) 
+		{
+			continue;
+		}
+		return block;
+	}
+	return 0;
+}
+
+inline
+void InsertNewMemoryBlock(AssetMemoryBlock* prev, void* memory, u32 size) {
+	AssetMemoryBlock* block = ptrcast(AssetMemoryBlock, memory);
+	block->flags = 0;
+	block->size = size - sizeof(AssetMemoryBlock);
+	block->prev = prev;
+	block->next = prev->next;
+	block->prev->next = block;
+	block->next->prev = block;
+}
+
+internal
+void* AcquireAssetMemory(Assets& assets, u32 size) {
+#if 0
 	// NOTE: OS allocation path
+	EvictAssetsIfNeccessary(assets, size);
 	void* result = Platform->MemoryAllocate(size);
 	if (result) {
 		assets.totalMemoryUsed += size;
 	}
 #else
-	AssetMemoryBlock* block = FindBlockWithSize(assets, requestedSize);
-	AssetMemoryHeader* header = ptrcast(AssetMemoryHeader, ptrcast(u8, block) + block->totalUsed);
-	block->totalUsed += requestedSize;
+	void* result = 0;
+	for (;;) {
+		AssetMemoryBlock* block = FindMemoryBlockWithSize(assets, size);
+		if (block) {
+			Assert(size <= block->size);
+			assets.totalMemoryUsed += size;
+
+			result = ptrcast(u8, block + 1);
+			block->flags |= AssetMemory_BlockUsed;
+			u32 remainingSize = block->size - size;
+			u32 minimumBlockSize = 4096;
+			if (remainingSize > minimumBlockSize) {
+				block->size = 0;
+				InsertNewMemoryBlock(block, ptrcast(u8, result) + size, remainingSize);
+			}
+			else {
+				block->size = remainingSize;
+			}
+			break;
+		}
+
+		// NOTE: We don't have enough space for allocation. Evict lru asset
+		AssetMemoryHeader* leastUsed = assets.lruSentinel.prev;
+		while (leastUsed != &assets.lruSentinel) {
+			Assert(leastUsed->assetIndex);
+			Asset* asset = GetAsset(assets, leastUsed->assetIndex);
+			if (asset->state == AssetState::Ready) {
+				Assert(asset->memory == leastUsed);
+				RemoveMemoryHeaderFromList(asset->memory);
+				ReleaseAssetMemory(assets, asset->memory, asset->memory->totalSize);
+				asset->memory = 0;
+				asset->state = AssetState::NotReady;
+				break;
+			}
+			leastUsed = leastUsed->prev;
+		}
+	}
+	
 #endif
 	return result;
 }
@@ -368,27 +462,26 @@ void AllocateAssets(TransientState* tranState) {
 		assetsCount += header.assetsCount - 1;
 	}
 	Assets& assets = tranState->assets;
-	SubArena(assets.arena, tranState->arena, MB(4));
+	u32 memoryForAssetsSize = MB(6);
 	assets.tranState = tranState;
 	assets.assetCount = assetsCount + 1;
+	assets.assets = PushArray(tranState->arena, assets.assetCount, Asset);
+	assets.features = PushArray(tranState->arena, assets.assetCount, AssetFeatures);
+	assets.metadatas = PushArray(tranState->arena, assets.assetCount, AssetMetadata);
+	assets.sources = fileGroup;
+	assets.totalMemoryMax = memoryForAssetsSize;
+	assets.totalMemoryUsed = 0;
 	assets.lruSentinel.next = &assets.lruSentinel;
 	assets.lruSentinel.prev = &assets.lruSentinel;
-	// NOTE: The first stuff on the arena should be AssetMemoryBlock which contains
-	// all the memory on that arena
-	assets.memorySentinel = PushStructSize(assets.arena, AssetMemoryBlock);
-	assets.memorySentinel->next = assets.memorySentinel;
-	assets.memorySentinel->prev = assets.memorySentinel;
-	assets.assets = PushArray(assets.arena, assets.assetCount, Asset);
-	assets.features = PushArray(assets.arena, assets.assetCount, AssetFeatures);
-	assets.metadatas = PushArray(assets.arena, assets.assetCount, AssetMetadata);
-	assets.sources = fileGroup;
-	assets.memorySentinel->totalSize = assets.arena.capacity;
-	assets.memorySentinel->totalUsed = assets.arena.used;
-	assets.totalMemoryMax = MB(6);
-	assets.totalMemoryUsed = 0;
+	assets.memorySentinel.next = &assets.memorySentinel;
+	assets.memorySentinel.prev = &assets.memorySentinel;
+	assets.memorySentinel.size = 0;
+	assets.memorySentinel.flags = 0;
+	InsertNewMemoryBlock(&assets.memorySentinel,
+		PushSize(tranState->arena, memoryForAssetsSize), memoryForAssetsSize);
 
-	TemporaryMemory scratchMemory = BeginTempMemory(assets.arena);
-	AssetFileHeader* headers = PushArray(assets.arena, fileGroup->count, AssetFileHeader);
+	TemporaryMemory scratchMemory = BeginTempMemory(tranState->arena);
+	AssetFileHeader* headers = PushArray(tranState->arena, fileGroup->count, AssetFileHeader);
 	// NOTE: Read the headers first!
 	for (u32 fileIndex = 0; fileIndex < fileGroup->count; fileIndex++) {
 		AssetFileHeader* header = headers + fileIndex;
@@ -407,7 +500,7 @@ void AllocateAssets(TransientState* tranState) {
 	u32 readAssetsCount = 1;
 	for (u32 groupIndex = 1; groupIndex < Asset_Count; groupIndex++) {
 		AssetGroup* combinedAssetGroup = assets.groups + groupIndex;
-		AssetGroup* fileAssetGroup = PushStructSize(assets.arena, AssetGroup);
+		AssetGroup* fileAssetGroup = PushStructSize(tranState->arena, AssetGroup);
 
 		for (u32 fileIndex = 0; fileIndex < fileGroup->count; fileIndex++) {
 			PlatformFileHandle* file = *(fileGroup->files + fileIndex);
@@ -463,7 +556,5 @@ void AllocateAssets(TransientState* tranState) {
 
 	// NOTE: Keep files open!
 	EndTempMemory(scratchMemory);
-	CheckArena(assets.arena);
-	// NOTE: Lock the arena (memory for that arena is used in General Allocator)
-	assets.arena.used = assets.arena.capacity;
+	CheckArena(tranState->arena);
 }

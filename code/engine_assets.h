@@ -2,25 +2,6 @@
 #include "engine_common.h"
 #include "engine_rand.h"
 
-/* NOTE: Memory layout for general allocator looks like this :
-	ASSETS ARENA START
-		* AssetMemoryBlock(Sentinel)
-			* Assets array
-			* Metadata array
-			* Features array
-			* AssetMemoryBlock ----> Here is the place where assets are loaded initially
-				AssetMemoryHeader -> Info about asset type and its properties like width/height/samplecount
-					Memory --------> Raw data for bitmap/sound
-			* AssetMemoryBlock
-				AssetMemoryHeader
-					Memory
-			...
-	ASSETS ARENA END
-
-		AssetMemoryBlock->totalSize includes also sizeof(AssetMemoryBlock)
-		AssetMemoryBlock->totalUsed includes also sizeof(AssetMemoryBlock)
-	*/
-
 #define BITMAP_BYTES_PER_PIXEL 4
 struct LoadedBitmap {
 	void* bufferStart;
@@ -139,10 +120,13 @@ struct AssetMemoryHeader {
 	AssetMemoryHeader* prev;
 };
 
-struct AssetMemoryBlock {
-	u64 totalSize;
-	u64 totalUsed;
+enum AssetMemoryBlockFlags {
+	AssetMemory_BlockUsed = 0x1,
+};
 
+struct AssetMemoryBlock {
+	u32 size;
+	u32 flags;
 	AssetMemoryBlock* next;
 	AssetMemoryBlock* prev;
 };
@@ -169,7 +153,6 @@ struct TransientState;
 struct PlatformFileGroup;
 struct PlatformFileHandle;
 struct Assets {
-	MemoryArena arena;
 	TransientState* tranState;
 
 	u32 assetCount;
@@ -183,7 +166,7 @@ struct Assets {
 	u32 totalMemoryMax;
 	u32 totalMemoryUsed;
 	AssetMemoryHeader lruSentinel;
-	AssetMemoryBlock* memorySentinel;
+	AssetMemoryBlock memorySentinel;
 };
 
 /* ------------------ Asset System API -------------------- */
