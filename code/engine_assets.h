@@ -55,6 +55,11 @@ enum class AssetState {
 	Ready
 };
 
+enum AssetDataType {
+	AssetData_Sound,
+	AssetData_Bitmap
+};
+
 using AssetFeatures = f32[Feature_Count];
 
 #define EAF_MAGIC_STRING(a, b, c, d) ((d << 24) + (c << 16) + (b << 8) + a)
@@ -103,11 +108,17 @@ struct AssetMetadata {
 	};
 };
 
-struct Asset {
+struct AssetMemoryHeader {
+	u32 assetSize;
+	u32 type;
 	union {
 		LoadedBitmap bitmap;
 		LoadedSound sound;
 	};
+};
+
+struct Asset {
+	AssetMemoryHeader* memory;
 	u32 fileSourceIndex;
 	u32 metadataId;
 	AssetState state;
@@ -132,7 +143,6 @@ struct Assets {
 	TransientState* tranState;
 
 	u32 assetCount;
-	u32 assetMaxCount;
 	Asset* assets;
 	AssetMetadata* metadatas;
 	AssetFeatures* features;
@@ -147,7 +157,9 @@ struct Assets {
 /* ------------------ Asset System API -------------------- */
 internal bool PrefetchBitmap(Assets& assets, BitmapId bid);
 internal bool PrefetchSound(Assets& assets, SoundId sid);
-inline Asset* GetAsset(Assets& assets, u32 id);
+inline LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid);
+inline LoadedSound* GetSound(Assets& assets, SoundId sid);
+inline Asset* GetAsset(Assets& assets, u32 id); // TODO: Probably shouldn't be public
 inline AssetMetadata* GetAssetMetadata(Assets& assets, Asset& asset);
 inline AssetFeatures* GetAssetFeatures(Assets& assets, u32 id);
 inline PlatformFileHandle* GetAssetSource(Assets& assets, u32 index);

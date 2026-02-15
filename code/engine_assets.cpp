@@ -17,6 +17,28 @@ Asset* GetAsset(Assets& assets, u32 id) {
 }
 
 inline
+LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid) {
+	Asset* asset = GetAsset(assets, bid.id);
+	if (!asset || !asset->memory) {
+		return 0;
+	}
+	Assert(asset->memory->type == AssetData_Bitmap);
+	LoadedBitmap* bitmap = &asset->memory->bitmap;
+	return bitmap;
+}
+
+inline
+LoadedSound* GetSound(Assets& assets, SoundId sid) {
+	Asset* asset = GetAsset(assets, sid.id);
+	if (!asset || !asset->memory) {
+		return 0;
+	}
+	Assert(asset->memory->type == AssetData_Sound);
+	LoadedSound* sound = &asset->memory->sound;
+	return sound;
+}
+
+inline
 AssetMetadata* GetAssetMetadata(Assets& assets, Asset& asset) {
 	AssetMetadata* metadata = &assets.metadatas[asset.metadataId];
 	return metadata;
@@ -165,6 +187,22 @@ void LoadAssetBackgroundTask(void* data) {
 	}
 }
 
+inline
+AssetMemoryHeader* AcquireAssetMemory(Assets& assets, u32 assetSize) {
+	u32 totalSize = assetSize + sizeof(AssetMemoryHeader);
+	AssetMemoryHeader* header = ptrcast(AssetMemoryHeader, Platform->MemoryAllocate(totalSize));
+	header->assetSize = assetSize;
+	assets.totalMemoryUsed += totalSize;
+	return header;
+}
+
+inline
+void ReleaseAssetMemory(Assets& assets, AssetMemoryHeader* memory) {
+	u32 totalSize = memory->assetSize + sizeof(AssetMemoryHeader);
+	Platform->MemoryFree(memory);
+	assets.totalMemoryUsed -= totalSize;
+}
+
 internal
 bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	Asset& asset = assets.assets[bid.id];
@@ -176,25 +214,22 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 		return false;
 	}
 	AssetFileBitmapInfo* metadata = &GetAssetMetadata(assets, asset)->_bitmapInfo;
-	asset.bitmap.align = metadata->alignment;
-	asset.bitmap.height = metadata->height;
-	asset.bitmap.width = metadata->width;
-	asset.bitmap.pitch = metadata->pitch;
-	asset.bitmap.widthOverHeight = f4(metadata->width) / f4(metadata->height);
-#if 0
-	asset.bitmap.data = ptrcast(u32, PushArray(assets.arena, metadata->pitch * metadata->height, u8));
-#else
 	u32 assetSize = metadata->pitch * metadata->height * BITMAP_BYTES_PER_PIXEL;
-	asset.bitmap.data = ptrcast(u32, Platform->MemoryAllocate(assetSize));
-	assets.totalMemoryUsed += assetSize;
-#endif
+	asset.memory = AcquireAssetMemory(assets, assetSize);
+	asset.memory->bitmap.align = metadata->alignment;
+	asset.memory->bitmap.height = metadata->height;
+	asset.memory->bitmap.width = metadata->width;
+	asset.memory->bitmap.pitch = metadata->pitch;
+	asset.memory->bitmap.widthOverHeight = f4(metadata->width) / f4(metadata->height);
+	asset.memory->bitmap.data = ptrcast(u32, asset.memory + 1);
+	asset.memory->type = AssetData_Bitmap;
 	asset.state = AssetState::Pending;
 
 	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
 	args->source = GetAssetSource(assets, asset.fileSourceIndex);
 	args->offset = metadata->dataOffset;
-	args->size = metadata->pitch * metadata->height;
-	args->buffer = asset.bitmap.data;
+	args->size = assetSize;
+	args->buffer = asset.memory->bitmap.data;
 	args->task = task;
 	args->state = &asset.state;
 
@@ -215,25 +250,21 @@ bool PrefetchSound(Assets& assets, SoundId sid) {
 	}
 
 	AssetFileSoundInfo* metadata = &GetAssetMetadata(assets, asset)->_soundInfo;
-	u32 floatsToAllocate = (metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP) * metadata->nChannels;
-	asset.sound.nChannels = metadata->nChannels;
-	asset.sound.sampleCount = metadata->sampleCount;
-#if 0
-	asset.sound.samples[0] = PushArray(assets.arena, floatsToAllocate, f32);
-	asset.sound.samples[1] = asset.sound.samples[0] + metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
-#else
-	u32 assetSize = floatsToAllocate * sizeof(f32);
-	asset.sound.samples[0] = ptrcast(f32, Platform->MemoryAllocate(assetSize));
-	asset.sound.samples[1] = asset.sound.samples[0] + metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
-	assets.totalMemoryUsed += assetSize;
-#endif
+	u32 assetSize = (metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP) * 
+		metadata->nChannels * sizeof(f32);
+	asset.memory = AcquireAssetMemory(assets, assetSize);
+	asset.memory->sound.nChannels = metadata->nChannels;
+	asset.memory->sound.sampleCount = metadata->sampleCount;
+	asset.memory->sound.samples[0] = ptrcast(f32, asset.memory + 1);
+	asset.memory->sound.samples[1] = asset.memory->sound.samples[0] + metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
+	asset.memory->type = AssetData_Sound;
 	asset.state = AssetState::Pending;
 
 	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
 	args->source = GetAssetSource(assets, asset.fileSourceIndex);
 	args->offset = metadata->samplesOffset[0];
-	args->size = floatsToAllocate * sizeof(f32);
-	args->buffer = asset.bitmap.data;
+	args->size = assetSize;
+	args->buffer = asset.memory->sound.samples[0];
 	args->task = task;
 	args->state = &asset.state;
 	WriteCompilatorFence;
@@ -289,7 +320,7 @@ void AllocateAssets(TransientState* tranState) {
 	assets.features = PushArray(assets.arena, assets.assetCount, AssetFeatures);
 	assets.metadatas = PushArray(assets.arena, assets.assetCount, AssetMetadata);
 	assets.sources = fileGroup;
-	assets.totalMemoryMax = MB(4);
+	assets.totalMemoryMax = MB(3);
 	assets.totalMemoryUsed = 0;
 
 	TemporaryMemory scratchMemory = BeginTempMemory(assets.arena);

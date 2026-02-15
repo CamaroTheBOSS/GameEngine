@@ -1224,9 +1224,9 @@ bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height,
 
 inline
 bool PushBitmap(RenderGroup& group, Assets& assets, BitmapId bid, V3 center, f32 height, V2 offset, V4 color) {
-	Asset* asset = GetAsset(assets, bid.id);
-	if (IsReady(asset)) {
-		PushBitmap(group, &asset->bitmap, center, height, offset, color);
+	LoadedBitmap* bitmap = GetBitmap(assets, bid);
+	if (bitmap) {
+		PushBitmap(group, bitmap, center, height, offset, color);
 	}
 	else {
 		PrefetchBitmap(assets, bid);

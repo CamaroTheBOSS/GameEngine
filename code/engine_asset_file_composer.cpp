@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <Windows.h>
 
+u32 ASSET_MAX_COUNT = 256 * Asset_Count;
+
 inline
 FileData ReadEntireFile(const char* filename) {
 	if (!filename) {
@@ -195,14 +197,15 @@ LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleC
 
 inline
 void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment = V2{ 0.5f, 0.5f }) {
-	Assert(assets.assetCount < assets.assetMaxCount);
+	Assert(assets.assetCount < ASSET_MAX_COUNT);
 	Asset* asset = &assets.assets[assets.assetCount];
-	asset->bitmap = LoadBmpFile(filename, alignment);
+	asset->memory = ptrcast(AssetMemoryHeader, malloc(sizeof(AssetMemoryHeader)));
+	asset->memory->bitmap = LoadBmpFile(filename, alignment);
 	AssetFileBitmapInfo* info = &assets.metadatas[assets.assetCount]._bitmapInfo;
 	info->alignment = alignment;
-	info->height = asset->bitmap.height;
-	info->width = asset->bitmap.width;
-	info->pitch = asset->bitmap.pitch;
+	info->height = asset->memory->bitmap.height;
+	info->width = asset->memory->bitmap.width;
+	info->pitch = asset->memory->bitmap.pitch;
 	asset->metadataId = assets.assetCount;
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
@@ -219,14 +222,15 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 
 inline
 SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 firstSampleIndex = 0, u32 chunkSampleCount = 0) {
-	Assert(assets.assetCount < assets.assetMaxCount);
+	Assert(assets.assetCount < ASSET_MAX_COUNT);
 	SoundId result = { assets.assetCount };
 	Asset* asset = &assets.assets[assets.assetCount];
-	asset->sound = LoadWAV(filename, firstSampleIndex, chunkSampleCount);
+	asset->memory = ptrcast(AssetMemoryHeader, malloc(sizeof(AssetMemoryHeader)));
+	asset->memory->sound = LoadWAV(filename, firstSampleIndex, chunkSampleCount);
 	AssetFileSoundInfo* info = &assets.metadatas[assets.assetCount]._soundInfo;
 	info->chain = { SoundChain::None, 0 };
-	info->nChannels = asset->sound.nChannels;
-	info->sampleCount = asset->sound.sampleCount;
+	info->nChannels = asset->memory->sound.nChannels;
+	info->sampleCount = asset->memory->sound.sampleCount;
 	asset->metadataId = assets.assetCount;
 	AssetGroup* group = &assets.groups[id];
 	if (group->firstAssetIndex == 0) {
@@ -255,10 +259,9 @@ Assets InitializeAssets() {
 	void* memory = VirtualAlloc(0, MB(12), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	Assets assets = {};
 	InitializeArena(assets.arena, memory, MB(12));
-	assets.assetMaxCount = 256 * Asset_Count;
-	assets.assets = PushArray(assets.arena, assets.assetMaxCount, Asset);
-	assets.features = PushArray(assets.arena, assets.assetMaxCount, AssetFeatures);
-	assets.metadatas = PushArray(assets.arena, assets.assetMaxCount, AssetMetadata);
+	assets.assets = PushArray(assets.arena, ASSET_MAX_COUNT, Asset);
+	assets.features = PushArray(assets.arena, ASSET_MAX_COUNT, AssetFeatures);
+	assets.metadatas = PushArray(assets.arena, ASSET_MAX_COUNT, AssetMetadata);
 	AddBmpAsset(assets, Asset_Null, 0);
 	return assets;
 }
@@ -287,17 +290,17 @@ void WriteAssetsToFile(Assets& assets, const char* filename) {
 			Asset* asset = GetAsset(assets, assetIndex);
 			AssetMetadata* metadata = GetAssetMetadata(assets, *asset);
 			if (group->type == AssetGroup_Bitmap) {
-				u32 size = asset->bitmap.pitch * asset->bitmap.height;
+				u32 size = asset->memory->bitmap.pitch * asset->memory->bitmap.height;
 				u32 dataPosition = ftell(file);
-				fwrite(asset->bitmap.data, size, 1, file);
+				fwrite(asset->memory->bitmap.data, size, 1, file);
 				metadata->_bitmapInfo.dataOffset = dataPosition;
 			}
 			else if (group->type == AssetGroup_Sound) {
 				u32 samplesPosition0 = ftell(file);
-				u32 count = asset->sound.sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
-				fwrite(asset->sound.samples[0], sizeof(f32), count, file);
+				u32 count = asset->memory->sound.sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP;
+				fwrite(asset->memory->sound.samples[0], sizeof(f32), count, file);
 				u32 samplesPosition1 = ftell(file);
-				fwrite(asset->sound.samples[1], sizeof(f32), count, file);
+				fwrite(asset->memory->sound.samples[1], sizeof(f32), count, file);
 				metadata->_soundInfo.samplesOffset[0] = samplesPosition0;
 				metadata->_soundInfo.samplesOffset[1] = samplesPosition1;
 			}

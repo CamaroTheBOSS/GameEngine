@@ -49,7 +49,7 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 			nextInChain.id = currSound->soundId.id + soundInfo->chain.count;
 		}
 		PrefetchSound(assets, nextInChain);
-		LoadedSound* assetSound = &asset->sound;
+		LoadedSound* assetSound = GetSound(assets, currSound->soundId);
 		PlayingSound* nextSound = currSound->next;
 
 		f32 remainingSamples = f4(outBufferSampleCount - destCurrentSample);
@@ -1266,6 +1266,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
 
+#if 0
 	Rect3 groundChunkBounds = ToRect3(playerView, V2{0, 0});
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(groundChunkBounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(groundChunkBounds));
@@ -1314,6 +1315,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		}
 	}
+#endif
 
 #if 0
 	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
