@@ -81,6 +81,7 @@ struct RenderGroup {
 	u8* pushBuffer;
 	u32 pushBufferSize;
 	u32 maxPushBufferSize;
+	bool renderInBackground;
 };
 
 /*                Renderer API                  */

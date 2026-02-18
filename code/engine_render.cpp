@@ -1175,11 +1175,12 @@ ProjectionProps GetStandardProjection(u32 widthPix, u32 heightPix) {
 }
 
 inline
-RenderGroup AllocateRenderGroup(MemoryArena& arena, u32 size) {
+RenderGroup AllocateRenderGroup(MemoryArena& arena, u32 size, bool renderInBackground = false) {
 	RenderGroup result = {};
 	result.pushBuffer = PushArray(arena, size, u8);
 	result.maxPushBufferSize = size;
 	result.pushBufferSize = 0;
+	result.renderInBackground = renderInBackground;
 	return result;
 }
 
@@ -1225,10 +1226,19 @@ bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height,
 inline
 bool PushBitmap(RenderGroup& group, Assets& assets, BitmapId bid, V3 center, f32 height, V2 offset, V4 color) {
 	LoadedBitmap* bitmap = GetBitmap(assets, bid);
+	if (!bitmap && group.renderInBackground) {
+		// Note: If rendering in background, we want to always grab the bitmap no matter
+		// how long it takes to actually acquaire it
+		PrefetchBitmap(assets, bid, true);
+		bitmap = GetBitmap(assets, bid);
+		Assert(bitmap);
+	}
 	if (bitmap) {
 		PushBitmap(group, bitmap, center, height, offset, color);
 	}
 	else {
+		// NOTE: Background prefetching cannot be done from the background thread
+		AssertMainThread;
 		PrefetchBitmap(assets, bid);
 	}
 	return true;

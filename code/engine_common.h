@@ -29,7 +29,6 @@
 #define COMPILER_LLVM 1
 #endif
 #endif
-
 #define internal static
 #define noapi
 #define PI 3.14159f
@@ -43,6 +42,7 @@
 #else
 	#define Assert(expression) if (!(expression)) { __builtin_trap(); }
 #endif
+#define AssertMainThread Assert(THREAD_LOCAL_ID == 0)
 #define InvalidDefaultCase default: { Assert(0) } break
 #define scast(type, expression) static_cast<type>(expression)
 #define f4(expression) static_cast<f32>(expression)
@@ -85,6 +85,9 @@ typedef int i32;
 typedef long long i64;
 typedef float f32;
 typedef double f64;
+
+volatile u32 GLOBAL_THREAD_ID_GEN = 0;
+thread_local u32 THREAD_LOCAL_ID = 0;
 
 #include "engine_intrinsics.h"
 #include "engine_math.h"

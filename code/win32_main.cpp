@@ -360,6 +360,7 @@ bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue) {
 internal
 DWORD Win32ThreadProc(LPVOID params) {
 	PlatformQueue* queue = ptrcast(PlatformQueue, params);
+	THREAD_LOCAL_ID = AtomicAddU32(&GLOBAL_THREAD_ID_GEN, 1);
 	while (true) {
 		if (!Win32TryPopAndExecuteTaskFromQueue(queue)) {
 			WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
@@ -417,7 +418,7 @@ PlatformFileHandle* Win32FileOpen(const char* filename) {
 	if (!file) {
 		return 0;
 	}
-
+	file->errCode = 0;
 	file->handle = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
 	if (file->handle == INVALID_HANDLE_VALUE) {
 		file->errCode = GetLastError();
@@ -517,15 +518,9 @@ void Win32FileRead(PlatformFileHandle* handle, u32 offset, u32 size, void* dst) 
 	DWORD readBytes = 0;
 	OVERLAPPED overlap = {};
 	overlap.Offset = offset;
-	if (!ReadFile(file->handle, dst, scast(DWORD, size), &readBytes, &overlap) && readBytes != size) {
-		if (readBytes > 0) {
-			// NOTE: That means, we didn't read the size we expected to read
-#define PREMATURE_READ_END_ERROR 9999
-			file->errCode = PREMATURE_READ_END_ERROR; 
-		}
-		else {
-			file->errCode = GetLastError();
-		}
+	if (!ReadFile(file->handle, dst, scast(DWORD, size), &readBytes, &overlap)) {
+		file->errCode = GetLastError();
+		return;
 	}
 }
 

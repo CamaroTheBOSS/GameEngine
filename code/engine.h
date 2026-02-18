@@ -258,6 +258,7 @@ struct TransientState {
 
 inline
 TaskWithMemory* TryBeginBackgroundTask(TransientState* tranState) {
+	AssertMainThread;
 	TaskWithMemory* result = 0;
 	for (u32 taskIndex = 0; taskIndex < ArrayCount(tranState->tasks); taskIndex++) {
 		TaskWithMemory* task = tranState->tasks + taskIndex;

@@ -1,7 +1,18 @@
 #include "engine.h"
 
 inline
+void BeginAssetMemoryLock(Assets& assets) {
+	while (AtomicCompareExchange(&assets.memoryLock, 1, 0) != 0) {};
+}
+
+inline
+void EndAssetMemoryLock(Assets& assets) {
+	AtomicCompareExchange(&assets.memoryLock, 0, 1);
+}
+
+inline
 void AddMemoryHeaderToList(Assets& assets, AssetMemoryHeader* header) {
+	// NOTE: Needs asset lock
 	header->next = assets.lruSentinel.next;
 	header->prev = &assets.lruSentinel;
 	header->next->prev = header;
@@ -9,15 +20,36 @@ void AddMemoryHeaderToList(Assets& assets, AssetMemoryHeader* header) {
 }
 
 inline
+void LockedAddMemoryHeaderToList(Assets& assets, AssetMemoryHeader* header) {
+	BeginAssetMemoryLock(assets);
+	header->next = assets.lruSentinel.next;
+	header->prev = &assets.lruSentinel;
+	header->next->prev = header;
+	header->prev->next = header;
+	EndAssetMemoryLock(assets);
+}
+
+inline
 void RemoveMemoryHeaderFromList(AssetMemoryHeader* header) {
+	// NOTE: Needs asset lock
 	header->next->prev = header->prev;
 	header->prev->next = header->next;
 }
 
 inline
-void MoveMemoryHeaderToFront(Assets& assets, AssetMemoryHeader* header) {
+void LockedRemoveMemoryHeaderFromList(Assets& assets, AssetMemoryHeader* header) {
+	BeginAssetMemoryLock(assets);
+	header->next->prev = header->prev;
+	header->prev->next = header->next;
+	EndAssetMemoryLock(assets);
+}
+
+inline
+void LockedMoveMemoryHeaderToFront(Assets& assets, AssetMemoryHeader* header) {
+	BeginAssetMemoryLock(assets);
 	RemoveMemoryHeaderFromList(header);
 	AddMemoryHeaderToList(assets, header);
+	EndAssetMemoryLock(assets);
 }
 
 inline
@@ -42,8 +74,11 @@ LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid) {
 	if (!asset || !asset->memory) {
 		return 0;
 	}
+	/*if (AtomicCompareExchange(&asset->state, AssetState_InUse, AssetState_Ready) < AssetState_Ready) {
+		return 0;
+	}*/
 	Assert(asset->memory->type == AssetData_Bitmap);
-	MoveMemoryHeaderToFront(assets, asset->memory);
+	LockedMoveMemoryHeaderToFront(assets, asset->memory);
 	LoadedBitmap* bitmap = &asset->memory->bitmap;
 	return bitmap;
 }
@@ -54,8 +89,11 @@ LoadedSound* GetSound(Assets& assets, SoundId sid) {
 	if (!asset || !asset->memory) {
 		return 0;
 	}
+	/*if (AtomicCompareExchange(&asset->state, AssetState_InUse, AssetState_Ready) < AssetState_Ready) {
+		return 0;
+	}*/
 	Assert(asset->memory->type == AssetData_Sound);
-	MoveMemoryHeaderToFront(assets, asset->memory);
+	LockedMoveMemoryHeaderToFront(assets, asset->memory);
 	LoadedSound* sound = &asset->memory->sound;
 	return sound;
 }
@@ -81,7 +119,7 @@ PlatformFileHandle* GetAssetSource(Assets& assets, u32 index) {
 
 inline
 bool IsReady(Asset* asset) {
-	return asset && asset->state == AssetState::Ready;
+	return asset && asset->state >= AssetState_Ready;
 }
 
 inline
@@ -180,7 +218,7 @@ BitmapId GetBestFitBitmapId(Assets& assets, AssetTypeID typeId, AssetFeatures ma
 
 inline
 bool NeedsFetching(Asset& asset) {
-	return asset.state == AssetState::NotReady;
+	return asset.state == AssetState_NotReady;
 }
 
 struct LoadAssetTaskArgs {
@@ -189,7 +227,7 @@ struct LoadAssetTaskArgs {
 	u32 offset;
 	u32 size;
 	TaskWithMemory* task;
-	AssetState* state;
+	u32* state;
 };
 
 internal
@@ -199,13 +237,15 @@ void LoadAssetBackgroundTask(void* data) {
 	Platform->FileRead(args->source, args->offset, args->size, args->buffer);
 	if (!Platform->FileErrors(args->source)) {
 		WriteCompilatorFence;
-		*args->state = AssetState::Ready;
-		EndBackgroundTask(args->task);
+		*args->state = AssetState_Ready;
+		if (args->task) {
+			EndBackgroundTask(args->task);
+		}
 	}
 	else {
 		WriteCompilatorFence;
 		Assert(!"Something bad happened with our file during the program, it shouldn't happen!");
-		*args->state = AssetState::NotReady;
+		*args->state = AssetState_NotReady;
 	}
 }
 
@@ -271,6 +311,7 @@ void InsertNewMemoryBlock(AssetMemoryBlock* prev, void* memory, u32 size) {
 internal
 void* AcquireAssetMemory(Assets& assets, u32 size) {
 	void* result = 0;
+	BeginAssetMemoryLock(assets);
 	AssetMemoryBlock* block = FindMemoryBlockWithSize(assets, size);
 	for (;;) {
 		if (block && size <= block->size) {
@@ -295,33 +336,56 @@ void* AcquireAssetMemory(Assets& assets, u32 size) {
 		while (leastUsed != &assets.lruSentinel) {
 			Assert(leastUsed->assetIndex);
 			Asset* asset = GetAsset(assets, leastUsed->assetIndex);
-			if (asset->state == AssetState::Ready) {
+			// Asset cannot be in use, so == instead of >=
+			if (asset->state == AssetState_Ready) {
 				Assert(asset->memory == leastUsed);
-				RemoveMemoryHeaderFromList(asset->memory);
+				RemoveMemoryHeaderFromList(leastUsed);
 				// NOTE: When we don't find any block and we evicted one asset, only the block
 				// from evicted asset can be used to check whether more assets needs to be evicted
 				// or allocation can take place
-				block = ReleaseAssetMemory(assets, asset->memory, asset->memory->totalSize);
+				block = ReleaseAssetMemory(assets, leastUsed, leastUsed->totalSize);
 				asset->memory = 0;
-				asset->state = AssetState::NotReady;
+				asset->state = AssetState_NotReady;
 				break;
 			}
 			leastUsed = leastUsed->prev;
 		}
 	}
+	EndAssetMemoryLock(assets);
 	return result;
 }
 
 internal
-bool PrefetchBitmap(Assets& assets, BitmapId bid) {
+bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate) {
 	Asset& asset = assets.assets[bid.id];
 	if (!IsValid(bid) || !NeedsFetching(asset)) {
 		return false;
 	}
-	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
-	if (!task) {
+	TaskWithMemory* task = 0;
+	if (!immediate) {
+		AssertMainThread;
+		task = TryBeginBackgroundTask(assets.tranState);
+		if (!task) {
+			return false;
+		}
+	}
+#if 0
+	// TODO: Uncomment this to avoid two threads trying to load the same asset at the same time.
+	// Maybe it is not a big deal, because data in asset->memory will be the same except
+	// actual pointer to asset.memory from AcquireAssetMemory() call. This will cause the same
+	// asset to be in memory twice, BUT because of the 2 different LRU entries, this won't create 
+	// a unrecoverable memory leak. Asset system finally will get rid of the copy from memory
+	// if this asset won't be used for quite some time. If it will be used, well, we will have
+	// 2 the same assets in memory :)
+	if (AtomicCompareExchange(&asset.state, AssetState_Pending, AssetState_NotReady) != AssetState_NotReady) {
+		if (task) {
+			EndBackgroundTask(task);
+		}
 		return false;
 	}
+#endif
+	asset.state = AssetState_Pending;
+	WriteCompilatorFence;
 	AssetFileBitmapInfo* metadata = &GetAssetMetadata(assets, asset)->_bitmapInfo;
 	u32 assetSize = metadata->pitch * metadata->height * BITMAP_BYTES_PER_PIXEL;
 	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
@@ -335,10 +399,19 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	asset.memory->type = AssetData_Bitmap;
 	asset.memory->assetIndex = bid.id;
 	asset.memory->totalSize = allocSize;
-	asset.state = AssetState::Pending;
-	AddMemoryHeaderToList(assets, asset.memory);
+	
+	LockedAddMemoryHeaderToList(assets, asset.memory);
 
-	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
+	LoadAssetTaskArgs stackDeclaration;
+	LoadAssetTaskArgs* args = 0;
+	if (immediate) {
+		stackDeclaration = {};
+		args = &stackDeclaration;
+	}
+	else {
+		AssertMainThread;
+		args = PushStructSize(task->arena, LoadAssetTaskArgs);
+	}
 	args->source = GetAssetSource(assets, asset.fileSourceIndex);
 	args->offset = metadata->dataOffset;
 	args->size = assetSize;
@@ -346,22 +419,47 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid) {
 	args->task = task;
 	args->state = &asset.state;
 
-	WriteCompilatorFence;
-	Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadAssetBackgroundTask, args);
+	if (immediate) {
+		LoadAssetBackgroundTask(args);
+	}
+	else {
+		WriteCompilatorFence;
+		AssertMainThread;
+		Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadAssetBackgroundTask, args);
+	}
 	return true;
 }
 
 internal
-bool PrefetchSound(Assets& assets, SoundId sid) {
+bool PrefetchSound(Assets& assets, SoundId sid, bool immediate) {
 	Asset& asset = assets.assets[sid.id];
 	if (!IsValid(sid) || !NeedsFetching(asset)) {
 		return false;
 	}
-	TaskWithMemory* task = TryBeginBackgroundTask(assets.tranState);
-	if (!task) {
+	TaskWithMemory* task = 0;
+	if (!immediate) {
+		task = TryBeginBackgroundTask(assets.tranState);
+		if (!task) {
+			return false;
+		}
+	}
+#if 0
+	// TODO: Uncomment this to avoid two threads trying to load the same asset at the same time.
+	// Maybe it is not a big deal, because data in asset->memory will be the same except
+	// actual pointer to asset.memory from AcquireAssetMemory() call. This will cause the same
+	// asset to be in memory twice, BUT because of the 2 different LRU entries, this won't create 
+	// a unrecoverable memory leak. Asset system finally will get rid of the copy from memory
+	// if this asset won't be used for quite some time. If it will be used, well, we will have
+	// 2 the same assets in memory :)
+	if (AtomicCompareExchange(&asset.state, AssetState_Pending, AssetState_NotReady) != AssetState_NotReady) {
+		if (task) {
+			EndBackgroundTask(task);
+		}
 		return false;
 	}
-
+#endif
+	asset.state = AssetState_Pending;
+	WriteCompilatorFence;
 	AssetFileSoundInfo* metadata = &GetAssetMetadata(assets, asset)->_soundInfo;
 	u32 assetSize = (metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP) * 
 		metadata->nChannels * sizeof(f32);
@@ -374,18 +472,31 @@ bool PrefetchSound(Assets& assets, SoundId sid) {
 	asset.memory->type = AssetData_Sound;
 	asset.memory->assetIndex = sid.id;
 	asset.memory->totalSize = allocSize;
-	asset.state = AssetState::Pending;
-	AddMemoryHeaderToList(assets, asset.memory);
+	LockedAddMemoryHeaderToList(assets, asset.memory);
 
-	LoadAssetTaskArgs* args = PushStructSize(task->arena, LoadAssetTaskArgs);
+	LoadAssetTaskArgs stackDeclaration;
+	LoadAssetTaskArgs* args = 0;
+	if (immediate) {
+		stackDeclaration = {};
+		args = &stackDeclaration;
+	}
+	else {
+		args = PushStructSize(task->arena, LoadAssetTaskArgs);
+	}
 	args->source = GetAssetSource(assets, asset.fileSourceIndex);
 	args->offset = metadata->samplesOffset[0];
 	args->size = assetSize;
 	args->buffer = asset.memory->sound.samples[0];
 	args->task = task;
 	args->state = &asset.state;
-	WriteCompilatorFence;
-	Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadAssetBackgroundTask, args);
+
+	if (immediate) {
+		LoadAssetBackgroundTask(&args);
+	}
+	else {
+		WriteCompilatorFence;
+		Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadAssetBackgroundTask, args);
+	}
 	return true;
 }
 

@@ -10,6 +10,11 @@ u32 AtomicCompareExchange(volatile u32* dst, u32 exchange, u32 comperand) {
 }
 
 inline
+u32 AtomicAddU32(volatile u32* dst, u32 adder) {
+	return _InterlockedExchangeAdd(ptrcast(volatile long, dst), adder) + adder;
+}
+
+inline
 i32 RoundF32ToI32(f32 value) {
 	return scast(i32, roundf(value));
 }

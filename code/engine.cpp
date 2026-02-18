@@ -188,7 +188,7 @@ void FillGroundBufferBackgroundTask(void* data) {
 	FillGroundBufferTaskArgs* args = ptrcast(FillGroundBufferTaskArgs, data);
 	TaskWithMemory* task = args->task;
 	LoadedBitmap* buffer = &args->groundBuffer->buffer;
-	RenderGroup group = AllocateRenderGroup(task->arena, u4(GetArenaFreeSpaceSize(task->arena)));
+	RenderGroup group = AllocateRenderGroup(task->arena, u4(GetArenaFreeSpaceSize(task->arena)), true);
 	f32 width = args->chunkSizeInMeters.X;
 	f32 height = args->chunkSizeInMeters.Y;
 	Assert(width == height);
@@ -234,10 +234,12 @@ void FillGroundBufferBackgroundTask(void* data) {
 
 internal
 bool FillGroundBuffer(TransientState* tranState, ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos, PlatformQueue* queue) {
+#if 0 // Uncomment it to make FillGroundChunk not load assets!
 	if (!LoadIfNotAllAssetsAreReady(tranState->assets, Asset_Ground) ||
 		!LoadIfNotAllAssetsAreReady(tranState->assets, Asset_Grass)) {
 		return false;
 	}
+#endif
 	TaskWithMemory* task = TryBeginBackgroundTask(tranState);
 	if (!task || dstBuffer.state == GroundBufferState::Pending) {
 		return false;
@@ -1266,7 +1268,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
 
-#if 0
+#if 1
 	Rect3 groundChunkBounds = ToRect3(playerView, V2{0, 0});
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(groundChunkBounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(groundChunkBounds));

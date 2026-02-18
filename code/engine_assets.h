@@ -49,10 +49,11 @@ enum AssetTypeID {
 	Asset_Count
 };
 
-enum class AssetState {
-	NotReady,
-	Pending,
-	Ready
+enum AssetState {
+	AssetState_NotReady,
+	AssetState_Pending,
+	AssetState_Ready,
+	AssetState_InUse,
 };
 
 enum AssetDataType {
@@ -135,7 +136,7 @@ struct Asset {
 	AssetMemoryHeader* memory;
 	u32 fileSourceIndex;
 	u32 metadataId;
-	AssetState state;
+	u32 state;
 };
 #pragma warning(pop)
 enum AssetGroupType {
@@ -167,11 +168,13 @@ struct Assets {
 	u32 totalMemoryUsed;
 	AssetMemoryHeader lruSentinel;
 	AssetMemoryBlock memorySentinel;
+
+	u32 memoryLock;
 };
 
 /* ------------------ Asset System API -------------------- */
-internal bool PrefetchBitmap(Assets& assets, BitmapId bid);
-internal bool PrefetchSound(Assets& assets, SoundId sid);
+internal bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate = false);
+internal bool PrefetchSound(Assets& assets, SoundId sid, bool immediate = false);
 inline LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid);
 inline LoadedSound* GetSound(Assets& assets, SoundId sid);
 inline Asset* GetAsset(Assets& assets, u32 id); // TODO: Probably shouldn't be public
