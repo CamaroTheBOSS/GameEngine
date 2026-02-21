@@ -82,13 +82,15 @@ struct RenderGroup {
 	u32 pushBufferSize;
 	u32 maxPushBufferSize;
 	bool renderInBackground;
+	GenerationId generationId;
+	Assets* assets;
 };
 
 /*                Renderer API                  */
 inline bool PushClearCall(RenderGroup& group, V4 color = V4{ 1, 1, 1, 1 });
 inline bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, 
 	V2 offset, V4 color = V4{1, 1, 1, 1});
-inline bool PushBitmap(RenderGroup& group, Assets& assets, BitmapId bid, V3 center,
+inline bool PushBitmap(RenderGroup& group, BitmapId bid, V3 center,
 	f32 height, V2 offset, V4 color = V4{ 1, 1, 1, 1 });
 inline bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, 
 	V4 color = V4{ 1, 1, 1, 1 });

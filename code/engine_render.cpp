@@ -1175,13 +1175,27 @@ ProjectionProps GetStandardProjection(u32 widthPix, u32 heightPix) {
 }
 
 inline
-RenderGroup AllocateRenderGroup(MemoryArena& arena, u32 size, bool renderInBackground = false) {
+RenderGroup AllocateRenderGroup(MemoryArena& arena, Assets* assets, u32 size, bool renderInBackground = false) {
 	RenderGroup result = {};
 	result.pushBuffer = PushArray(arena, size, u8);
 	result.maxPushBufferSize = size;
 	result.pushBufferSize = 0;
 	result.renderInBackground = renderInBackground;
+	result.generationId.id = 0;
+	result.assets = assets;
 	return result;
+}
+
+inline
+void BeginRendering(RenderGroup& group) {
+	group.generationId = NewGenerationId(*group.assets);
+}
+
+inline
+void EndRendering(RenderGroup& group) {
+	Assert(group.generationId.id);
+	FinishGeneration(*group.assets, group.generationId);
+	group.generationId.id = 0;
 }
 
 #define Text(text) text
@@ -1224,13 +1238,13 @@ bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height,
 }
 
 inline
-bool PushBitmap(RenderGroup& group, Assets& assets, BitmapId bid, V3 center, f32 height, V2 offset, V4 color) {
-	LoadedBitmap* bitmap = GetBitmap(assets, bid);
+bool PushBitmap(RenderGroup& group, BitmapId bid, V3 center, f32 height, V2 offset, V4 color) {
+	LoadedBitmap* bitmap = GetBitmap(*group.assets, bid, group.generationId);
 	if (!bitmap && group.renderInBackground) {
 		// Note: If rendering in background, we want to always grab the bitmap no matter
 		// how long it takes to actually acquaire it
-		PrefetchBitmap(assets, bid, true);
-		bitmap = GetBitmap(assets, bid);
+		PrefetchBitmap(*group.assets, bid, true);
+		bitmap = GetBitmap(*group.assets, bid, group.generationId);
 		Assert(bitmap);
 	}
 	if (bitmap) {
@@ -1239,7 +1253,7 @@ bool PushBitmap(RenderGroup& group, Assets& assets, BitmapId bid, V3 center, f32
 	else {
 		// NOTE: Background prefetching cannot be done from the background thread
 		AssertMainThread;
-		PrefetchBitmap(assets, bid);
+		PrefetchBitmap(*group.assets, bid);
 	}
 	return true;
 }

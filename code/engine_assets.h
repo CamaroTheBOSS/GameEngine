@@ -28,6 +28,10 @@ struct SoundId {
 	u32 id;
 };
 
+struct GenerationId {
+	u32 id;
+};
+
 enum AssetFeatureID {
 	Feature_Height,
 	Feature_FacingDirection,
@@ -52,8 +56,7 @@ enum AssetTypeID {
 enum AssetState {
 	AssetState_NotReady,
 	AssetState_Pending,
-	AssetState_Ready,
-	AssetState_InUse,
+	AssetState_Ready
 };
 
 enum AssetDataType {
@@ -112,6 +115,7 @@ struct AssetMetadata {
 struct AssetMemoryHeader {
 	u32 totalSize;
 	u32 assetIndex;
+	u32 generationId;
 	u32 type;
 	union {
 		LoadedBitmap bitmap;
@@ -155,6 +159,9 @@ struct PlatformFileGroup;
 struct PlatformFileHandle;
 struct Assets {
 	TransientState* tranState;
+	GenerationId nextGenerationId;
+	u32 inFlightGenerationCount;
+	GenerationId inFlightGenerations[16];
 
 	u32 assetCount;
 	Asset* assets;
@@ -175,9 +182,10 @@ struct Assets {
 /* ------------------ Asset System API -------------------- */
 internal bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate = false);
 internal bool PrefetchSound(Assets& assets, SoundId sid, bool immediate = false);
-inline LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid);
-inline LoadedSound* GetSound(Assets& assets, SoundId sid);
-inline Asset* GetAsset(Assets& assets, u32 id); // TODO: Probably shouldn't be public
+internal GenerationId NewGenerationId(Assets& assets);
+internal void FinishGeneration(Assets& assets, GenerationId gid);
+inline LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid, GenerationId gid);
+inline LoadedSound* GetSound(Assets& assets, SoundId sid, GenerationId gid);
 inline AssetMetadata* GetAssetMetadata(Assets& assets, Asset& asset);
 inline AssetFeatures* GetAssetFeatures(Assets& assets, u32 id);
 inline PlatformFileHandle* GetAssetSource(Assets& assets, u32 index);
@@ -188,6 +196,5 @@ inline BitmapId GetFirstBitmapIdWithType(Assets& assets, AssetTypeID typeId);
 inline BitmapId GetRandomBitmapId(Assets& assets, AssetTypeID typeId, RandomSeries& series);
 inline BitmapId GetBestFitBitmapId(Assets& assets, AssetTypeID typeId, AssetFeatures match, AssetFeatures weight, f32 halfPeriod);
 inline bool NeedsFetching(Asset& asset);
-inline bool IsReady(Asset* asset);
 inline bool IsValid(BitmapId bid);
 inline bool IsValid(SoundId sid);

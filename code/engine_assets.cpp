@@ -68,32 +68,43 @@ Asset* GetAsset(Assets& assets, u32 id) {
 	return asset;
 }
 
+internal
+Asset* AcquireAsset(Assets& assets, u32 aid, GenerationId gid) {
+	Assert(gid.id);
+	Asset* asset = GetAsset(assets, aid);
+	// TODO: Should it be more finegrained lock on per asset basis?
+	BeginAssetMemoryLock(assets);
+	if (asset->state == AssetState_Ready) {
+		if (asset && asset->memory) {
+			if (asset->memory->generationId < gid.id) {
+				asset->memory->generationId = gid.id;
+			}
+			RemoveMemoryHeaderFromList(asset->memory);
+			AddMemoryHeaderToList(assets, asset->memory);
+		}
+	}
+	EndAssetMemoryLock(assets);
+	return asset;
+}
+
 inline
-LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid) {
-	Asset* asset = GetAsset(assets, bid.id);
+LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid, GenerationId gid) {
+	Asset* asset = AcquireAsset(assets, bid.id, gid);
 	if (!asset || !asset->memory) {
 		return 0;
 	}
-	/*if (AtomicCompareExchange(&asset->state, AssetState_InUse, AssetState_Ready) < AssetState_Ready) {
-		return 0;
-	}*/
 	Assert(asset->memory->type == AssetData_Bitmap);
-	LockedMoveMemoryHeaderToFront(assets, asset->memory);
 	LoadedBitmap* bitmap = &asset->memory->bitmap;
 	return bitmap;
 }
 
 inline
-LoadedSound* GetSound(Assets& assets, SoundId sid) {
-	Asset* asset = GetAsset(assets, sid.id);
+LoadedSound* GetSound(Assets& assets, SoundId sid, GenerationId gid) {
+	Asset* asset = AcquireAsset(assets, sid.id, gid);
 	if (!asset || !asset->memory) {
 		return 0;
 	}
-	/*if (AtomicCompareExchange(&asset->state, AssetState_InUse, AssetState_Ready) < AssetState_Ready) {
-		return 0;
-	}*/
 	Assert(asset->memory->type == AssetData_Sound);
-	LockedMoveMemoryHeaderToFront(assets, asset->memory);
 	LoadedSound* sound = &asset->memory->sound;
 	return sound;
 }
@@ -115,11 +126,6 @@ PlatformFileHandle* GetAssetSource(Assets& assets, u32 index) {
 	Assert(index < assets.sources->count);
 	PlatformFileHandle* handle = *(assets.sources->files + index);
 	return handle;
-}
-
-inline
-bool IsReady(Asset* asset) {
-	return asset && asset->state >= AssetState_Ready;
 }
 
 inline
@@ -164,7 +170,6 @@ u32 _GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures match, 
 		AssetFeatures* features = GetAssetFeatures(assets, assetIndex);
 		f32 score = 0;
 		for (u32 featureIndex = 0; featureIndex < ArrayCount(*features); featureIndex++) {
-			//f32 sign = SignF32(halfPeriod - match[featureIndex]);
 			f32 a1 = (*features)[featureIndex];
 			f32 a2 = (*features)[featureIndex] - 2 * halfPeriod;
 			f32 d1 = Abs(match[featureIndex] - a1);
@@ -216,6 +221,41 @@ BitmapId GetBestFitBitmapId(Assets& assets, AssetTypeID typeId, AssetFeatures ma
 	return id;
 }
 
+internal
+GenerationId NewGenerationId(Assets& assets) {
+	BeginAssetMemoryLock(assets);
+	Assert(assets.inFlightGenerationCount < ArrayCount(assets.inFlightGenerations));
+	GenerationId result = {};
+	result.id = ++assets.nextGenerationId.id;
+	assets.inFlightGenerations[assets.inFlightGenerationCount++] = result;
+	EndAssetMemoryLock(assets);
+	return result;
+}
+
+
+internal
+void FinishGeneration(Assets& assets, GenerationId gid) {
+	BeginAssetMemoryLock(assets);
+	for (u32 index = 0; index < assets.inFlightGenerationCount; index++) {
+		if (assets.inFlightGenerations[index].id == gid.id) {
+			assets.inFlightGenerations[index] = assets.inFlightGenerations[--assets.inFlightGenerationCount];
+			break;
+		}
+	}
+	EndAssetMemoryLock(assets);
+}
+
+internal
+bool GenerationHasCompleted(Assets& assets, Asset* asset) {
+	//NOTE: Must be locked
+	for (u32 index = 0; index < assets.inFlightGenerationCount; index++) {
+		if (assets.inFlightGenerations[index].id <= asset->memory->generationId) {
+			return false;
+		}
+	}
+	return true;
+}
+
 inline
 bool NeedsFetching(Asset& asset) {
 	return asset.state == AssetState_NotReady;
@@ -251,6 +291,7 @@ void LoadAssetBackgroundTask(void* data) {
 
 inline
 AssetMemoryBlock* TryMergeMemoryBlocks(AssetMemoryBlock* prev, AssetMemoryBlock* block) {
+	// NOTE: Must be locked
 	if ((prev->flags & AssetMemory_BlockUsed) ||
 		(block->flags & AssetMemory_BlockUsed)
 		) {
@@ -265,6 +306,7 @@ AssetMemoryBlock* TryMergeMemoryBlocks(AssetMemoryBlock* prev, AssetMemoryBlock*
 
 inline
 AssetMemoryBlock* ReleaseAssetMemory(Assets& assets, void* memory, u32 size) {
+	// NOTE: Must be locked
 	AssetMemoryBlock* block = ptrcast(AssetMemoryBlock, memory) - 1;
 	// Assert that next and prev blocks are determined by the sizes of the blocks
 	Assert(((uptr)(block + 1) + block->size + size) == (uptr)block->next);
@@ -280,6 +322,7 @@ AssetMemoryBlock* ReleaseAssetMemory(Assets& assets, void* memory, u32 size) {
 
 inline
 AssetMemoryBlock* FindMemoryBlockWithSize(Assets& assets, u32 size) {
+	// NOTE: Must be locked
 	// TODO: This is exteremely unefficient for huge amount of assets loaded in memory
 	// Every time we allocate new asset we need to traverse through thousands of links
 	// to find a block. The search system should be created on top of that memory system.
@@ -299,6 +342,7 @@ AssetMemoryBlock* FindMemoryBlockWithSize(Assets& assets, u32 size) {
 
 inline
 void InsertNewMemoryBlock(AssetMemoryBlock* prev, void* memory, u32 size) {
+	// NOTE: Must be locked
 	AssetMemoryBlock* block = ptrcast(AssetMemoryBlock, memory);
 	block->flags = 0;
 	block->size = size - sizeof(AssetMemoryBlock);
@@ -336,8 +380,9 @@ void* AcquireAssetMemory(Assets& assets, u32 size) {
 		while (leastUsed != &assets.lruSentinel) {
 			Assert(leastUsed->assetIndex);
 			Asset* asset = GetAsset(assets, leastUsed->assetIndex);
-			// Asset cannot be in use, so == instead of >=
-			if (asset->state == AssetState_Ready) {
+			if (GenerationHasCompleted(assets, asset) &&
+				AtomicCompareExchange(&asset->state, AssetState_NotReady, AssetState_Ready) == AssetState_Ready
+				) {
 				Assert(asset->memory == leastUsed);
 				RemoveMemoryHeaderFromList(leastUsed);
 				// NOTE: When we don't find any block and we evicted one asset, only the block
@@ -345,7 +390,7 @@ void* AcquireAssetMemory(Assets& assets, u32 size) {
 				// or allocation can take place
 				block = ReleaseAssetMemory(assets, leastUsed, leastUsed->totalSize);
 				asset->memory = 0;
-				asset->state = AssetState_NotReady;
+
 				break;
 			}
 			leastUsed = leastUsed->prev;
@@ -369,7 +414,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate) {
 			return false;
 		}
 	}
-#if 0
+#if 1
 	// TODO: Uncomment this to avoid two threads trying to load the same asset at the same time.
 	// Maybe it is not a big deal, because data in asset->memory will be the same except
 	// actual pointer to asset.memory from AcquireAssetMemory() call. This will cause the same
@@ -443,7 +488,7 @@ bool PrefetchSound(Assets& assets, SoundId sid, bool immediate) {
 			return false;
 		}
 	}
-#if 0
+#if 1
 	// TODO: Uncomment this to avoid two threads trying to load the same asset at the same time.
 	// Maybe it is not a big deal, because data in asset->memory will be the same except
 	// actual pointer to asset.memory from AcquireAssetMemory() call. This will cause the same
@@ -500,28 +545,6 @@ bool PrefetchSound(Assets& assets, SoundId sid, bool immediate) {
 	return true;
 }
 
-inline
-bool LoadIfNotAllAssetsAreReady(Assets& assets, AssetTypeID typeId) {
-	AssetGroup* group = GetAssetGroup(assets, typeId);
-	bool ready = true;
-	for (u32 assetIndex = group->firstAssetIndex;
-		assetIndex < group->onePastLastAssetIndex;
-		assetIndex++)
-	{
-		Asset* asset = GetAsset(assets, assetIndex);
-		if (!IsReady(asset)) {
-			ready = false;
-			if (group->type == AssetGroup_Bitmap) {
-				PrefetchBitmap(assets, { assetIndex });
-			}
-			else {
-				PrefetchSound(assets, { assetIndex });
-			}
-		}
-	}
-	return ready;
-}
-
 internal
 void AllocateAssets(TransientState* tranState) {
 	u32 assetsCount = 0;
@@ -542,6 +565,9 @@ void AllocateAssets(TransientState* tranState) {
 	}
 	Assets& assets = tranState->assets;
 	u32 memoryForAssetsSize = MB(6);
+	assets.nextGenerationId.id = 0;
+	assets.inFlightGenerationCount = 0;
+	assets.memoryLock = 0;
 	assets.tranState = tranState;
 	assets.assetCount = assetsCount + 1;
 	assets.assets = PushArray(tranState->arena, assets.assetCount, Asset);

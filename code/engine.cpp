@@ -11,6 +11,7 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	constexpr u32 nChannels = 2;
 	TemporaryMemory mixerMemory = BeginTempMemory(audio.arena);
 	f32* mixedSamples[nChannels] = {};
+	GenerationId gid = NewGenerationId(assets);
 	
 	u32 outBufferSampleCount = dst.nSamples;
 	u32 maxIter = outBufferSampleCount >> 3;
@@ -30,8 +31,9 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	while (currSound) {
 		// TODO: Hunt for this assertion and check whether it is still needed, probably not
 		// Assert(destCurrentSample < outBufferSampleCount);
-		Asset* asset = GetAsset(assets, currSound->soundId.id);
-		if (!IsReady(asset)) {
+		
+		LoadedSound* assetSound = GetSound(assets, currSound->soundId, gid);
+		if (!assetSound) {
 			// TESTING NOTE: That assert is handy in development, comment it out when want to test
 			// whether asset system is resistent on lack of assets loaded
 #if 0
@@ -43,13 +45,13 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 			currSound = currSound->next;
 			continue;
 		}
+		Asset* asset = GetAsset(assets, currSound->soundId.id);
 		AssetFileSoundInfo* soundInfo = &GetAssetMetadata(assets, *asset)->_soundInfo;
 		SoundId nextInChain = { 0 };
 		if (soundInfo->chain.op == SoundChain::Advance) {
 			nextInChain.id = currSound->soundId.id + soundInfo->chain.count;
 		}
 		PrefetchSound(assets, nextInChain);
-		LoadedSound* assetSound = GetSound(assets, currSound->soundId);
 		PlayingSound* nextSound = currSound->next;
 
 		f32 remainingSamples = f4(outBufferSampleCount - destCurrentSample);
@@ -161,6 +163,7 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		mixedC1 += 8;
 		mixedC2 += 8;
 	}
+	FinishGeneration(assets, gid);
 	EndTempMemory(mixerMemory);
 }
 
@@ -188,7 +191,8 @@ void FillGroundBufferBackgroundTask(void* data) {
 	FillGroundBufferTaskArgs* args = ptrcast(FillGroundBufferTaskArgs, data);
 	TaskWithMemory* task = args->task;
 	LoadedBitmap* buffer = &args->groundBuffer->buffer;
-	RenderGroup group = AllocateRenderGroup(task->arena, u4(GetArenaFreeSpaceSize(task->arena)), true);
+	RenderGroup group = AllocateRenderGroup(task->arena, args->assets, u4(GetArenaFreeSpaceSize(task->arena)), true);
+	BeginRendering(group);
 	f32 width = args->chunkSizeInMeters.X;
 	f32 height = args->chunkSizeInMeters.Y;
 	Assert(width == height);
@@ -222,11 +226,12 @@ void FillGroundBufferBackgroundTask(void* data) {
 					GetRandomBitmapId(*args->assets, Asset_Ground, series);
 				position.X += chunkOffsetX * width;
 				position.Y += chunkOffsetY * height;
-				PushBitmap(group, *args->assets, bid, position, 1.7f, V2{ 0, 0 }, color);
+				PushBitmap(group, bid, position, 1.7f, V2{ 0, 0 }, color);
 			}
 		}
 	}
 	RenderGroupToBuffer(group, *buffer);
+	EndRendering(group);
 	WriteCompilatorFence;
 	args->groundBuffer->state = GroundBufferState::Ready;
 	EndBackgroundTask(task);
@@ -234,12 +239,6 @@ void FillGroundBufferBackgroundTask(void* data) {
 
 internal
 bool FillGroundBuffer(TransientState* tranState, ProgramState* state, GroundBuffer& dstBuffer, WorldPosition& chunkPos, PlatformQueue* queue) {
-#if 0 // Uncomment it to make FillGroundChunk not load assets!
-	if (!LoadIfNotAllAssetsAreReady(tranState->assets, Asset_Ground) ||
-		!LoadIfNotAllAssetsAreReady(tranState->assets, Asset_Grass)) {
-		return false;
-	}
-#endif
 	TaskWithMemory* task = TryBeginBackgroundTask(tranState);
 	if (!task || dstBuffer.state == GroundBufferState::Pending) {
 		return false;
@@ -1259,7 +1258,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 	// TODO: Think about size of the main render group
 	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
-	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, MB(4));
+	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, &tranState->assets, MB(4));
+	BeginRendering(renderGroup);
 	renderGroup.projection = GetStandardProjection(bitmap.width, bitmap.height);
 	f32 originalCameraDistance = renderGroup.projection.camera.distanceToTarget;
 	//NOTE: Change this to change debug view
@@ -1373,7 +1373,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			match[Feature_FacingDirection] = entity->faceDir;
 			weight[Feature_FacingDirection] = 1.f;
 			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Player, match, weight, PI);
-			PushBitmap(renderGroup, tranState->assets, bmp, groundLevelPos, 1.35f, V2{0, 0});
+			PushBitmap(renderGroup, bmp, groundLevelPos, 1.35f, V2{0, 0});
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 		} break;
 		case EntityType_Wall: {
@@ -1384,7 +1384,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			match[Feature_Height] = 1.5f;
 			weight[Feature_Height] = 1.f;
 			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Tree, match, weight, 10000);
-			PushBitmap(renderGroup, tranState->assets, bmp, groundLevelPos, treeHeight, 
+			PushBitmap(renderGroup, bmp, groundLevelPos, treeHeight, 
 				V2{0, 0.1f}, V4{1, 0.f, 1.f, layerAlpha});
 		} break;
 		case EntityType_Stairs: {
@@ -1543,7 +1543,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
 #endif
 	RenderSoundToBuffer(state->audio, tranState->assets, soundData);
-
+	EndRendering(renderGroup);
 	EndSimulation(*simRegion, world);
 	EndTempMemory(renderMemory);
 	EndTempMemory(simMemory);
