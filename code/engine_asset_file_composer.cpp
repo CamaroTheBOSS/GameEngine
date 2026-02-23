@@ -247,6 +247,87 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 }
 
 internal
+void AddFontAsset(Assets& assets, const char* fontName) {
+	Assert(assets.assetCount < ASSET_MAX_COUNT);
+	i32 reqHeight = 32;
+	i32 reqWidth = 32;
+
+	HFONT font = CreateFontA(
+		reqHeight, // Height
+		reqWidth, // Width
+		0,
+		0,
+		FW_DONTCARE, // Boldness
+		false, // Italic
+		false, // Underline
+		false, // Strike-out
+		ANSI_CHARSET,
+		OUT_DEFAULT_PRECIS,
+		CLIP_DEFAULT_PRECIS,
+		ANTIALIASED_QUALITY,
+		DEFAULT_PITCH | FF_DONTCARE,
+		fontName
+	);
+
+	
+	u32 allocSize = reqHeight * reqWidth * BITMAP_BYTES_PER_PIXEL;
+	void* bits = malloc(allocSize);
+	memset(bits, 0xFF, allocSize);
+
+	BITMAPINFO bmpinfo = {};
+	bmpinfo.bmiHeader.biSize = sizeof(BITMAPINFO);
+	bmpinfo.bmiHeader.biWidth = reqWidth;
+	bmpinfo.bmiHeader.biHeight = reqHeight;
+	bmpinfo.bmiHeader.biPlanes = 1;
+	bmpinfo.bmiHeader.biBitCount = 32;
+	bmpinfo.bmiHeader.biCompression = BI_RGB;
+	bmpinfo.bmiHeader.biSizeImage = 0;
+	bmpinfo.bmiHeader.biXPelsPerMeter = 0;
+	bmpinfo.bmiHeader.biYPelsPerMeter = 0;
+	bmpinfo.bmiHeader.biClrUsed = 3;
+	bmpinfo.bmiHeader.biClrImportant = 0;
+
+	HDC dc = CreateCompatibleDC(NULL);
+	SetBkMode(dc, TRANSPARENT);
+	HBITMAP bmp = CreateCompatibleBitmap(dc, reqHeight, reqWidth);
+	SelectObject(dc, bmp);
+	SelectObject(dc, font);
+
+	BOOL result = TextOutA(dc, 0, 0, "0", 1);
+	/*i32 resultDIBIts = GetDIBits(
+		dc,
+		bmp,
+		0,
+		reqHeight,
+		bits,
+		&bmpinfo,
+		DIB_RGB_COLORS
+	);*/
+	i32 x = 9;
+
+	Asset* asset = &assets.assets[assets.assetCount];
+	asset->memory = ptrcast(AssetMemoryHeader, malloc(sizeof(AssetMemoryHeader)));
+	asset->memory->bitmap.data = ptrcast(u32, bits);
+	AssetFileBitmapInfo* info = &assets.metadatas[assets.assetCount]._bitmapInfo;
+	info->alignment = V2{ 0, 0 };
+	info->height = reqHeight;
+	info->width = reqWidth;
+	info->pitch = reqWidth * BITMAP_BYTES_PER_PIXEL;
+	asset->metadataId = assets.assetCount;
+	AssetGroup* group = &assets.groups[Asset_Font];
+	if (group->firstAssetIndex == 0) {
+		group->firstAssetIndex = assets.assetCount;
+		group->onePastLastAssetIndex = group->firstAssetIndex + 1;
+		group->type = AssetGroup_Bitmap;
+	}
+	else {
+		Assert(group->type == AssetGroup_Bitmap);
+		group->onePastLastAssetIndex++;
+	}
+	assets.assetCount++;
+}
+
+internal
 void AddFeature(Assets& assets, AssetFeatureID fId, f32 value) {
 	Assert(assets.assetCount > 0);
 	AssetFeatures* features = GetAssetFeatures(assets, assets.assetCount - 1);
@@ -353,6 +434,8 @@ void WriteBitmaps() {
 	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
 	AddBmpAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
+
+	AddFontAsset(assets, "Arial.ttf");
 
 	WriteAssetsToFile(assets, "bitmaps.assf");
 }

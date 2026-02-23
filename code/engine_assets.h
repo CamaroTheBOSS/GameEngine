@@ -20,6 +20,10 @@ struct LoadedSound {
 	f32* samples[2];
 };
 
+struct LoadedFont {
+
+};
+
 struct BitmapId {
 	u32 id;
 };
@@ -49,6 +53,8 @@ enum AssetTypeID {
 
 	Asset_Music,
 	Asset_Bloop,
+
+	Asset_Font,
 
 	Asset_Count
 };
@@ -130,7 +136,8 @@ enum AssetMemoryBlockFlags {
 };
 
 struct AssetMemoryBlock {
-	u32 size;
+	u32 remainingSize;
+	u32 totalSize;
 	u32 flags;
 	AssetMemoryBlock* next;
 	AssetMemoryBlock* prev;
@@ -171,8 +178,6 @@ struct Assets {
 
 	PlatformFileGroup* sources;
 
-	u32 totalMemoryMax;
-	u32 totalMemoryUsed;
 	AssetMemoryHeader lruSentinel;
 	AssetMemoryBlock memorySentinel;
 

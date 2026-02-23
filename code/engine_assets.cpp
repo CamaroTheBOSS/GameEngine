@@ -297,21 +297,44 @@ AssetMemoryBlock* TryMergeMemoryBlocks(AssetMemoryBlock* prev, AssetMemoryBlock*
 		) {
 		return block;
 	}
-	prev->size += block->size + sizeof(AssetMemoryBlock);
+	Assert(prev->remainingSize == prev->totalSize);
+	Assert(block->remainingSize == block->totalSize);	
+	prev->totalSize += block->totalSize + sizeof(AssetMemoryBlock);
+	prev->remainingSize = prev->totalSize;
 	prev->flags |= block->flags;
 	block->prev->next = block->next;
 	block->next->prev = block->prev;
 	return prev;
 }
 
+inline bool CheckMemoryBlockBeforeRelease(Assets& assets, AssetMemoryBlock* block, u32 memoryReleaseSize) {
+	u32 totalAfterRelease = block->remainingSize + memoryReleaseSize;
+	Assert(totalAfterRelease == block->totalSize);
+	Assert(block != &assets.memorySentinel);
+
+	uptr blockStart = (uptr)block;
+	uptr nextBlockStart = (uptr)(block->next);
+	uptr blockMemoryStart = (uptr)(block + 1);
+	uptr prevBlockMemoryStart = (uptr)(block->prev + 1);
+	uptr prevBlockTotalSize = block->prev->totalSize;
+
+	// Assert that next and prev blocks are determined by the sizes of the blocks
+	if (block->next != &assets.memorySentinel) {
+		Assert((blockMemoryStart + totalAfterRelease) == nextBlockStart);
+	}
+	if (block->prev != &assets.memorySentinel) {
+		Assert((prevBlockMemoryStart + prevBlockTotalSize) == blockStart);
+	}
+	return true;
+}
+
 inline
 AssetMemoryBlock* ReleaseAssetMemory(Assets& assets, void* memory, u32 size) {
 	// NOTE: Must be locked
 	AssetMemoryBlock* block = ptrcast(AssetMemoryBlock, memory) - 1;
-	// Assert that next and prev blocks are determined by the sizes of the blocks
-	Assert(((uptr)(block + 1) + block->size + size) == (uptr)block->next);
+	Assert(CheckMemoryBlockBeforeRelease(assets, block, size));
 	block->flags &= ~AssetMemory_BlockUsed;
-	block->size += size;
+	block->remainingSize += size;
 
 	if (block->prev != &assets.memorySentinel) {
 		block = TryMergeMemoryBlocks(block->prev, block);
@@ -331,7 +354,7 @@ AssetMemoryBlock* FindMemoryBlockWithSize(Assets& assets, u32 size) {
 		block = block->next
 		) {
 		if ((block->flags & AssetMemory_BlockUsed) ||
-			(block->size < size)) 
+			(block->remainingSize < size)) 
 		{
 			continue;
 		}
@@ -345,7 +368,8 @@ void InsertNewMemoryBlock(AssetMemoryBlock* prev, void* memory, u32 size) {
 	// NOTE: Must be locked
 	AssetMemoryBlock* block = ptrcast(AssetMemoryBlock, memory);
 	block->flags = 0;
-	block->size = size - sizeof(AssetMemoryBlock);
+	block->remainingSize = size - sizeof(AssetMemoryBlock);
+	block->totalSize = size - sizeof(AssetMemoryBlock);
 	block->prev = prev;
 	block->next = prev->next;
 	block->prev->next = block;
@@ -358,19 +382,20 @@ void* AcquireAssetMemory(Assets& assets, u32 size) {
 	BeginAssetMemoryLock(assets);
 	AssetMemoryBlock* block = FindMemoryBlockWithSize(assets, size);
 	for (;;) {
-		if (block && size <= block->size) {
-			assets.totalMemoryUsed += size;
+		if (block && size <= block->remainingSize) {
 
 			result = ptrcast(u8, block + 1);
 			block->flags |= AssetMemory_BlockUsed;
-			u32 remainingSize = block->size - size;
+			u32 newRemainingSize = block->remainingSize - size;
 			u32 minimumBlockSize = 4096;
-			if (remainingSize > minimumBlockSize) {
-				block->size = 0;
-				InsertNewMemoryBlock(block, ptrcast(u8, result) + size, remainingSize);
+			if (newRemainingSize > minimumBlockSize) {
+				block->totalSize = size;
+				block->remainingSize = 0;
+				
+				InsertNewMemoryBlock(block, ptrcast(u8, result) + size, newRemainingSize);
 			}
 			else {
-				block->size = remainingSize;
+				block->remainingSize = newRemainingSize;
 			}
 			break;
 		}
@@ -574,13 +599,12 @@ void AllocateAssets(TransientState* tranState) {
 	assets.features = PushArray(tranState->arena, assets.assetCount, AssetFeatures);
 	assets.metadatas = PushArray(tranState->arena, assets.assetCount, AssetMetadata);
 	assets.sources = fileGroup;
-	assets.totalMemoryMax = memoryForAssetsSize;
-	assets.totalMemoryUsed = 0;
 	assets.lruSentinel.next = &assets.lruSentinel;
 	assets.lruSentinel.prev = &assets.lruSentinel;
 	assets.memorySentinel.next = &assets.memorySentinel;
 	assets.memorySentinel.prev = &assets.memorySentinel;
-	assets.memorySentinel.size = 0;
+	assets.memorySentinel.remainingSize = 0;
+	assets.memorySentinel.totalSize = 0;
 	assets.memorySentinel.flags = 0;
 	InsertNewMemoryBlock(&assets.memorySentinel,
 		PushSize(tranState->arena, memoryForAssetsSize), memoryForAssetsSize);

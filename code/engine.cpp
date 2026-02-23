@@ -1375,6 +1375,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Player, match, weight, PI);
 			PushBitmap(renderGroup, bmp, groundLevelPos, 1.35f, V2{0, 0});
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
+
+			PushBitmap(renderGroup, 
+				GetFirstBitmapIdWithType(tranState->assets, Asset_Font), 
+				groundLevelPos, 1.f, V2{ 0, 0 });
 		} break;
 		case EntityType_Wall: {
 			const f32 treeHeight = 2.5f * world.tileSizeInMeters.Z;
