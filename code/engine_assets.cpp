@@ -402,6 +402,7 @@ void* AcquireAssetMemory(Assets& assets, u32 size) {
 
 		// NOTE: We don't have enough space for allocation. Evict lru asset
 		AssetMemoryHeader* leastUsed = assets.lruSentinel.prev;
+		bool evicted = false;
 		while (leastUsed != &assets.lruSentinel) {
 			Assert(leastUsed->assetIndex);
 			Asset* asset = GetAsset(assets, leastUsed->assetIndex);
@@ -415,11 +416,12 @@ void* AcquireAssetMemory(Assets& assets, u32 size) {
 				// or allocation can take place
 				block = ReleaseAssetMemory(assets, leastUsed, leastUsed->totalSize);
 				asset->memory = 0;
-
+				evicted = true;
 				break;
 			}
 			leastUsed = leastUsed->prev;
 		}
+		Assert(evicted && "Holy crap, we ran out of memory and we cannot evict more assets!");
 	}
 	EndAssetMemoryLock(assets);
 	return result;
@@ -457,7 +459,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate) {
 	asset.state = AssetState_Pending;
 	WriteCompilatorFence;
 	AssetFileBitmapInfo* metadata = &GetAssetMetadata(assets, asset)->_bitmapInfo;
-	u32 assetSize = metadata->pitch * metadata->height * BITMAP_BYTES_PER_PIXEL;
+	u32 assetSize = metadata->pitch * metadata->height;
 	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
 	asset.memory = ptrcast(AssetMemoryHeader, AcquireAssetMemory(assets, allocSize));
 	asset.memory->bitmap.align = metadata->alignment;

@@ -1378,7 +1378,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 			PushBitmap(renderGroup, 
 				GetFirstBitmapIdWithType(tranState->assets, Asset_Font), 
-				groundLevelPos, 1.f, V2{ 0, 0 });
+				groundLevelPos, 2.f, V2{ 0, 0 });
 		} break;
 		case EntityType_Wall: {
 			const f32 treeHeight = 2.5f * world.tileSizeInMeters.Z;

@@ -7,6 +7,14 @@
 
 u32 ASSET_MAX_COUNT = 256 * Asset_Count;
 
+struct AssetFileFont {
+	HFONT font;
+	HDC dc;
+	HBITMAP bmp;
+	BITMAPINFO info;
+	void* bits;
+};
+
 inline
 FileData ReadEntireFile(const char* filename) {
 	if (!filename) {
@@ -247,21 +255,20 @@ SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 
 }
 
 internal
-void AddFontAsset(Assets& assets, const char* fontName) {
-	Assert(assets.assetCount < ASSET_MAX_COUNT);
-	i32 reqHeight = 32;
-	i32 reqWidth = 32;
+AssetFileFont CreateAssetFont(const char* fontName) {
+	i32 srcHeight = 128;
+	i32 srcWidth = 128;
+	u32 srcPitch = srcWidth * BITMAP_BYTES_PER_PIXEL;
 
+	AddFontResourceExA(fontName, FR_PRIVATE, 0);
 	HFONT font = CreateFontA(
-		reqHeight, // Height
-		reqWidth, // Width
-		0,
-		0,
+		srcHeight, // Height
+		0, 0, 0,
 		FW_DONTCARE, // Boldness
 		false, // Italic
 		false, // Underline
 		false, // Strike-out
-		ANSI_CHARSET,
+		DEFAULT_CHARSET,
 		OUT_DEFAULT_PRECIS,
 		CLIP_DEFAULT_PRECIS,
 		ANTIALIASED_QUALITY,
@@ -269,50 +276,118 @@ void AddFontAsset(Assets& assets, const char* fontName) {
 		fontName
 	);
 
-	
-	u32 allocSize = reqHeight * reqWidth * BITMAP_BYTES_PER_PIXEL;
-	void* bits = malloc(allocSize);
-	memset(bits, 0xFF, allocSize);
-
 	BITMAPINFO bmpinfo = {};
 	bmpinfo.bmiHeader.biSize = sizeof(BITMAPINFO);
-	bmpinfo.bmiHeader.biWidth = reqWidth;
-	bmpinfo.bmiHeader.biHeight = reqHeight;
+	bmpinfo.bmiHeader.biWidth = srcWidth;
+	bmpinfo.bmiHeader.biHeight = srcHeight;
 	bmpinfo.bmiHeader.biPlanes = 1;
 	bmpinfo.bmiHeader.biBitCount = 32;
 	bmpinfo.bmiHeader.biCompression = BI_RGB;
 	bmpinfo.bmiHeader.biSizeImage = 0;
 	bmpinfo.bmiHeader.biXPelsPerMeter = 0;
 	bmpinfo.bmiHeader.biYPelsPerMeter = 0;
-	bmpinfo.bmiHeader.biClrUsed = 3;
+	bmpinfo.bmiHeader.biClrUsed = 0;
 	bmpinfo.bmiHeader.biClrImportant = 0;
-
-	HDC dc = CreateCompatibleDC(NULL);
-	SetBkMode(dc, TRANSPARENT);
-	HBITMAP bmp = CreateCompatibleBitmap(dc, reqHeight, reqWidth);
+	void* bits = 0;
+	HDC dc = CreateCompatibleDC(GetDC(0));
+	HBITMAP bmp = CreateDIBSection(dc, &bmpinfo, DIB_RGB_COLORS, &bits, 0, 0);
 	SelectObject(dc, bmp);
 	SelectObject(dc, font);
+	SetBkColor(dc, RGB(0, 0, 0));
+	SetTextColor(dc, RGB(255, 255, 255));
 
-	BOOL result = TextOutA(dc, 0, 0, "0", 1);
-	/*i32 resultDIBIts = GetDIBits(
-		dc,
-		bmp,
-		0,
-		reqHeight,
-		bits,
-		&bmpinfo,
-		DIB_RGB_COLORS
-	);*/
-	i32 x = 9;
+	AssetFileFont result = {};
+	result.dc = dc;
+	result.bmp = bmp;
+	result.font = font;
+	result.bits = bits;
+	result.info = bmpinfo;
+	return result;
+}
+
+internal
+void AddGlyphAsset(Assets& assets, AssetFileFont& font, char* glyph) {
+	Assert(assets.assetCount < ASSET_MAX_COUNT);
+	u32 srcHeight = font.info.bmiHeader.biHeight;
+	u32 srcWidth = font.info.bmiHeader.biWidth;
+	u32 srcPitch = srcWidth * BITMAP_BYTES_PER_PIXEL;
+	void* bits = font.bits;
+
+	BOOL result = TextOutA(font.dc, 8, 8, glyph, 1);
+
+	u32 minX = U32_MAX;
+	u32 maxX = 0;
+	u32 minY = U32_MAX;
+	u32 maxY = 0;
+	u32* srcPixel = ptrcast(u32, bits);
+	for (u32 Y = 0; Y < u4(srcHeight); Y++) {
+		bool foundNonZeroOnRow = false;
+		for (u32 X = 0; X < u4(srcWidth); X++) {
+			u32 color = *srcPixel++;
+			if (color == 0) {
+				continue;
+			}
+			if (Y < minY) {
+				minY = Y;
+			}
+			if (Y > maxY) {
+				maxY = Y + 1;
+			}
+			if (X < minX) {
+				minX = X;
+			}
+			if (X > maxX) {
+				maxX = X + 1;
+			}
+			
+		}	
+	}
+	Assert(minY < maxY && minX < maxX);
+	Assert(maxY < u4(srcHeight - 2) && maxX < u4(srcWidth - 2));
+	minX--;
+	minY--;
+	maxX++;
+	maxY++;
+	u32 dstWidth = maxX - minX;
+	u32 dstHeight = maxY - minY;
+	
+	u32 dstPitch = dstWidth * BITMAP_BYTES_PER_PIXEL;
+	u32 allocSize = dstHeight * dstPitch;
+	u32* data = ptrcast(u32, malloc(allocSize));
+	memset(data, 0, allocSize);
+	u32* dstRow = data;
+	u8* srcRow = ptrcast(u8, bits) + minY * srcPitch + minX * BITMAP_BYTES_PER_PIXEL;
+	for (u32 Y = minY; Y < maxY; Y++) {
+		srcPixel = ptrcast(u32, srcRow);
+		for (u32 X = minX; X < maxX; X++) {
+			u8 gray = *(ptrcast(u8, srcPixel));
+			V4 texel = {
+				f4(gray), f4(gray), f4(gray), f4(gray),
+			};
+			texel = SRGB255ToLinear1(texel);
+			texel.RGB *= texel.A;
+			texel = Linear1ToSRGB255(texel);
+			*dstRow++ = (u4(texel.A + 0.5f) << 24) +
+						(u4(texel.R + 0.5f) << 16) +
+						(u4(texel.G + 0.5f) << 8) +
+						(u4(texel.B + 0.5f) << 0);
+			srcPixel++;			
+		}
+		srcRow += srcPitch;
+	}
 
 	Asset* asset = &assets.assets[assets.assetCount];
 	asset->memory = ptrcast(AssetMemoryHeader, malloc(sizeof(AssetMemoryHeader)));
-	asset->memory->bitmap.data = ptrcast(u32, bits);
+	asset->memory->bitmap.data = data;
+	asset->memory->bitmap.align = V2{ 0, 0 };
+	asset->memory->bitmap.height = dstHeight;
+	asset->memory->bitmap.width = dstWidth;
+	asset->memory->bitmap.pitch = dstPitch;
 	AssetFileBitmapInfo* info = &assets.metadatas[assets.assetCount]._bitmapInfo;
 	info->alignment = V2{ 0, 0 };
-	info->height = reqHeight;
-	info->width = reqWidth;
-	info->pitch = reqWidth * BITMAP_BYTES_PER_PIXEL;
+	info->height = asset->memory->bitmap.height;
+	info->width = asset->memory->bitmap.width;
+	info->pitch = asset->memory->bitmap.pitch;
 	asset->metadataId = assets.assetCount;
 	AssetGroup* group = &assets.groups[Asset_Font];
 	if (group->firstAssetIndex == 0) {
@@ -435,13 +510,20 @@ void WriteBitmaps() {
 	AddBmpAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
 
-	AddFontAsset(assets, "Arial.ttf");
-
 	WriteAssetsToFile(assets, "bitmaps.assf");
+}
+
+void WriteFonts() {
+	Assets assets = InitializeAssets();
+	AssetFileFont font = CreateAssetFont("Arial.ttf");
+	char g = 'G';
+	AddGlyphAsset(assets, font, &g);
+	WriteAssetsToFile(assets, "fonts.assf");
 }
 
 int main() {
 	WriteSounds();
 	WriteBitmaps();
+	WriteFonts();
 	return 0;
 }
