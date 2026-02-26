@@ -142,7 +142,7 @@ struct DebugMemory {
 #define END_TIMED_SECTION_MULTITHREADED(id, count) InterlockedAdd(ptrcast(volatile long, &debugGlobalMemory->performanceCounters[DPCT_##id].cycles), __rdtsc() - startCycleCount_##id); \
 	InterlockedAdd(ptrcast(volatile long, &debugGlobalMemory->performanceCounters[DPCT_##id].counts), count)
 #define END_TIMED_SECTION(id) END_TIMED_SECTION_COUNTED(id, 1)
-DebugMemory* debugGlobalMemory;
+extern DebugMemory* debugGlobalMemory;
 
 /*----------------------------------------------------------------*/
 struct PlatformAPI {
@@ -162,7 +162,7 @@ struct PlatformAPI {
 	_PlatformMemoryAllocate MemoryAllocate;
 	_PlatformMemoryFree MemoryFree;
 };
-PlatformAPI* Platform;
+extern PlatformAPI* Platform;
 
 struct ProgramMemory {
 	// Platform independent memory arenas
@@ -285,11 +285,4 @@ void EndBackgroundTask(TaskWithMemory* task) {
 /* Functionalities served by the program layer for platform layer */
 #define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, InputData& input)
 typedef GAME_MAIN_LOOP_FRAME(game_main_loop_frame);
-extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {
-	f32* data = reinterpret_cast<f32*>(soundData.data);
-	for (u32 frame = 0; frame < soundData.nSamples; frame++) {
-		for (u32 channel = 0; channel < soundData.nChannels; channel++) {
-			*data++ = 0;
-		}
-	}
-}
+extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub);

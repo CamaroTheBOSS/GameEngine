@@ -5,6 +5,9 @@
 #include "engine_assets.cpp"
 #include "engine_render.cpp"
 
+volatile u32 GLOBAL_THREAD_ID_GEN = 0;
+thread_local u32 THREAD_LOCAL_ID = 0;
+PlatformAPI* Platform;
 
 internal
 void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
@@ -21,7 +24,7 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		mixedSamples[channel] = PushArray(audio.arena, outBufferSampleCount, f32, 32);
 		f32* data = mixedSamples[channel];
 		for (u32 i = 0; i < maxIter; i++) {
-			_mm256_store_ps(data, zero);
+			_mm256_storeu_ps(data, zero);
 			data += 8;
 		}
 	}
@@ -34,13 +37,7 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 		
 		LoadedSound* assetSound = GetSound(assets, currSound->soundId, gid);
 		if (!assetSound) {
-			// TESTING NOTE: That assert is handy in development, comment it out when want to test
-			// whether asset system is resistent on lack of assets loaded
-#if 0
-			// Note: Only first chunk shouldn't be ready, the rest needs to be here on time to avoid
-			// clicking!
-			Assert(GetAssetMetadata(assets, *asset)->_soundInfo.firstSampleIndex == 0);
-#endif
+			PrefetchSound(assets, currSound->soundId);
 			prevSound = currSound;
 			currSound = currSound->next;
 			continue;
@@ -106,11 +103,11 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 				__m256 volume = _mm256_add_ps(startVolume[channel], _mm256_mul_ps(sampleIndexes, volumeChangeSpeed[channel]));
 				__m256 srcSamples1 = _mm256_i32gather_ps(src[channel], samplesInt, 4);
 				__m256 srcSamples2 = _mm256_i32gather_ps(src[channel], samplesIntPlus1, 4);
-				__m256 destSamples = _mm256_load_ps(dest[channel]);
+				__m256 destSamples = _mm256_loadu_ps(dest[channel]);
 				__m256 output = _mm256_add_ps(srcSamples1, _mm256_mul_ps(samplesFrac, _mm256_sub_ps(srcSamples2, srcSamples1)));
 				output = _mm256_add_ps(destSamples, _mm256_mul_ps(volume, output));
 				output = _mm256_blendv_ps(destSamples, output, writeMask);
-				_mm256_store_ps(dest[channel], output);
+				_mm256_storeu_ps(dest[channel], output);
 				dest[channel] += 8;
 			}
 			sampleIndexes = _mm256_add_ps(sampleIndexes, eight);
@@ -150,15 +147,15 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	f32* mixedC1 = mixedSamples[0];
 	f32* mixedC2 = mixedSamples[1];
 	for (u32 iter = 0; iter < maxIter; iter++) {
-		__m256 samplesC1 = _mm256_load_ps(mixedC1);
-		__m256 samplesC2 = _mm256_load_ps(mixedC2);
+		__m256 samplesC1 = _mm256_loadu_ps(mixedC1);
+		__m256 samplesC2 = _mm256_loadu_ps(mixedC2);
 		__m256 unpackedLow = _mm256_unpacklo_ps(samplesC1, samplesC2);
 		__m256 unpackedHigh = _mm256_unpackhi_ps(samplesC1, samplesC2);
 		__m256 permutedLow = _mm256_permute2f128_ps(unpackedLow, unpackedHigh, 0b0011'0001);
 		__m256 permutedHigh = _mm256_permute2f128_ps(unpackedLow, unpackedHigh, 0b0010'0000);
-		_mm256_store_ps(out, permutedHigh);
+		_mm256_storeu_ps(out, permutedHigh);
 		out += 8;
-		_mm256_store_ps(out, permutedLow);
+		_mm256_storeu_ps(out, permutedLow);
 		out += 8;
 		mixedC1 += 8;
 		mixedC2 += 8;

@@ -86,6 +86,11 @@ struct RenderGroup {
 	Assets* assets;
 };
 
+void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
+	bool even, Rect2i clipRect);
+void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
+	LoadedBitmap& texture, bool even, Rect2i clipRect);
+
 /*                Renderer API                  */
 inline bool PushClearCall(RenderGroup& group, V4 color = V4{ 1, 1, 1, 1 });
 inline bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, 

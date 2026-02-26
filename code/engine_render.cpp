@@ -196,6 +196,7 @@ void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color
 	}
 }
 
+#if 0
 internal
 void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
 	bool even, Rect2i clipRect)
@@ -400,6 +401,7 @@ void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V
 	END_TIMED_SECTION_COUNTED(FillPixelRectangleRoutine, pixelCount);
 	END_TIMED_SECTION(RenderFilledRectangleOptimized);
 }
+#endif
 
 
 // TODO: Do I really need Opaque version for faster rendering when I know alpha is 255.f?
@@ -622,6 +624,7 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 	END_TIMED_SECTION(RenderRectangleSlowly);
 }
 
+#if 0
 internal
 void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color, 
 	LoadedBitmap& texture, bool even, Rect2i clipRect)
@@ -926,6 +929,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	END_TIMED_SECTION_COUNTED(FillPixel, pixelCount);
 	END_TIMED_SECTION(RenderRectangleOptimized);
 }
+#endif
 
 internal
 void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 position) {

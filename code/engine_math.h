@@ -11,6 +11,7 @@ union V2 {
 	f32 E[2];
 };
 
+inline
 V2 V2i(i32 X, i32 Y) {
 	V2 result = V2{ f4(X), f4(Y) };
 	return result;
@@ -255,6 +256,7 @@ union V4 {
 	f32 E[4];
 };
 
+inline
 V4 V4i(i32 X, i32 Y, i32 Z, i32 W) {
 	V4 result = V4{ f4(X), f4(Y), f4(Z), f4(W) };
 	return result;
@@ -627,6 +629,7 @@ struct Rect3 {
 	V3 max;
 };
 
+inline
 Rect3 ToRect3(Rect2 rect2, V2 minMaxZ) {
 	Rect3 result{
 		.min = ToV3(rect2.min, minMaxZ.E[0]),

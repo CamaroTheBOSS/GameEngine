@@ -29,7 +29,9 @@
 #define COMPILER_LLVM 1
 #endif
 #endif
+#if !defined(internal)
 #define internal static
+#endif
 #define noapi
 #define PI 3.14159f
 #define TAU 6.28318f
@@ -86,8 +88,8 @@ typedef long long i64;
 typedef float f32;
 typedef double f64;
 
-volatile u32 GLOBAL_THREAD_ID_GEN = 0;
-thread_local u32 THREAD_LOCAL_ID = 0;
+extern volatile u32 GLOBAL_THREAD_ID_GEN;
+extern thread_local u32 THREAD_LOCAL_ID;
 
 #include "engine_intrinsics.h"
 #include "engine_math.h"
@@ -128,6 +130,7 @@ u64 GetAlignmentOffset(MemoryArena& arena, u64 alignment) {
 	return alignmentOffset;
 }
 
+inline
 u64 GetArenaFreeSpaceSize(MemoryArena& arena) {
 	u64 result = arena.capacity - arena.used;
 	return result;

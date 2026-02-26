@@ -13,6 +13,18 @@ LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(TB(static_cast<u64>(10)));
 #else
 LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(0);
 #endif
+volatile u32 GLOBAL_THREAD_ID_GEN = 0;
+thread_local u32 THREAD_LOCAL_ID = 0;
+PlatformAPI* Platform;
+
+extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {
+	f32* data = reinterpret_cast<f32*>(soundData.data);
+	for (u32 frame = 0; frame < soundData.nSamples; frame++) {
+		for (u32 channel = 0; channel < soundData.nChannels; channel++) {
+			*data++ = 0;
+		}
+	}
+}
 
 struct SoundRenderData {
 	IMMDevice* device;

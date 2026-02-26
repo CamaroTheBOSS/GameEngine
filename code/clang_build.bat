@@ -9,7 +9,8 @@ set LinkerFlags= -l user32 -l gdi32 -l ole32 -l winmm
 pushd ..\build
   echo %cd%
   del *.pdb > NUL 2> NUL
-  %ClangExe% %CompilerFlags% -S ..\code\engine.cpp
-  %ClangExe% %CompilerFlags% ..\code\engine.cpp -shared -o engine.dll -Xlinker /pdb:engine%random%.pdb -Xlinker /export:GameMainLoopFrame 
+  REM %ClangExe% %CompilerFlags% -S ..\code\engine.cpp -- -S for assembly => for optimization
+  %ClangExe% %CompilerFlags% ..\code\engine_optimized.cpp -c -o engine_optimized.obj -Wunused-command-line-argument
+  %ClangExe% %CompilerFlags% ..\code\engine.cpp engine_optimized.obj -shared -o engine.dll -Xlinker /pdb:engine%random%.pdb -Xlinker /export:GameMainLoopFrame 
   %ClangExe% %CompilerFlags% ..\code\win32_main.cpp -o win32_main.exe -Wl,%LinkerFlags%
 popd

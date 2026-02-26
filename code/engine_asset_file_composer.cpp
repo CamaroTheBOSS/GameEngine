@@ -15,6 +15,12 @@ struct AssetFileFont {
 	void* bits;
 };
 
+void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
+	bool even, Rect2i clipRect) {}
+void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
+	LoadedBitmap& texture, bool even, Rect2i clipRect) {}
+DebugMemory* debugGlobalMemory;
+
 inline
 FileData ReadEntireFile(const char* filename) {
 	if (!filename) {
