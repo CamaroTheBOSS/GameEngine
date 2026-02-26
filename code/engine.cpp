@@ -214,7 +214,7 @@ void FillGroundBufferBackgroundTask(void* data) {
 #endif
 			u32 seed = 313 * chunkX + 217 * chunkY + 177 * chunkZ;
 			RandomSeries series = RandomSeed(seed);
-			for (u32 bmpIndex = 0; bmpIndex < 100; bmpIndex++) {
+			for (u32 bmpIndex = 0; bmpIndex < 100;) {
 				V3 position = V3{
 					RandomBilateral(series) * 0.5f * width,
 					RandomBilateral(series) * 0.5f * height,
@@ -226,7 +226,10 @@ void FillGroundBufferBackgroundTask(void* data) {
 					GetRandomBitmapId(*args->assets, Asset_Ground, series);
 				position.X += chunkOffsetX * width;
 				position.Y += chunkOffsetY * height;
-				PushBitmap(group, bid, position, 1.7f, V2{ 0, 0 }, color);
+				bool pushed = PushBitmap(group, bid, position, 1.7f, V2{ 0, 0 }, color);
+				if (pushed) {
+					bmpIndex++;
+				}
 			}
 		}
 	}
@@ -979,6 +982,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		SubArena(world.arena, state->mainArena, MB(32));
 		SubArena(state->audio.arena, state->mainArena, MB(16));
 
+		state->generalEntropy = RandomSeed(3213);
+		state->effectsEntropy = RandomSeed(4343);
+
 		state->wallCollision = MakeGroundedCollisionGroup(state, world.tileSizeInMeters);
 		state->playerCollision = MakeGroundedCollisionGroup(state, V3{1.0f, 0.55f, 0.25f});
 		state->monsterCollision = MakeGroundedCollisionGroup(state, V3{ 1.0f, 1.25f, 0.25f });
@@ -1377,7 +1383,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 
 			PushBitmap(renderGroup, 
-				GetFirstBitmapIdWithType(tranState->assets, Asset_Font), 
+				GetRandomBitmapId(tranState->assets, Asset_Font, state->effectsEntropy), 
 				groundLevelPos, 2.f, V2{ 0, 0 });
 		} break;
 		case EntityType_Wall: {

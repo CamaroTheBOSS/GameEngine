@@ -1245,7 +1245,13 @@ bool PushBitmap(RenderGroup& group, BitmapId bid, V3 center, f32 height, V2 offs
 		// how long it takes to actually acquaire it
 		PrefetchBitmap(*group.assets, bid, true);
 		bitmap = GetBitmap(*group.assets, bid, group.generationId);
-		Assert(bitmap);
+		if (!bitmap) {
+#if 0
+			Assert(!"This should not be allowed in development, but in case it will happen, "
+				"we need to fallback gracefully");
+#endif
+			return false;
+		}
 	}
 	if (bitmap) {
 		PushBitmap(group, bitmap, center, height, offset, color);

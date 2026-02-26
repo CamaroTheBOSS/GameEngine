@@ -516,8 +516,11 @@ void WriteBitmaps() {
 void WriteFonts() {
 	Assets assets = InitializeAssets();
 	AssetFileFont font = CreateAssetFont("Arial.ttf");
-	char g = 'G';
-	AddGlyphAsset(assets, font, &g);
+	for (char c = '!'; c <= '~'; c++) {
+		AddGlyphAsset(assets, font, &c);
+		AddFeature(assets, Feature_FontCodepoint, c);
+	}
+	
 	WriteAssetsToFile(assets, "fonts.assf");
 }
 

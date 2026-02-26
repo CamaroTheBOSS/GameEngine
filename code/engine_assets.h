@@ -39,6 +39,7 @@ struct GenerationId {
 enum AssetFeatureID {
 	Feature_Height,
 	Feature_FacingDirection,
+	Feature_FontCodepoint,
 
 	Feature_Count
 };

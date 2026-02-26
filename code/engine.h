@@ -218,6 +218,9 @@ struct ProgramState {
 
 	AudioState audio;
 
+	RandomSeries generalEntropy;
+	RandomSeries effectsEntropy;
+
 	CollisionVolumeGroup* wallCollision;
 	CollisionVolumeGroup* playerCollision;
 	CollisionVolumeGroup* monsterCollision;

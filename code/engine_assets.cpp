@@ -1,5 +1,8 @@
 #include "engine.h"
 
+u32 debugLruCount = 0;
+u32 debugMemBlockCount = 0;
+
 inline
 void BeginAssetMemoryLock(Assets& assets) {
 	while (AtomicCompareExchange(&assets.memoryLock, 1, 0) != 0) {};
@@ -17,15 +20,13 @@ void AddMemoryHeaderToList(Assets& assets, AssetMemoryHeader* header) {
 	header->prev = &assets.lruSentinel;
 	header->next->prev = header;
 	header->prev->next = header;
+	debugLruCount++;
 }
 
 inline
 void LockedAddMemoryHeaderToList(Assets& assets, AssetMemoryHeader* header) {
 	BeginAssetMemoryLock(assets);
-	header->next = assets.lruSentinel.next;
-	header->prev = &assets.lruSentinel;
-	header->next->prev = header;
-	header->prev->next = header;
+	AddMemoryHeaderToList(assets, header);
 	EndAssetMemoryLock(assets);
 }
 
@@ -34,13 +35,13 @@ void RemoveMemoryHeaderFromList(AssetMemoryHeader* header) {
 	// NOTE: Needs asset lock
 	header->next->prev = header->prev;
 	header->prev->next = header->next;
+	debugLruCount--;
 }
 
 inline
 void LockedRemoveMemoryHeaderFromList(Assets& assets, AssetMemoryHeader* header) {
 	BeginAssetMemoryLock(assets);
-	header->next->prev = header->prev;
-	header->prev->next = header->next;
+	RemoveMemoryHeaderFromList(header);
 	EndAssetMemoryLock(assets);
 }
 
@@ -224,6 +225,7 @@ BitmapId GetBestFitBitmapId(Assets& assets, AssetTypeID typeId, AssetFeatures ma
 internal
 GenerationId NewGenerationId(Assets& assets) {
 	BeginAssetMemoryLock(assets);
+	Assert(assets.nextGenerationId.id < U32_MAX);
 	Assert(assets.inFlightGenerationCount < ArrayCount(assets.inFlightGenerations));
 	GenerationId result = {};
 	result.id = ++assets.nextGenerationId.id;
@@ -304,6 +306,7 @@ AssetMemoryBlock* TryMergeMemoryBlocks(AssetMemoryBlock* prev, AssetMemoryBlock*
 	prev->flags |= block->flags;
 	block->prev->next = block->next;
 	block->next->prev = block->prev;
+	debugMemBlockCount--;
 	return prev;
 }
 
@@ -339,7 +342,9 @@ AssetMemoryBlock* ReleaseAssetMemory(Assets& assets, void* memory, u32 size) {
 	if (block->prev != &assets.memorySentinel) {
 		block = TryMergeMemoryBlocks(block->prev, block);
 	}
-	TryMergeMemoryBlocks(block, block->next);
+	if (block->next != &assets.memorySentinel) {
+		TryMergeMemoryBlocks(block, block->next);
+	}
 	return block;
 }
 
@@ -374,6 +379,7 @@ void InsertNewMemoryBlock(AssetMemoryBlock* prev, void* memory, u32 size) {
 	block->next = prev->next;
 	block->prev->next = block;
 	block->next->prev = block;
+	debugMemBlockCount++;
 }
 
 internal
@@ -422,6 +428,7 @@ void* AcquireAssetMemory(Assets& assets, u32 size) {
 			leastUsed = leastUsed->prev;
 		}
 		Assert(evicted && "Holy crap, we ran out of memory and we cannot evict more assets!");
+		break;
 	}
 	EndAssetMemoryLock(assets);
 	return result;
@@ -442,13 +449,6 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate) {
 		}
 	}
 #if 1
-	// TODO: Uncomment this to avoid two threads trying to load the same asset at the same time.
-	// Maybe it is not a big deal, because data in asset->memory will be the same except
-	// actual pointer to asset.memory from AcquireAssetMemory() call. This will cause the same
-	// asset to be in memory twice, BUT because of the 2 different LRU entries, this won't create 
-	// a unrecoverable memory leak. Asset system finally will get rid of the copy from memory
-	// if this asset won't be used for quite some time. If it will be used, well, we will have
-	// 2 the same assets in memory :)
 	if (AtomicCompareExchange(&asset.state, AssetState_Pending, AssetState_NotReady) != AssetState_NotReady) {
 		if (task) {
 			EndBackgroundTask(task);
@@ -462,6 +462,16 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate) {
 	u32 assetSize = metadata->pitch * metadata->height;
 	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
 	asset.memory = ptrcast(AssetMemoryHeader, AcquireAssetMemory(assets, allocSize));
+	if (!asset.memory) {
+		// Note AcquireAssetMemory might fail, in such case we need to gracefully fallback 
+		// in callee code
+		if (task) {
+			EndBackgroundTask(task);
+		}
+		WriteCompilatorFence;
+		asset.state = AssetState_NotReady;
+		return false;
+	}
 	asset.memory->bitmap.align = metadata->alignment;
 	asset.memory->bitmap.height = metadata->height;
 	asset.memory->bitmap.width = metadata->width;
@@ -471,6 +481,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate) {
 	asset.memory->type = AssetData_Bitmap;
 	asset.memory->assetIndex = bid.id;
 	asset.memory->totalSize = allocSize;
+	asset.memory->generationId = 0;
 	
 	LockedAddMemoryHeaderToList(assets, asset.memory);
 
@@ -516,13 +527,6 @@ bool PrefetchSound(Assets& assets, SoundId sid, bool immediate) {
 		}
 	}
 #if 1
-	// TODO: Uncomment this to avoid two threads trying to load the same asset at the same time.
-	// Maybe it is not a big deal, because data in asset->memory will be the same except
-	// actual pointer to asset.memory from AcquireAssetMemory() call. This will cause the same
-	// asset to be in memory twice, BUT because of the 2 different LRU entries, this won't create 
-	// a unrecoverable memory leak. Asset system finally will get rid of the copy from memory
-	// if this asset won't be used for quite some time. If it will be used, well, we will have
-	// 2 the same assets in memory :)
 	if (AtomicCompareExchange(&asset.state, AssetState_Pending, AssetState_NotReady) != AssetState_NotReady) {
 		if (task) {
 			EndBackgroundTask(task);
@@ -537,6 +541,16 @@ bool PrefetchSound(Assets& assets, SoundId sid, bool immediate) {
 		metadata->nChannels * sizeof(f32);
 	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
 	asset.memory = ptrcast(AssetMemoryHeader, AcquireAssetMemory(assets, allocSize));
+	if (!asset.memory) {
+		// Note AcquireAssetMemory might fail, in such case we need to gracefully fallback 
+		// in callee code
+		if (task) {
+			EndBackgroundTask(task);
+		}
+		WriteCompilatorFence;
+		asset.state = AssetState_NotReady;
+		return false;
+	}
 	asset.memory->sound.nChannels = metadata->nChannels;
 	asset.memory->sound.sampleCount = metadata->sampleCount;
 	asset.memory->sound.samples[0] = ptrcast(f32, asset.memory + 1);
@@ -544,6 +558,7 @@ bool PrefetchSound(Assets& assets, SoundId sid, bool immediate) {
 	asset.memory->type = AssetData_Sound;
 	asset.memory->assetIndex = sid.id;
 	asset.memory->totalSize = allocSize;
+	asset.memory->generationId = 0;
 	LockedAddMemoryHeaderToList(assets, asset.memory);
 
 	LoadAssetTaskArgs stackDeclaration;
