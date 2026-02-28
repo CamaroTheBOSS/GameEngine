@@ -1282,6 +1282,18 @@ bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
 	return true;
 }
 
+inline
+LoadedFont* GetOrPrefetchFont(RenderGroup& group, FontId fid) {
+	LoadedFont* font = GetFont(*group.assets, fid, group.generationId);
+	if (!font) {
+		PrefetchFont(*group.assets, fid, group.renderInBackground);
+		if (group.renderInBackground) {
+			font = GetFont(*group.assets, fid, group.generationId);
+		}
+	}
+	return font;
+}
+
 internal
 bool PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness) {
 	V3 basePos = center;

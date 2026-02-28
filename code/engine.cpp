@@ -965,7 +965,7 @@ void ChangePitch(PlayingSound* sound, f32 pitch) {
 	sound->pitch = pitch;
 }
 
-void DebugRenderLine(char* text) {
+void DebugRenderLine(LoadedFont* font, char* text) {
 	f32 scale = 0.4f;
 	f32 left = -480;
 	f32 up = 220;
@@ -980,7 +980,7 @@ void DebugRenderLine(char* text) {
 		AssetFeatures weight = {};
 		match[Feature_FontCodepoint] = *at;
 		weight[Feature_FontCodepoint] = 1.f;
-		BitmapId bid = GetBestFitBitmapId(*debugRenderGroup.assets, Asset_Font, match, weight, 100000);
+		BitmapId bid = GetBestFitBitmapId(*debugRenderGroup.assets, Asset_FontGlyph, match, weight, 100000);
 		AssetMetadata* metadata = GetAssetMetadata(*debugRenderGroup.assets, bid.id);
 		f32 width = f4(metadata->_bitmapInfo.width);
 		f32 height = f4(metadata->_bitmapInfo.height);
@@ -994,14 +994,16 @@ void DebugRenderLine(char* text) {
 void DebugRenderText(TransientState* state, LoadedBitmap& dstBitmap) {
 	debugRenderGroup.pushBufferSize = 0;
 	debugRenderGroup.projection = GetOrtographicProjection(960, 540, 1);
-
 	BeginRendering(debugRenderGroup);
-	//char text[] = "123 456 789 0";
-	//DebugRenderLine(text);
-	//char text2[] = "This is my text. I THiNK, it is AWEsoME";
-	char text2[] = "shy\"{iSsHhBbYy\"xd\"${iId$sads}||/\\!~Vv";
-	DebugRenderLine(text2);
-	TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, state->highPriorityQueue);
+	LoadedFont* font = GetOrPrefetchFont(debugRenderGroup, GetFirstFontId(*debugRenderGroup.assets));
+	if (font) {
+		//char text[] = "123 456 789 0";
+		//DebugRenderLine(text);
+		//char text2[] = "This is my text. I THiNK, it is AWEsoME";
+		char text2[] = "shy\"{iSsHhBbYy\"xd\"${iId$sads}||/\\!~Vv";
+		DebugRenderLine(font, text2);
+		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, state->highPriorityQueue);
+	}
 	EndRendering(debugRenderGroup);
 }
 

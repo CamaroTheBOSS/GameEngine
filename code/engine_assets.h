@@ -21,10 +21,14 @@ struct LoadedSound {
 };
 
 struct LoadedFont {
-
+	u32* kerningTable;
 };
 
 struct BitmapId {
+	u32 id;
+};
+
+struct FontId {
 	u32 id;
 };
 
@@ -56,6 +60,7 @@ enum AssetTypeID {
 	Asset_Bloop,
 
 	Asset_Font,
+	Asset_FontGlyph,
 
 	Asset_Count
 };
@@ -68,7 +73,8 @@ enum AssetState {
 
 enum AssetDataType {
 	AssetData_Sound,
-	AssetData_Bitmap
+	AssetData_Bitmap,
+	AssetData_Font
 };
 
 using AssetFeatures = f32[Feature_Count];
@@ -110,12 +116,18 @@ struct AssetFileSoundInfo {
 	u32 samplesOffset[2];
 };
 
+struct AssetFileFontInfo {
+	u32 maxCodepoint;
+	u32 dataOffset;
+};
+
 #pragma warning(push)
 #pragma warning(disable : 4201)
 struct AssetMetadata {
 	union {
 		AssetFileSoundInfo _soundInfo;
 		AssetFileBitmapInfo _bitmapInfo;
+		AssetFileFontInfo _fontInfo;
 	};
 };
 
@@ -127,6 +139,7 @@ struct AssetMemoryHeader {
 	union {
 		LoadedBitmap bitmap;
 		LoadedSound sound;
+		LoadedFont font;
 	};
 	AssetMemoryHeader* next;
 	AssetMemoryHeader* prev;
@@ -153,7 +166,8 @@ struct Asset {
 #pragma warning(pop)
 enum AssetGroupType {
 	AssetGroup_Bitmap,
-	AssetGroup_Sound
+	AssetGroup_Sound,
+	AssetGroup_Font
 };
 
 struct AssetGroup {
@@ -188,14 +202,17 @@ struct Assets {
 /* ------------------ Asset System API -------------------- */
 internal bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate = false);
 internal bool PrefetchSound(Assets& assets, SoundId sid, bool immediate = false);
+internal bool PrefetchFont(Assets& assets, FontId fid, bool immediate);
 internal GenerationId NewGenerationId(Assets& assets);
 internal void FinishGeneration(Assets& assets, GenerationId gid);
 inline LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid, GenerationId gid);
 inline LoadedSound* GetSound(Assets& assets, SoundId sid, GenerationId gid);
+inline LoadedFont* GetFont(Assets& assets, FontId fid, GenerationId gid);
 inline AssetMetadata* GetAssetMetadata(Assets& assets, Asset& asset);
 inline AssetFeatures* GetAssetFeatures(Assets& assets, u32 id);
 inline PlatformFileHandle* GetAssetSource(Assets& assets, u32 index);
 inline SoundId GetFirstSoundIdWithType(Assets& assets, AssetTypeID typeId);
+inline FontId GetFirstFontId(Assets& assets);
 inline SoundId GetRandomSoundId(Assets& assets, AssetTypeID typeId, RandomSeries& series);
 inline SoundId GetBestFitSoundId(Assets& assets, AssetTypeID typeId, AssetFeatures match, AssetFeatures weight, f32 halfPeriod);
 inline BitmapId GetFirstBitmapIdWithType(Assets& assets, AssetTypeID typeId);

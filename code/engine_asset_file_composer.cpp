@@ -216,54 +216,45 @@ LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleC
 }
 
 inline
-void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment = V2{ 0.5f, 0.5f }) {
+Asset* AddAsset(Assets& assets, AssetTypeID id, AssetGroupType groupType) {
 	Assert(assets.assetCount < ASSET_MAX_COUNT);
 	Asset* asset = &assets.assets[assets.assetCount];
 	asset->memory = ptrcast(AssetMemoryHeader, malloc(sizeof(AssetMemoryHeader)));
+	asset->metadataId = assets.assetCount;
+	AssetGroup* group = &assets.groups[id];
+	if (group->firstAssetIndex == 0) {
+		group->firstAssetIndex = assets.assetCount;
+		group->onePastLastAssetIndex = group->firstAssetIndex + 1;
+		group->type = groupType;
+	}
+	else {
+		Assert(group->type == groupType);
+		group->onePastLastAssetIndex++;
+	}
+	assets.assetCount++;
+	return asset;
+}
+
+inline
+void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignment = V2{ 0.5f, 0.5f }) {
+	Asset* asset = AddAsset(assets, id, AssetGroup_Bitmap);
 	asset->memory->bitmap = LoadBmpFile(filename, alignment);
-	AssetFileBitmapInfo* info = &assets.metadatas[assets.assetCount]._bitmapInfo;
+	AssetFileBitmapInfo* info = &assets.metadatas[asset->metadataId]._bitmapInfo;
 	info->alignment = alignment;
 	info->height = asset->memory->bitmap.height;
 	info->width = asset->memory->bitmap.width;
 	info->pitch = asset->memory->bitmap.pitch;
-	asset->metadataId = assets.assetCount;
-	AssetGroup* group = &assets.groups[id];
-	if (group->firstAssetIndex == 0) {
-		group->firstAssetIndex = assets.assetCount;
-		group->onePastLastAssetIndex = group->firstAssetIndex + 1;
-		group->type = AssetGroup_Bitmap;
-	}
-	else {
-		Assert(group->type == AssetGroup_Bitmap);
-		group->onePastLastAssetIndex++;
-	}
-	assets.assetCount++;
 }
 
 inline
 SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 firstSampleIndex = 0, u32 chunkSampleCount = 0) {
-	Assert(assets.assetCount < ASSET_MAX_COUNT);
-	SoundId result = { assets.assetCount };
-	Asset* asset = &assets.assets[assets.assetCount];
-	asset->memory = ptrcast(AssetMemoryHeader, malloc(sizeof(AssetMemoryHeader)));
+	Asset* asset = AddAsset(assets, id, AssetGroup_Sound);
 	asset->memory->sound = LoadWAV(filename, firstSampleIndex, chunkSampleCount);
-	AssetFileSoundInfo* info = &assets.metadatas[assets.assetCount]._soundInfo;
+	AssetFileSoundInfo* info = &assets.metadatas[asset->metadataId]._soundInfo;
 	info->chain = { SoundChain::None, 0 };
 	info->nChannels = asset->memory->sound.nChannels;
 	info->sampleCount = asset->memory->sound.sampleCount;
-	asset->metadataId = assets.assetCount;
-	AssetGroup* group = &assets.groups[id];
-	if (group->firstAssetIndex == 0) {
-		group->firstAssetIndex = assets.assetCount;
-		group->onePastLastAssetIndex = group->firstAssetIndex + 1;
-		group->type = AssetGroup_Sound;
-	}
-	else {
-		Assert(group->type == AssetGroup_Sound);
-		group->onePastLastAssetIndex++;
-	}
-	assets.assetCount++;
-	return result;
+	return { asset->metadataId };
 }
 
 internal
@@ -326,7 +317,6 @@ AssetFileFont CreateAssetFont(const char* fontName) {
 
 internal
 void AddGlyphAsset(Assets& assets, AssetFileFont& font, char* glyph) {
-	Assert(assets.assetCount < ASSET_MAX_COUNT);
 	u32 srcHeight = font.info.bmiHeader.biHeight;
 	u32 srcWidth = font.info.bmiHeader.biWidth;
 	u32 srcPitch = srcWidth * BITMAP_BYTES_PER_PIXEL;
@@ -397,31 +387,65 @@ void AddGlyphAsset(Assets& assets, AssetFileFont& font, char* glyph) {
 		}
 		srcRow += srcPitch;
 	}
+	Asset* asset = AddAsset(assets, Asset_FontGlyph, AssetGroup_Bitmap);
 	f32 yAlignment = (f4(font.tmDescent + heightAdvance) - f4(minY)) / f4(dstHeight);
-	Asset* asset = &assets.assets[assets.assetCount];
-	asset->memory = ptrcast(AssetMemoryHeader, malloc(sizeof(AssetMemoryHeader)));
 	asset->memory->bitmap.data = data;
 	asset->memory->bitmap.align = V2{ 0, yAlignment };
 	asset->memory->bitmap.height = dstHeight;
 	asset->memory->bitmap.width = dstWidth;
 	asset->memory->bitmap.pitch = dstPitch;
-	AssetFileBitmapInfo* info = &assets.metadatas[assets.assetCount]._bitmapInfo;
+	AssetFileBitmapInfo* info = &assets.metadatas[asset->metadataId]._bitmapInfo;
 	info->alignment = asset->memory->bitmap.align;
 	info->height = asset->memory->bitmap.height;
 	info->width = asset->memory->bitmap.width;
 	info->pitch = asset->memory->bitmap.pitch;
-	asset->metadataId = assets.assetCount;
-	AssetGroup* group = &assets.groups[Asset_Font];
-	if (group->firstAssetIndex == 0) {
-		group->firstAssetIndex = assets.assetCount;
-		group->onePastLastAssetIndex = group->firstAssetIndex + 1;
-		group->type = AssetGroup_Bitmap;
+}
+
+internal
+void AddFontAsset(Assets& assets, AssetFileFontInfo& fontInfo, AssetFileFont& win32Font) {
+	Assert(fontInfo.maxCodepoint > 0);
+	u32 kerningTableSize = fontInfo.maxCodepoint * fontInfo.maxCodepoint * sizeof(u32);
+	LoadedFont font = {};
+	font.kerningTable = ptrcast(u32, malloc(kerningTableSize));
+	memset(font.kerningTable, 0, kerningTableSize);
+
+	DWORD nPairs = GetKerningPairsA(win32Font.dc, 0, 0);
+	KERNINGPAIR* kPairs = ptrcast(KERNINGPAIR, malloc(nPairs * sizeof(KERNINGPAIR)));
+	GetKerningPairsA(win32Font.dc, nPairs, kPairs);
+
+	ABC* abcStructs = ptrcast(ABC, malloc((fontInfo.maxCodepoint + 1) * sizeof(ABC)));
+	GetCharABCWidthsA(win32Font.dc, 0, fontInfo.maxCodepoint, abcStructs);
+	for (u32 otherCodepoint = 0; otherCodepoint < fontInfo.maxCodepoint; otherCodepoint++) {
+		ABC* abc = abcStructs + otherCodepoint;
+		for (u32 codepoint = 0; codepoint < fontInfo.maxCodepoint; codepoint++) {
+			u32 index = otherCodepoint * fontInfo.maxCodepoint + codepoint;
+			font.kerningTable[index] = abc->abcA + abc->abcB + abc->abcC;
+		}
 	}
-	else {
-		Assert(group->type == AssetGroup_Bitmap);
-		group->onePastLastAssetIndex++;
+
+	for (u32 kIndex = 0; kIndex < nPairs; kIndex++) {
+		KERNINGPAIR* pair = kPairs + kIndex;
+		if (pair->wFirst > fontInfo.maxCodepoint ||
+			pair->wSecond > fontInfo.maxCodepoint) {
+			continue;
+		}
+		u32 index = pair->wFirst * fontInfo.maxCodepoint + pair->wSecond;
+		font.kerningTable[index] += pair->iKernAmount;
 	}
-	assets.assetCount++;
+	free(abcStructs);
+	free(kPairs);
+
+	Asset* asset = AddAsset(assets, Asset_Font, AssetGroup_Font);
+	asset->memory->font.kerningTable = font.kerningTable;
+	AssetFileFontInfo* info = &assets.metadatas[asset->metadataId]._fontInfo;
+	info->maxCodepoint = fontInfo.maxCodepoint;
+}
+
+inline
+void FreeAssetFileFont(AssetFileFont& fontInfo) {
+	DeleteObject(fontInfo.bmp);
+	DeleteObject(fontInfo.font);
+	DeleteObject(fontInfo.dc);
 }
 
 internal
@@ -480,6 +504,12 @@ void WriteAssetsToFile(Assets& assets, const char* filename) {
 				metadata->_soundInfo.samplesOffset[0] = samplesPosition0;
 				metadata->_soundInfo.samplesOffset[1] = samplesPosition1;
 			}
+			else if (group->type == AssetGroup_Font) {
+				u32 count = metadata->_fontInfo.maxCodepoint * metadata->_fontInfo.maxCodepoint;
+				u32 dataPosition = ftell(file);
+				fwrite(asset->memory->font.kerningTable, sizeof(u32), count, file);
+				metadata->_fontInfo.dataOffset = dataPosition;
+			}
 		}
 	}
 	fseek(file, u4(header.assetMetadatasOffset), SEEK_SET);
@@ -537,24 +567,18 @@ void WriteBitmaps() {
 
 void WriteFonts() {
 	Assets assets = InitializeAssets();
-	AssetFileFont font = CreateAssetFont("Arial");
+	AssetFileFont win32Font = CreateAssetFont("Arial");
 	//AssetFileFont font = CreateAssetFont("Cascadia Mono");
-#if 0
-	char test = 's';
-	AddGlyphAsset(assets, font, &test);
-	char test2 = 'h';
-	AddGlyphAsset(assets, font, &test2);
-	char test3 = 'y';
-	AddGlyphAsset(assets, font, &test3);
-	char test4 = '\"';
-	AddGlyphAsset(assets, font, &test4);
-	char test5 = '{';
-	AddGlyphAsset(assets, font, &test5);
-#endif
+	AssetFileFontInfo fontInfo = {};
 	for (char c = '!'; c <= '~'; c++) {
-		AddGlyphAsset(assets, font, &c);
+		AddGlyphAsset(assets, win32Font, &c);
 		AddFeature(assets, Feature_FontCodepoint, c);
+		if (u4(c) > fontInfo.maxCodepoint) {
+			fontInfo.maxCodepoint = c;
+		}
 	}
+	AddFontAsset(assets, fontInfo, win32Font);
+	FreeAssetFileFont(win32Font);
 	
 	WriteAssetsToFile(assets, "fonts.assf");
 }

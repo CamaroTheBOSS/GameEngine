@@ -64,6 +64,11 @@ bool IsValid(BitmapId bid) {
 }
 
 inline
+bool IsValid(FontId fid) {
+	return fid.id > 0;
+}
+
+inline
 Asset* GetAsset(Assets& assets, u32 id) {
 	Asset* asset = &assets.assets[id];
 	return asset;
@@ -97,6 +102,17 @@ LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid, GenerationId gid) {
 	Assert(asset->memory->type == AssetData_Bitmap);
 	LoadedBitmap* bitmap = &asset->memory->bitmap;
 	return bitmap;
+}
+
+inline
+LoadedFont* GetFont(Assets& assets, FontId fid, GenerationId gid) {
+	Asset* asset = AcquireAsset(assets, fid.id, gid);
+	if (!asset || !asset->memory) {
+		return 0;
+	}
+	Assert(asset->memory->type == AssetData_Font);
+	LoadedFont* font = &asset->memory->font;
+	return font;
 }
 
 inline
@@ -191,6 +207,12 @@ u32 _GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures match, 
 inline
 SoundId GetFirstSoundIdWithType(Assets& assets, AssetTypeID typeId) {
 	SoundId id = { _GetFirstAssetIdWithType(assets, typeId) };
+	return id;
+}
+
+inline
+FontId GetFirstFontId(Assets& assets) {
+	FontId id = { _GetFirstAssetIdWithType(assets, Asset_Font) };
 	return id;
 }
 
@@ -584,6 +606,80 @@ bool PrefetchSound(Assets& assets, SoundId sid, bool immediate) {
 	}
 	else {
 		WriteCompilatorFence;
+		Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadAssetBackgroundTask, args);
+	}
+	return true;
+}
+
+internal
+bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
+	Asset& asset = assets.assets[fid.id];
+	if (!IsValid(fid) || !NeedsFetching(asset)) {
+		return false;
+	}
+	TaskWithMemory* task = 0;
+	if (!immediate) {
+		AssertMainThread;
+		task = TryBeginBackgroundTask(assets.tranState);
+		if (!task) {
+			return false;
+		}
+	}
+#if 1
+	if (AtomicCompareExchange(&asset.state, AssetState_Pending, AssetState_NotReady) != AssetState_NotReady) {
+		if (task) {
+			EndBackgroundTask(task);
+		}
+		return false;
+	}
+#endif
+	asset.state = AssetState_Pending;
+	WriteCompilatorFence;
+	AssetFileFontInfo* metadata = &GetAssetMetadata(assets, asset)->_fontInfo;
+	u32 assetSize = metadata->maxCodepoint * metadata->maxCodepoint * sizeof(u32);
+	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
+	asset.memory = ptrcast(AssetMemoryHeader, AcquireAssetMemory(assets, allocSize));
+	if (!asset.memory) {
+		// Note AcquireAssetMemory might fail, in such case we need to gracefully fallback 
+		// in callee code
+		if (task) {
+			EndBackgroundTask(task);
+		}
+		WriteCompilatorFence;
+		asset.state = AssetState_NotReady;
+		return false;
+	}
+	asset.memory->type = AssetData_Font;
+	asset.memory->assetIndex = fid.id;
+	asset.memory->totalSize = allocSize;
+	asset.memory->generationId = 0;
+	asset.memory->font.kerningTable = ptrcast(u32, asset.memory + 1);
+
+	LockedAddMemoryHeaderToList(assets, asset.memory);
+
+	LoadAssetTaskArgs stackDeclaration;
+	LoadAssetTaskArgs* args = 0;
+	if (immediate) {
+		stackDeclaration = {};
+		args = &stackDeclaration;
+	}
+	else {
+		AssertMainThread;
+		args = PushStructSize(task->arena, LoadAssetTaskArgs);
+	}
+	args->source = GetAssetSource(assets, asset.fileSourceIndex);
+	args->offset = metadata->dataOffset;
+	args->size = assetSize;
+	args->buffer = asset.memory->font.kerningTable;
+	args->task = task;
+	args->state = &asset.state;
+
+	if (immediate) {
+		LoadAssetBackgroundTask(args);
+	}
+	else {
+		WriteCompilatorFence;
+		AssertMainThread;
 		Platform->QueuePushTask(assets.tranState->lowPriorityQueue, LoadAssetBackgroundTask, args);
 	}
 	return true;
