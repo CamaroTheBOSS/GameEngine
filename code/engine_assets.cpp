@@ -117,6 +117,12 @@ AssetMetadata* GetAssetMetadata(Assets& assets, Asset& asset) {
 }
 
 inline
+AssetMetadata* GetAssetMetadata(Assets& assets, u32 id) {
+	AssetMetadata* metadata = &assets.metadatas[id];
+	return metadata;
+}
+
+inline
 AssetFeatures* GetAssetFeatures(Assets& assets, u32 id) {
 	AssetFeatures* asset = &assets.features[id];
 	return asset;
@@ -164,10 +170,6 @@ u32 _GetBestFitAssetId(Assets& assets, AssetTypeID typeId, AssetFeatures match, 
 		assetIndex < group->onePastLastAssetIndex;
 		assetIndex++
 		) {
-		Asset* asset = GetAsset(assets, assetIndex);
-		if (!asset) {
-			continue;
-		}
 		AssetFeatures* features = GetAssetFeatures(assets, assetIndex);
 		f32 score = 0;
 		for (u32 featureIndex = 0; featureIndex < ArrayCount(*features); featureIndex++) {
@@ -606,7 +608,7 @@ void AllocateAssets(TransientState* tranState) {
 		assetsCount += header.assetsCount - 1;
 	}
 	Assets& assets = tranState->assets;
-	u32 memoryForAssetsSize = MB(6);
+	u32 memoryForAssetsSize = MB(10);
 	assets.nextGenerationId.id = 0;
 	assets.inFlightGenerationCount = 0;
 	assets.memoryLock = 0;

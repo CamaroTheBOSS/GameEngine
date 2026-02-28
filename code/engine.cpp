@@ -6,6 +6,7 @@
 #include "engine_render.cpp"
 
 PlatformAPI* Platform;
+RenderGroup debugRenderGroup;
 
 internal
 void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
@@ -964,6 +965,46 @@ void ChangePitch(PlayingSound* sound, f32 pitch) {
 	sound->pitch = pitch;
 }
 
+void DebugRenderLine(char* text) {
+	f32 scale = 0.4f;
+	f32 left = -480;
+	f32 up = 220;
+
+	f32 prevWidth = 0;
+	for (char* at = text; *at; at++) {
+		if (*at == ' ') {
+			left += scale * 45;
+			continue;
+		}
+		AssetFeatures match = {};
+		AssetFeatures weight = {};
+		match[Feature_FontCodepoint] = *at;
+		weight[Feature_FontCodepoint] = 1.f;
+		BitmapId bid = GetBestFitBitmapId(*debugRenderGroup.assets, Asset_Font, match, weight, 100000);
+		AssetMetadata* metadata = GetAssetMetadata(*debugRenderGroup.assets, bid.id);
+		f32 width = f4(metadata->_bitmapInfo.width);
+		f32 height = f4(metadata->_bitmapInfo.height);
+		left += prevWidth;
+		PushBitmap(debugRenderGroup, bid, V3{ left, up, 0 }, scale * height, V2{ 0, 0 });
+		prevWidth = 0.6f * scale * width;
+		left += prevWidth;
+	}
+}
+
+void DebugRenderText(TransientState* state, LoadedBitmap& dstBitmap) {
+	debugRenderGroup.pushBufferSize = 0;
+	debugRenderGroup.projection = GetOrtographicProjection(960, 540, 1);
+
+	BeginRendering(debugRenderGroup);
+	//char text[] = "123 456 789 0";
+	//DebugRenderLine(text);
+	//char text2[] = "This is my text. I THiNK, it is AWEsoME";
+	char text2[] = "shy\"{iSsHhBbYy\"xd\"${iId$sads}||/\\!~Vv";
+	DebugRenderLine(text2);
+	TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, state->highPriorityQueue);
+	EndRendering(debugRenderGroup);
+}
+
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	debugGlobalMemory = &memory.debug;
 	Platform = &memory.platformAPI;
@@ -1142,6 +1183,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			groundBuffer->pos = NullPosition();
 			groundBuffer->state = GroundBufferState::NotReady;
 		}
+		debugRenderGroup = AllocateRenderGroup(tranState->arena, &tranState->assets, MB(4), false);
 		tranState->isInitialized = true;
 	}
 
@@ -1379,10 +1421,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Player, match, weight, PI);
 			PushBitmap(renderGroup, bmp, groundLevelPos, 1.35f, V2{0, 0});
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
-
-			PushBitmap(renderGroup, 
-				GetRandomBitmapId(tranState->assets, Asset_Font, state->effectsEntropy), 
-				groundLevelPos, 2.f, V2{ 0, 0 });
 		} break;
 		case EntityType_Wall: {
 			const f32 treeHeight = 2.5f * world.tileSizeInMeters.Z;
@@ -1545,11 +1583,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 #endif
 	
-#if 0
-	RenderGroupToBuffer(renderGroup, screenBitmap);
-#else
+
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
-#endif
+	DebugRenderText(tranState, screenBitmap);
+
 	RenderSoundToBuffer(state->audio, tranState->assets, soundData);
 	EndRendering(renderGroup);
 	EndSimulation(*simRegion, world);

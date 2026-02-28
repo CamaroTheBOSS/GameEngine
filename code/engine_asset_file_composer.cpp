@@ -13,6 +13,12 @@ struct AssetFileFont {
 	HBITMAP bmp;
 	BITMAPINFO info;
 	void* bits;
+
+	u32 tmHeight;
+	u32 tmAscent;
+	u32 tmDescent;
+	u32 tmInternalLeading;
+	u32 tmExternalLeading;
 };
 
 void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
@@ -284,8 +290,8 @@ AssetFileFont CreateAssetFont(const char* fontName) {
 
 	BITMAPINFO bmpinfo = {};
 	bmpinfo.bmiHeader.biSize = sizeof(BITMAPINFO);
-	bmpinfo.bmiHeader.biWidth = srcWidth;
-	bmpinfo.bmiHeader.biHeight = srcHeight;
+	bmpinfo.bmiHeader.biWidth = srcWidth + 16;
+	bmpinfo.bmiHeader.biHeight = srcHeight + 16;
 	bmpinfo.bmiHeader.biPlanes = 1;
 	bmpinfo.bmiHeader.biBitCount = 32;
 	bmpinfo.bmiHeader.biCompression = BI_RGB;
@@ -302,12 +308,19 @@ AssetFileFont CreateAssetFont(const char* fontName) {
 	SetBkColor(dc, RGB(0, 0, 0));
 	SetTextColor(dc, RGB(255, 255, 255));
 
+	TEXTMETRICA metrics;
+	GetTextMetricsA(dc, &metrics);
 	AssetFileFont result = {};
 	result.dc = dc;
 	result.bmp = bmp;
 	result.font = font;
 	result.bits = bits;
 	result.info = bmpinfo;
+	result.tmHeight = metrics.tmHeight;
+	result.tmAscent = metrics.tmAscent;
+	result.tmDescent = metrics.tmDescent;
+	result.tmInternalLeading = metrics.tmInternalLeading;
+	result.tmExternalLeading = metrics.tmExternalLeading;
 	return result;
 }
 
@@ -317,9 +330,11 @@ void AddGlyphAsset(Assets& assets, AssetFileFont& font, char* glyph) {
 	u32 srcHeight = font.info.bmiHeader.biHeight;
 	u32 srcWidth = font.info.bmiHeader.biWidth;
 	u32 srcPitch = srcWidth * BITMAP_BYTES_PER_PIXEL;
+	u32 heightAdvance = srcHeight - font.tmHeight;
 	void* bits = font.bits;
+	memset(bits, 0, srcHeight * srcPitch);
 
-	BOOL result = TextOutA(font.dc, 8, 8, glyph, 1);
+	BOOL result = TextOutA(font.dc, 8, 0, glyph, 1);
 
 	u32 minX = U32_MAX;
 	u32 maxX = 0;
@@ -336,18 +351,19 @@ void AddGlyphAsset(Assets& assets, AssetFileFont& font, char* glyph) {
 			if (Y < minY) {
 				minY = Y;
 			}
-			if (Y > maxY) {
+			if (Y >= maxY) {
 				maxY = Y + 1;
 			}
 			if (X < minX) {
 				minX = X;
 			}
-			if (X > maxX) {
+			if (X >= maxX) {
 				maxX = X + 1;
 			}
 			
 		}	
 	}
+	Assert(minY > 0 && minX > 0);
 	Assert(minY < maxY && minX < maxX);
 	Assert(maxY < u4(srcHeight - 2) && maxX < u4(srcWidth - 2));
 	minX--;
@@ -381,16 +397,16 @@ void AddGlyphAsset(Assets& assets, AssetFileFont& font, char* glyph) {
 		}
 		srcRow += srcPitch;
 	}
-
+	f32 yAlignment = (f4(font.tmDescent + heightAdvance) - f4(minY)) / f4(dstHeight);
 	Asset* asset = &assets.assets[assets.assetCount];
 	asset->memory = ptrcast(AssetMemoryHeader, malloc(sizeof(AssetMemoryHeader)));
 	asset->memory->bitmap.data = data;
-	asset->memory->bitmap.align = V2{ 0, 0 };
+	asset->memory->bitmap.align = V2{ 0, yAlignment };
 	asset->memory->bitmap.height = dstHeight;
 	asset->memory->bitmap.width = dstWidth;
 	asset->memory->bitmap.pitch = dstPitch;
 	AssetFileBitmapInfo* info = &assets.metadatas[assets.assetCount]._bitmapInfo;
-	info->alignment = V2{ 0, 0 };
+	info->alignment = asset->memory->bitmap.align;
 	info->height = asset->memory->bitmap.height;
 	info->width = asset->memory->bitmap.width;
 	info->pitch = asset->memory->bitmap.pitch;
@@ -521,7 +537,20 @@ void WriteBitmaps() {
 
 void WriteFonts() {
 	Assets assets = InitializeAssets();
-	AssetFileFont font = CreateAssetFont("Arial.ttf");
+	AssetFileFont font = CreateAssetFont("Arial");
+	//AssetFileFont font = CreateAssetFont("Cascadia Mono");
+#if 0
+	char test = 's';
+	AddGlyphAsset(assets, font, &test);
+	char test2 = 'h';
+	AddGlyphAsset(assets, font, &test2);
+	char test3 = 'y';
+	AddGlyphAsset(assets, font, &test3);
+	char test4 = '\"';
+	AddGlyphAsset(assets, font, &test4);
+	char test5 = '{';
+	AddGlyphAsset(assets, font, &test5);
+#endif
 	for (char c = '!'; c <= '~'; c++) {
 		AddGlyphAsset(assets, font, &c);
 		AddFeature(assets, Feature_FontCodepoint, c);
