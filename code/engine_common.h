@@ -44,7 +44,7 @@
 #else
 	#define Assert(expression) if (!(expression)) { __builtin_trap(); }
 #endif
-#define AssertMainThread Assert(THREAD_LOCAL_ID == 0)
+#define AssertMainThread Assert(debugGlobalMemory->GetCurrThreadId() == 0)
 #define InvalidDefaultCase default: { Assert(0) } break
 #define scast(type, expression) static_cast<type>(expression)
 #define f4(expression) static_cast<f32>(expression)
@@ -87,9 +87,6 @@ typedef int i32;
 typedef long long i64;
 typedef float f32;
 typedef double f64;
-
-extern volatile u32 GLOBAL_THREAD_ID_GEN;
-extern thread_local u32 THREAD_LOCAL_ID;
 
 #include "engine_intrinsics.h"
 #include "engine_math.h"

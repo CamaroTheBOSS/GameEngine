@@ -5,8 +5,6 @@
 #include "engine_assets.cpp"
 #include "engine_render.cpp"
 
-volatile u32 GLOBAL_THREAD_ID_GEN = 0;
-thread_local u32 THREAD_LOCAL_ID = 0;
 PlatformAPI* Platform;
 
 internal
@@ -15,7 +13,7 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	TemporaryMemory mixerMemory = BeginTempMemory(audio.arena);
 	f32* mixedSamples[nChannels] = {};
 	GenerationId gid = NewGenerationId(assets);
-	
+	// TODO: Aligned store and aligned load!
 	u32 outBufferSampleCount = dst.nSamples;
 	u32 maxIter = outBufferSampleCount >> 3;
 	Assert((outBufferSampleCount & 7) == 0);

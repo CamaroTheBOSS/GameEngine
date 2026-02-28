@@ -81,14 +81,11 @@ struct FileData {
 
 /* Functionalities served by the platform layer for program layer */
 // DEBUG API
-#define DEBUG_READ_ENTIRE_FILE(name) FileData name(const char* filename)
-#define DEBUG_WRITE_FILE(name) bool name(const char* filename, void* buffer, u64 size)
-#define DEBUG_FREE_FILE(name) void name(FileData& file)
-#define DEBUG_ALLOCATE(name) void* name(u64 size)
-typedef DEBUG_READ_ENTIRE_FILE(debug_read_entire_file);
-typedef DEBUG_WRITE_FILE(debug_write_file);
-typedef DEBUG_FREE_FILE(debug_free_file);
-typedef DEBUG_ALLOCATE(debug_allocate);
+typedef FileData	(*_DebugReadEntireFile)(const char* filename);
+typedef bool		(*_DebugWriteFile)(const char* filename, void* buffer, u64 size);
+typedef void		(*_DebugFreeFile)(FileData& file);
+typedef void*		(*_DebugAllocate)(u64 size);
+typedef u32			(*_DebugGetCurrentThreadId)();
 
 // File API
 struct PlatformFileHandle {};
@@ -130,10 +127,11 @@ struct DebugPerformanceCounters {
 	u64 counts;
 };
 struct DebugMemory {
-	debug_read_entire_file* readEntireFile;
-	debug_write_file* writeFile;
-	debug_free_file* freeFile;
-	debug_allocate* allocate;
+	_DebugReadEntireFile readEntireFile;
+	_DebugWriteFile writeFile;
+	_DebugFreeFile freeFile;
+	_DebugAllocate allocate;
+	_DebugGetCurrentThreadId GetCurrThreadId;
 	DebugPerformanceCounters performanceCounters[256];
 };
 #define BEGIN_TIMED_SECTION(id) u64 startCycleCount_##id = __rdtsc();

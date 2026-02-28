@@ -383,6 +383,11 @@ DWORD Win32ThreadProc(LPVOID params) {
 }
 
 internal
+u32 Win32GetCurrentThreadId() {
+	return THREAD_LOCAL_ID;
+}
+
+internal
 bool Win32WorkInQueueIsDone(PlatformQueue* queue) {
 	return queue->tasksDone == queue->tasksTarget;
 }
@@ -1001,6 +1006,7 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.debug.readEntireFile = DebugReadEntireFile;
 	programMemory.debug.writeFile = DebugWriteToFile;
 	programMemory.debug.allocate = DebugAllocate;
+	programMemory.debug.GetCurrThreadId = Win32GetCurrentThreadId;
 	programMemory.permanentMemorySize = MB(64);
 	programMemory.transientMemorySize = GB(static_cast<u64>(3));
 	programMemory.memoryBlockSize = programMemory.permanentMemorySize + programMemory.transientMemorySize;
