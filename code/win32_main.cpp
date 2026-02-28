@@ -599,6 +599,7 @@ bool DebugWriteToFile(const char* filename, void* buffer, u64 size) {
 	return true;
 }
 
+internal
 void DebugFreeFile(FileData& file) {
 	VirtualFree(file.content, 0, MEM_RELEASE);
 }
@@ -1002,10 +1003,10 @@ f32 Win32CalculateTimeElapsed(u64 startTime, u64 endTime) {
 internal
 ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	ProgramMemory programMemory = {};
-	programMemory.debug.freeFile = DebugFreeFile;
-	programMemory.debug.readEntireFile = DebugReadEntireFile;
-	programMemory.debug.writeFile = DebugWriteToFile;
-	programMemory.debug.allocate = DebugAllocate;
+	programMemory.debug.FreeFile = DebugFreeFile;
+	programMemory.debug.ReadEntireFile = DebugReadEntireFile;
+	programMemory.debug.WriteFile = DebugWriteToFile;
+	programMemory.debug.Allocate = DebugAllocate;
 	programMemory.debug.GetCurrThreadId = Win32GetCurrentThreadId;
 	programMemory.permanentMemorySize = MB(64);
 	programMemory.transientMemorySize = GB(static_cast<u64>(3));

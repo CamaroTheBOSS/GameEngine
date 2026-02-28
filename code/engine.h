@@ -127,10 +127,10 @@ struct DebugPerformanceCounters {
 	u64 counts;
 };
 struct DebugMemory {
-	_DebugReadEntireFile readEntireFile;
-	_DebugWriteFile writeFile;
-	_DebugFreeFile freeFile;
-	_DebugAllocate allocate;
+	_DebugReadEntireFile ReadEntireFile;
+	_DebugWriteFile WriteFile;
+	_DebugFreeFile FreeFile;
+	_DebugAllocate Allocate;
 	_DebugGetCurrentThreadId GetCurrThreadId;
 	DebugPerformanceCounters performanceCounters[256];
 };

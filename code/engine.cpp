@@ -17,12 +17,15 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	u32 outBufferSampleCount = dst.nSamples;
 	u32 maxIter = outBufferSampleCount >> 3;
 	Assert((outBufferSampleCount & 7) == 0);
+#if 0 // NOTE: Wasapi probably doesn't give a chance to have audio buffer aligned to 32bytes!
+	Assert((reinterpret_cast<uptr>(dst.data) & 31) == 0);
+#endif
 	__m256 zero = _mm256_set1_ps(0.f);
 	for (u32 channel = 0; channel < nChannels; channel++) {
 		mixedSamples[channel] = PushArray(audio.arena, outBufferSampleCount, f32, 32);
 		f32* data = mixedSamples[channel];
 		for (u32 i = 0; i < maxIter; i++) {
-			_mm256_storeu_ps(data, zero);
+			_mm256_store_ps(data, zero);
 			data += 8;
 		}
 	}
@@ -145,8 +148,8 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 	f32* mixedC1 = mixedSamples[0];
 	f32* mixedC2 = mixedSamples[1];
 	for (u32 iter = 0; iter < maxIter; iter++) {
-		__m256 samplesC1 = _mm256_loadu_ps(mixedC1);
-		__m256 samplesC2 = _mm256_loadu_ps(mixedC2);
+		__m256 samplesC1 = _mm256_load_ps(mixedC1);
+		__m256 samplesC2 = _mm256_load_ps(mixedC2);
 		__m256 unpackedLow = _mm256_unpacklo_ps(samplesC1, samplesC2);
 		__m256 unpackedHigh = _mm256_unpackhi_ps(samplesC1, samplesC2);
 		__m256 permutedLow = _mm256_permute2f128_ps(unpackedLow, unpackedHigh, 0b0011'0001);
