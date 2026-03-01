@@ -378,18 +378,10 @@ void AddGlyphAsset(Assets& assets, LoadedFont& font, Win32FontInfo& fontInfo, u3
 	for (u32 Y = minY; Y < maxY; Y++) {
 		srcPixel = ptrcast(u32, srcRow);
 		for (u32 X = minX; X < maxX; X++) {
-			u8 gray = *(ptrcast(u8, srcPixel));
+			u8 alpha = *(ptrcast(u8, srcPixel));
 			V4 texel = {
-				f4(gray), f4(gray), f4(gray), f4(gray),
+				f4(255), f4(255), f4(255), f4(alpha),
 			};
-#if 0 // Draw bounding boxes around letters
-			if (X <= minX + 1 || X >= maxX - 2 || Y <= minY + 1 || Y >= maxY - 2) {
-				texel = {
-				f4(255), f4(0), f4(0), f4(255),
-				};
-			}
-#endif
-			
 			texel = SRGB255ToLinear1(texel);
 			texel.RGB *= texel.A;
 			texel = Linear1ToSRGB255(texel);
@@ -661,7 +653,7 @@ void EndFontAdding(Assets& assets, LoadedFont& assetFont, Win32FontInfo& win32Fo
 void WriteFonts() {
 	Assets assets = InitializeAssets();
 	Win32FontInfo win32Font = CreateAssetFont("Arial");
-	//AssetFileFont win32Font = CreateAssetFont("Calibri");
+	//Win32FontInfo win32Font = CreateAssetFont("Calibri");
 
 
 	LoadedFont assetFont = BeginFontAdding(assets);
