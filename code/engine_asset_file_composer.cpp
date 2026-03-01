@@ -6,6 +6,7 @@
 #include <Windows.h>
 
 u32 ASSET_MAX_COUNT = 256 * Asset_Count;
+u32 MAX_UNICODE_CODEPOINT = 0x10FFFF;
 
 struct AssetFileFont {
 	HFONT font;
@@ -316,7 +317,7 @@ AssetFileFont CreateAssetFont(const char* fontName) {
 }
 
 internal
-void AddGlyphAsset(Assets& assets, AssetFileFont& font, char* glyph) {
+void AddGlyphAsset(Assets& assets, AssetFileFont& font, u32 codepoint) {
 	u32 srcHeight = font.info.bmiHeader.biHeight;
 	u32 srcWidth = font.info.bmiHeader.biWidth;
 	u32 srcPitch = srcWidth * BITMAP_BYTES_PER_PIXEL;
@@ -325,9 +326,9 @@ void AddGlyphAsset(Assets& assets, AssetFileFont& font, char* glyph) {
 	memset(bits, 0, srcHeight * srcPitch);
 
 	u32 widthInitAdvance = 8;
-	BOOL result = TextOutA(font.dc, widthInitAdvance, 0, glyph, 1);
+	BOOL result = TextOutW(font.dc, widthInitAdvance, 0, ptrcast(wchar_t, &codepoint), 1);
 	ABC* abcForChar = ptrcast(ABC, malloc(sizeof(ABC)));
-	GetCharABCWidthsA(font.dc, *glyph, *glyph, abcForChar);
+	GetCharABCWidthsW(font.dc, codepoint, codepoint, abcForChar);
 
 	u32 minX = U32_MAX;
 	u32 maxX = 0;
@@ -398,9 +399,6 @@ void AddGlyphAsset(Assets& assets, AssetFileFont& font, char* glyph) {
 		}
 		srcRow += srcPitch;
 	}
-	if (*glyph == 'Y'  || *glyph == 'y') {
-		int breakHere = 3;
-	}
 	Asset* asset = AddAsset(assets, Asset_FontGlyph, AssetGroup_Bitmap);
 	f32 yAlignment = (f4(font.tmDescent + heightAdvance) - f4(minY)) / f4(dstHeight);
 	f32 xAlignment = f4(1 - abcForChar->abcA) / f4(dstWidth);
@@ -421,9 +419,9 @@ void AddGlyphAsset(Assets& assets, AssetFileFont& font, char* glyph) {
 internal
 void AddFontAsset(Assets& assets, AssetFileFontInfo& fontInfo, AssetFileFont& win32Font) {
 	Assert(fontInfo.onePastMaxCodepoint > 0);
-	u32 kerningTableSize = fontInfo.onePastMaxCodepoint * fontInfo.onePastMaxCodepoint * sizeof(u32);
 	LoadedFont font = {};
-	font.kerningTable = ptrcast(u32, malloc(kerningTableSize));
+	u32 kerningTableSize = fontInfo.onePastMaxCodepoint * fontInfo.onePastMaxCodepoint * sizeof(font.kerningTable[0]);
+	font.kerningTable = ptrcast(u8, malloc(kerningTableSize));
 	memset(font.kerningTable, 0, kerningTableSize);
 
 	DWORD nPairs = GetKerningPairsA(win32Font.dc, 0, 0);
@@ -431,13 +429,15 @@ void AddFontAsset(Assets& assets, AssetFileFontInfo& fontInfo, AssetFileFont& wi
 	GetKerningPairsW(win32Font.dc, nPairs, kPairs);
 
 	ABC* abcStructs = ptrcast(ABC, malloc((fontInfo.onePastMaxCodepoint) * sizeof(ABC)));
-	GetCharABCWidthsA(win32Font.dc, 0, fontInfo.onePastMaxCodepoint - 1, abcStructs);
+	GetCharABCWidthsW(win32Font.dc, 0, fontInfo.onePastMaxCodepoint - 1, abcStructs);
 	for (u32 firstCodepoint = 0; firstCodepoint < fontInfo.onePastMaxCodepoint; firstCodepoint++) {
 		ABC* abc = abcStructs + firstCodepoint;
 		for (u32 secondCodepoint = 0; secondCodepoint < fontInfo.onePastMaxCodepoint; secondCodepoint++) {
 			u32 index = firstCodepoint * fontInfo.onePastMaxCodepoint + secondCodepoint;
+			u32 kerningValue = abc->abcA + abc->abcB + abc->abcC;
+			Assert(kerningValue <= 255);
 			font.kerningTable[index] = (firstCodepoint != 0) ? 
-				abc->abcA + abc->abcB + abc->abcC :
+				scast(u8, kerningValue) :
 				0;
 		}
 	}
@@ -450,7 +450,9 @@ void AddFontAsset(Assets& assets, AssetFileFontInfo& fontInfo, AssetFileFont& wi
 			continue;
 		}
 		u32 index = pair->wFirst * fontInfo.onePastMaxCodepoint + pair->wSecond;
-		font.kerningTable[index] += pair->iKernAmount;
+		u32 newKerningValue = font.kerningTable[index] + pair->iKernAmount;
+		Assert(newKerningValue <= 255);
+		font.kerningTable[index] = scast(u8, newKerningValue);
 	}
 	free(abcStructs);
 	free(kPairs);
@@ -531,7 +533,7 @@ void WriteAssetsToFile(Assets& assets, const char* filename) {
 			else if (group->type == AssetGroup_Font) {
 				u32 count = metadata->_fontInfo.onePastMaxCodepoint * metadata->_fontInfo.onePastMaxCodepoint;
 				u32 dataPosition = ftell(file);
-				fwrite(asset->memory->font.kerningTable, sizeof(u32), count, file);
+				fwrite(asset->memory->font.kerningTable, sizeof(asset->memory->font.kerningTable[0]), count, file);
 				metadata->_fontInfo.dataOffset = dataPosition;
 			}
 		}
@@ -594,14 +596,8 @@ void WriteFonts() {
 	AssetFileFont win32Font = CreateAssetFont("Arial");
 	//AssetFileFont win32Font = CreateAssetFont("Calibri");
 	AssetFileFontInfo fontInfo = {};
-	char test1 = '\\';
-	char test2 = 's';
-	char test3 = '!';
-	/*AddGlyphAsset(assets, win32Font, &test1);
-	AddGlyphAsset(assets, win32Font, &test2);
-	AddGlyphAsset(assets, win32Font, &test3);*/
 	for (char c = '!'; c <= '~'; c++) {
-		AddGlyphAsset(assets, win32Font, &c);
+		AddGlyphAsset(assets, win32Font, c);
 		AddFeature(assets, Feature_FontCodepoint, c);
 		if (u4(c) >= fontInfo.onePastMaxCodepoint) {
 			fontInfo.onePastMaxCodepoint = c + 1;

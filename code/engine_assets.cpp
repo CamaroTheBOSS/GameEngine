@@ -654,7 +654,7 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 	asset.memory->assetIndex = fid.id;
 	asset.memory->totalSize = allocSize;
 	asset.memory->generationId = 0;
-	asset.memory->font.kerningTable = ptrcast(u32, asset.memory + 1);
+	asset.memory->font.kerningTable = ptrcast(u8, asset.memory + 1);
 	asset.memory->font.onePastMaxCodepoint = metadata->onePastMaxCodepoint;
 	asset.memory->font.metrics = metadata->metrics;
 
