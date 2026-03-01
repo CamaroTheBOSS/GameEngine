@@ -965,14 +965,24 @@ void ChangePitch(PlayingSound* sound, f32 pitch) {
 	sound->pitch = pitch;
 }
 
+inline
 u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodepoint) {
 	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
-	u32 firstKerningIndex = font->codepointToKerningIndexTable[firstCodepoint];
-	u32 secondKerningIndex = font->codepointToKerningIndexTable[secondCodepoint];
+	u32 firstKerningIndex = font->codepointToLogicalIndex[firstCodepoint];
+	u32 secondKerningIndex = font->codepointToLogicalIndex[secondCodepoint];
 	Assert((firstKerningIndex != 0 || firstCodepoint == 0 || firstCodepoint == ' ') && secondKerningIndex != 0);
-	return font->kerningTable[firstKerningIndex * font->onePastMaxKerningIndex + secondKerningIndex];
+	return font->kerningTable[firstKerningIndex * font->onePastMaxLogicalIndex + secondKerningIndex];
 }
 
+inline
+BitmapId GetFontGlyphBitmapIdFor(LoadedFont* font, u32 codepoint) {
+	Assert(codepoint < font->onePastMaxCodepoint);
+	u32 index = font->logicalIndexBaseForGlyphs + font->codepointToLogicalIndex[codepoint];
+	Assert(index != 0);
+	return { index };
+}
+
+inline
 u32 GetFontLineAdvance(LoadedFont* font) {
 	return font->metrics.ascent + font->metrics.descent + font->metrics.externalLeading;
 }
@@ -997,7 +1007,6 @@ u32 HexToInt(char c) {
 }
 
 void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
-#if 1
 	u32 prevChar = 0;
 	for (char* at = text; *at; at++) {
 		if (*at == ' ') {
@@ -1009,6 +1018,7 @@ void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 		if (*at == '\\' &&
 			at[1] == '0' &&
 			at[2] == 'x') {
+			// TODO: It may cause buffer overflow if input data is incorrect
 			u32 ox1 = HexToInt(at[3]);
 			u32 ox2 = HexToInt(at[4]);
 			u32 ox3 = HexToInt(at[5]);
@@ -1022,11 +1032,15 @@ void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 		else {
 			codepoint = *at;
 		}
+#if 0
 		AssetFeatures match = {};
 		AssetFeatures weight = {};
 		match[Feature_FontCodepoint] = f4(codepoint);
 		weight[Feature_FontCodepoint] = 1.f;
 		BitmapId bid = GetBestFitBitmapId(*debugRenderGroup.assets, Asset_FontGlyph, match, weight, 100000);
+#else
+		BitmapId bid = GetFontGlyphBitmapIdFor(font, codepoint);
+#endif
 		AssetMetadata* metadata = GetAssetMetadata(*debugRenderGroup.assets, bid.id);
 		f32 width = f4(metadata->_bitmapInfo.width);
 		f32 height = f4(metadata->_bitmapInfo.height);
@@ -1040,32 +1054,6 @@ void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 	}
 	context.leftCurrent = context.leftEdge;
 	context.topCurrent -= context.scale * GetFontLineAdvance(font);
-#else
-	char prevChar = 0;
-	for (char* at = text; *at; at++) {
-		if (*at == ' ') {
-			context.leftCurrent += context.scale * 45;
-			continue;
-		}
-		AssetFeatures match = {};
-		AssetFeatures weight = {};
-		match[Feature_FontCodepoint] = *at;
-		weight[Feature_FontCodepoint] = 1.f;
-		BitmapId bid = GetBestFitBitmapId(*debugRenderGroup.assets, Asset_FontGlyph, match, weight, 100000);
-		AssetMetadata* metadata = GetAssetMetadata(*debugRenderGroup.assets, bid.id);
-		f32 width = f4(metadata->_bitmapInfo.width);
-		f32 height = f4(metadata->_bitmapInfo.height);
-		context.leftCurrent += context.scale * GetFontWidthAdvanceFor(font, prevChar, *at);
-		V3 anchor = V3{ context.leftCurrent, context.topCurrent, 0 };
-		PushBitmap(debugRenderGroup, bid, anchor, context.scale * height, V2{ 0, 0 });
-#if 0
-		PushRect(debugRenderGroup, anchor, V2{ 6, 6 }, V2{ 0, 0 }, V4{ 0, 0, 1, 1 });
-#endif
-		prevChar = *at;
-	}
-	context.leftCurrent = context.leftEdge;
-	context.topCurrent -= context.scale * GetFontLineAdvance(font);
-#endif
 }
 
 void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
@@ -1080,7 +1068,7 @@ void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 		context.leftEdge = context.leftCurrent = -0.5f * dstBitmap.width;
 		context.topEdge = context.topCurrent = 0.5f * dstBitmap.height - 
 			context.scale * font->metrics.ascent;
-		
+
 		char text1[] = "YyYyYyy y\"y\"sghy\"\"";
 		char text2[] = "{jiSsYYHhkQBbYy\"xd nextline";
 		char text3[] = "${iId$sads}||/\\!~Vv";

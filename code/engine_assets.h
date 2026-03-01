@@ -28,10 +28,11 @@ struct FontMetrics {
 };
 
 struct LoadedFont {
+	u32 logicalIndexBaseForGlyphs;
 	u32 onePastMaxCodepoint;
-	u16 onePastMaxKerningIndex;
+	u16 onePastMaxLogicalIndex;
 	FontMetrics metrics;
-	u16* codepointToKerningIndexTable;
+	u16* codepointToLogicalIndex;
 	u8* kerningTable;
 };
 
@@ -54,7 +55,6 @@ struct GenerationId {
 enum AssetFeatureID {
 	Feature_Height,
 	Feature_FacingDirection,
-	Feature_FontCodepoint,
 
 	Feature_Count
 };
@@ -70,8 +70,9 @@ enum AssetTypeID {
 	Asset_Music,
 	Asset_Bloop,
 
-	Asset_Font,
 	Asset_FontGlyph,
+	Asset_Font,
+	
 
 	Asset_Count
 };
@@ -129,7 +130,8 @@ struct AssetFileSoundInfo {
 
 struct AssetFileFontInfo {
 	u32 onePastMaxCodepoint;
-	u16 onePastMaxKerningIndex;
+	u16 onePastMaxLogicalIndex;
+	u32 logicalIndexBaseForGlyphs; // NOTE: BitmapId in Asset system should be logicalIndex + logicalIndexBaseForGlyphs
 	FontMetrics metrics;
 	u32 dataOffset;
 };

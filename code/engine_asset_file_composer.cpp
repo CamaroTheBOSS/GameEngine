@@ -7,6 +7,7 @@
 
 u32 ASSET_MAX_COUNT = 256 * Asset_Count;
 u32 MAX_UNICODE_CODEPOINT = 0x10FFFF;
+bool duringFontAdding = false;
 
 struct Win32FontInfo {
 	HFONT font;
@@ -219,6 +220,7 @@ LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleC
 inline
 Asset* AddAsset(Assets& assets, AssetTypeID id, AssetGroupType groupType) {
 	Assert(assets.assetCount < ASSET_MAX_COUNT);
+	Assert(!duringFontAdding || id == Asset_Font || id == Asset_FontGlyph);
 	Asset* asset = &assets.assets[assets.assetCount];
 	asset->memory = ptrcast(AssetMemoryHeader, malloc(sizeof(AssetMemoryHeader)));
 	asset->metadataId = assets.assetCount;
@@ -415,8 +417,8 @@ void AddGlyphAsset(Assets& assets, LoadedFont& font, Win32FontInfo& fontInfo, u3
 	if (font.onePastMaxCodepoint <= codepoint) {
 		font.onePastMaxCodepoint = codepoint + 1;
 	}
-	Assert(font.onePastMaxKerningIndex < U16_MAX);
-	font.codepointToKerningIndexTable[codepoint] = font.onePastMaxKerningIndex++;
+	Assert(font.onePastMaxLogicalIndex < U16_MAX);
+	font.codepointToLogicalIndex[codepoint] = font.onePastMaxLogicalIndex++;
 	free(abcForChar);
 }
 
@@ -424,7 +426,7 @@ internal
 void AddFontAsset(Assets& assets, LoadedFont& font, Win32FontInfo& fontInfo) {
 	Assert(font.onePastMaxCodepoint > 0);
 
-	u32 kerningTableElements = font.onePastMaxKerningIndex * font.onePastMaxKerningIndex;
+	u32 kerningTableElements = font.onePastMaxLogicalIndex * font.onePastMaxLogicalIndex;
 	u32 kerningTableSize = kerningTableElements * sizeof(font.kerningTable[0]);
 	font.kerningTable = ptrcast(u8, malloc(kerningTableSize));
 	memset(font.kerningTable, 0, kerningTableSize);
@@ -449,21 +451,21 @@ void AddFontAsset(Assets& assets, LoadedFont& font, Win32FontInfo& fontInfo) {
 	}
 #else
 	for (u32 firstCodepoint = 0; firstCodepoint < font.onePastMaxCodepoint; firstCodepoint++) {
-		u32 firstKerningIndex = font.codepointToKerningIndexTable[firstCodepoint];
+		u32 firstKerningIndex = font.codepointToLogicalIndex[firstCodepoint];
 		if (firstKerningIndex == 0) {
 			// NOTE: Codepoint was not added to font, skip it;
 			continue;
 		}
 		ABC* abc = abcStructs + firstCodepoint;
 		for (u32 secondCodepoint = 0; secondCodepoint < font.onePastMaxCodepoint; secondCodepoint++) {
-			u32 secondKerningIndex = font.codepointToKerningIndexTable[secondCodepoint];
+			u32 secondKerningIndex = font.codepointToLogicalIndex[secondCodepoint];
 			if (secondKerningIndex == 0) {
 				// NOTE: Codepoint was not added to font, skip it;
 				continue;
 			}
-			Assert(firstKerningIndex < font.onePastMaxKerningIndex);
-			Assert(secondKerningIndex < font.onePastMaxKerningIndex);
-			u32 index = firstKerningIndex * font.onePastMaxKerningIndex + secondKerningIndex;
+			Assert(firstKerningIndex < font.onePastMaxLogicalIndex);
+			Assert(secondKerningIndex < font.onePastMaxLogicalIndex);
+			u32 index = firstKerningIndex * font.onePastMaxLogicalIndex + secondKerningIndex;
 			u32 kerningValue = abc->abcA + abc->abcB + abc->abcC;
 			Assert(kerningValue <= 255);
 			font.kerningTable[index] = (firstCodepoint != 0) ?
@@ -480,15 +482,15 @@ void AddFontAsset(Assets& assets, LoadedFont& font, Win32FontInfo& fontInfo) {
 			pair->wFirst == 0) {
 			continue;
 		}
-		u32 firstKerningIndex = font.codepointToKerningIndexTable[pair->wFirst];
-		u32 secondKerningIndex = font.codepointToKerningIndexTable[pair->wSecond];
+		u32 firstKerningIndex = font.codepointToLogicalIndex[pair->wFirst];
+		u32 secondKerningIndex = font.codepointToLogicalIndex[pair->wSecond];
 		if (firstKerningIndex == 0 || secondKerningIndex == 0) {
 			// NOTE: Codepoint was not added to font, skip it;
 			continue;
 		}
-		Assert(firstKerningIndex < font.onePastMaxKerningIndex);
-		Assert(secondKerningIndex < font.onePastMaxKerningIndex);
-		u32 index = firstKerningIndex * font.onePastMaxKerningIndex + secondKerningIndex;
+		Assert(firstKerningIndex < font.onePastMaxLogicalIndex);
+		Assert(secondKerningIndex < font.onePastMaxLogicalIndex);
+		u32 index = firstKerningIndex * font.onePastMaxLogicalIndex + secondKerningIndex;
 		Assert(index < kerningTableElements);
 		u32 newKerningValue = font.kerningTable[index] + pair->iKernAmount;
 		Assert(newKerningValue <= 255);
@@ -499,10 +501,11 @@ void AddFontAsset(Assets& assets, LoadedFont& font, Win32FontInfo& fontInfo) {
 
 	Asset* asset = AddAsset(assets, Asset_Font, AssetGroup_Font);
 	asset->memory->font.kerningTable = font.kerningTable;
-	asset->memory->font.codepointToKerningIndexTable = font.codepointToKerningIndexTable;
+	asset->memory->font.codepointToLogicalIndex = font.codepointToLogicalIndex;
 	AssetFileFontInfo* info = &assets.metadatas[asset->metadataId]._fontInfo;
 	info->onePastMaxCodepoint = font.onePastMaxCodepoint;
-	info->onePastMaxKerningIndex = font.onePastMaxKerningIndex;
+	info->onePastMaxLogicalIndex = font.onePastMaxLogicalIndex;
+	info->logicalIndexBaseForGlyphs = font.logicalIndexBaseForGlyphs;
 	info->metrics.ascent = fontInfo.tmAscent;
 	info->metrics.descent = fontInfo.tmDescent;
 	info->metrics.internalLeading = fontInfo.tmInternalLeading;
@@ -575,9 +578,9 @@ void WriteAssetsToFile(Assets& assets, const char* filename) {
 			else if (group->type == AssetGroup_Font) {
 				u32 codePointCount = metadata->_fontInfo.onePastMaxCodepoint;
 				u32 dataPosition = ftell(file);
-				fwrite(asset->memory->font.codepointToKerningIndexTable, sizeof(u16), codePointCount, file);
+				fwrite(asset->memory->font.codepointToLogicalIndex, sizeof(u16), codePointCount, file);
 
-				u32 kerningCount = metadata->_fontInfo.onePastMaxKerningIndex * metadata->_fontInfo.onePastMaxKerningIndex;
+				u32 kerningCount = metadata->_fontInfo.onePastMaxLogicalIndex * metadata->_fontInfo.onePastMaxLogicalIndex;
 				//u32 dataPosition = ftell(file);
 				fwrite(asset->memory->font.kerningTable, sizeof(asset->memory->font.kerningTable[0]), kerningCount, file);
 				metadata->_fontInfo.dataOffset = dataPosition;
@@ -637,36 +640,42 @@ void WriteBitmaps() {
 	WriteAssetsToFile(assets, "bitmaps.assf");
 }
 
+LoadedFont BeginFontAdding(Assets& assets) {
+	duringFontAdding = true;
+	LoadedFont assetFont = {};
+	u32 allocSize = MAX_UNICODE_CODEPOINT * sizeof(u16);
+	AssetGroup* group = &assets.groups[Asset_FontGlyph];
+	assetFont.logicalIndexBaseForGlyphs = group->onePastLastAssetIndex - group->firstAssetIndex;
+	assetFont.onePastMaxLogicalIndex = 1; // NOTE: Leave NULL kerning index alone
+	assetFont.codepointToLogicalIndex = ptrcast(u16, malloc(allocSize));
+	memset(assetFont.codepointToLogicalIndex, 0, allocSize);
+	return assetFont;
+}
+
+void EndFontAdding(Assets& assets, LoadedFont& assetFont, Win32FontInfo& win32Font) {
+	duringFontAdding = false;
+	AddFontAsset(assets, assetFont, win32Font);
+	FreeAssetFileFont(win32Font);
+}
+
 void WriteFonts() {
 	Assets assets = InitializeAssets();
 	Win32FontInfo win32Font = CreateAssetFont("Arial");
 	//AssetFileFont win32Font = CreateAssetFont("Calibri");
 
 
-	LoadedFont assetFont = {};
-	u32 allocSize = MAX_UNICODE_CODEPOINT * sizeof(u16);
-	assetFont.onePastMaxKerningIndex = 1; // NOTE: Leave NULL kerning index alone
-	assetFont.codepointToKerningIndexTable = ptrcast(u16, malloc(allocSize));
-	memset(assetFont.codepointToKerningIndexTable, 0, allocSize);
-
+	LoadedFont assetFont = BeginFontAdding(assets);
 	for (char c = '!'; c <= '~'; c++) {
 		AddGlyphAsset(assets, assetFont, win32Font, c);
-		AddFeature(assets, Feature_FontCodepoint, c);
 	}
 	// ¿ó³æ
 #if 1
 	AddGlyphAsset(assets, assetFont, win32Font, 0x017C);
-	AddFeature(assets, Feature_FontCodepoint, 0x017C);
 	AddGlyphAsset(assets, assetFont, win32Font, 0x00F3);
-	AddFeature(assets, Feature_FontCodepoint, 0x00F3);
 	AddGlyphAsset(assets, assetFont, win32Font, 0x0142);
-	AddFeature(assets, Feature_FontCodepoint, 0x0142);
 	AddGlyphAsset(assets, assetFont, win32Font, 0x0107);
-	AddFeature(assets, Feature_FontCodepoint, 0x0107);
 #endif
-	
-	AddFontAsset(assets, assetFont, win32Font);
-	FreeAssetFileFont(win32Font);
+	EndFontAdding(assets, assetFont, win32Font);
 	
 	WriteAssetsToFile(assets, "fonts.assf");
 }

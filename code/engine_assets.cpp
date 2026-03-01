@@ -637,8 +637,8 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 	asset.state = AssetState_Pending;
 	WriteCompilatorFence;
 	AssetFileFontInfo* metadata = &GetAssetMetadata(assets, asset)->_fontInfo;
-	u32 codePointDataSize = metadata->onePastMaxCodepoint * sizeof(((LoadedFont*)0)->codepointToKerningIndexTable[0]);
-	u32 kerningTableSize = metadata->onePastMaxKerningIndex * metadata->onePastMaxKerningIndex * sizeof(((LoadedFont*)0)->kerningTable[0]);
+	u32 codePointDataSize = metadata->onePastMaxCodepoint * sizeof(((LoadedFont*)0)->codepointToLogicalIndex[0]);
+	u32 kerningTableSize = metadata->onePastMaxLogicalIndex * metadata->onePastMaxLogicalIndex * sizeof(((LoadedFont*)0)->kerningTable[0]);
 	u32 assetSize = codePointDataSize + kerningTableSize;;
 	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
 	asset.memory = ptrcast(AssetMemoryHeader, AcquireAssetMemory(assets, allocSize));
@@ -656,11 +656,12 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 	asset.memory->assetIndex = fid.id;
 	asset.memory->totalSize = allocSize;
 	asset.memory->generationId = 0;
-	asset.memory->font.codepointToKerningIndexTable = ptrcast(u16, asset.memory + 1);
-	asset.memory->font.kerningTable = ptrcast(u8, asset.memory->font.codepointToKerningIndexTable + metadata->onePastMaxCodepoint);
+	asset.memory->font.codepointToLogicalIndex = ptrcast(u16, asset.memory + 1);
+	asset.memory->font.kerningTable = ptrcast(u8, asset.memory->font.codepointToLogicalIndex + metadata->onePastMaxCodepoint);
 	asset.memory->font.onePastMaxCodepoint = metadata->onePastMaxCodepoint;
-	asset.memory->font.onePastMaxKerningIndex = metadata->onePastMaxKerningIndex;
+	asset.memory->font.onePastMaxLogicalIndex = metadata->onePastMaxLogicalIndex;
 	asset.memory->font.metrics = metadata->metrics;
+	asset.memory->font.logicalIndexBaseForGlyphs = metadata->logicalIndexBaseForGlyphs;
 
 	LockedAddMemoryHeaderToList(assets, asset.memory);
 
@@ -677,7 +678,7 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 	args->source = GetAssetSource(assets, asset.fileSourceIndex);
 	args->offset = metadata->dataOffset;
 	args->size = assetSize;
-	args->buffer = asset.memory->font.codepointToKerningIndexTable;
+	args->buffer = asset.memory->font.codepointToLogicalIndex;
 	args->task = task;
 	args->state = &asset.state;
 
@@ -691,6 +692,11 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 	}
 	return true;
 }
+
+struct AssetFileSource {
+	AssetFileHeader header;
+	u32 fontGlyphAssetCountOffset;
+};
 
 internal
 void AllocateAssets(TransientState* tranState) {
@@ -732,10 +738,10 @@ void AllocateAssets(TransientState* tranState) {
 		PushSize(tranState->arena, memoryForAssetsSize), memoryForAssetsSize);
 
 	TemporaryMemory scratchMemory = BeginTempMemory(tranState->arena);
-	AssetFileHeader* headers = PushArray(tranState->arena, fileGroup->count, AssetFileHeader);
+	AssetFileSource* sources = PushArray(tranState->arena, fileGroup->count, AssetFileSource);
 	// NOTE: Read the headers first!
 	for (u32 fileIndex = 0; fileIndex < fileGroup->count; fileIndex++) {
-		AssetFileHeader* header = headers + fileIndex;
+		AssetFileHeader* header = &(sources + fileIndex)->header;
 		PlatformFileHandle* file = *(fileGroup->files + fileIndex);
 		Platform->FileRead(file, 0, sizeof(AssetFileHeader), header);
 		if (Platform->FileErrors(file) ||
@@ -755,7 +761,7 @@ void AllocateAssets(TransientState* tranState) {
 
 		for (u32 fileIndex = 0; fileIndex < fileGroup->count; fileIndex++) {
 			PlatformFileHandle* file = *(fileGroup->files + fileIndex);
-			AssetFileHeader* header = headers + fileIndex;
+			AssetFileHeader* header = &(sources + fileIndex)->header;
 
 			Platform->FileRead(
 				file,
@@ -763,10 +769,6 @@ void AllocateAssets(TransientState* tranState) {
 				sizeof(AssetGroup),
 				fileAssetGroup
 			);
-#if 0	// Asset group might be actually empty
-			Assert(fileAssetGroup->firstAssetIndex != 0);
-			Assert(fileAssetGroup->onePastLastAssetIndex != 0);
-#endif
 			Assert(fileAssetGroup->firstAssetIndex < header->assetsCount);
 			u32 fileAssetCountInGroup = fileAssetGroup->onePastLastAssetIndex - fileAssetGroup->firstAssetIndex;
 
@@ -785,6 +787,22 @@ void AllocateAssets(TransientState* tranState) {
 			if (Platform->FileErrors(file)) {
 				// TODO: Inform user about IO error
 				continue;
+			}
+			if (groupIndex == Asset_FontGlyph) {
+				static_assert(Asset_FontGlyph < Asset_Font && "When Font are loaded, it needs information"
+					"about its glyphs offset to work properly, so this condition asserts that");
+				// NOTE: That information is important for Font offsets to point to correct bitmaps
+				sources[fileIndex].fontGlyphAssetCountOffset = readAssetsCount;
+			}
+			else if (groupIndex == Asset_Font) {
+				u32 glyphGlobalOffsetForFile = sources[fileIndex].fontGlyphAssetCountOffset;
+				Assert(glyphGlobalOffsetForFile != 0);
+				for (u32 baseIndex = 0; baseIndex < fileAssetCountInGroup; baseIndex++) {
+					AssetMetadata* dstMetadata = assets.metadatas + readAssetsCount + baseIndex;
+					// NOTE: subtract 1, because index 0 is actually reserved for the null glyph which
+					// does not reside in memory
+					dstMetadata->_fontInfo.logicalIndexBaseForGlyphs += glyphGlobalOffsetForFile - 1;
+				}
 			}
 			for (u32 baseIndex = 0; baseIndex < fileAssetCountInGroup; baseIndex++) {
 				Asset* dstAsset = assets.assets + readAssetsCount + baseIndex;
