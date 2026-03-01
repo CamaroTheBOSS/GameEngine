@@ -965,15 +965,28 @@ void ChangePitch(PlayingSound* sound, f32 pitch) {
 	sound->pitch = pitch;
 }
 
-void DebugRenderLine(LoadedFont* font, char* text) {
-	f32 scale = 0.4f;
-	f32 left = -480;
-	f32 up = 220;
+u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodepoint) {
+	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
+	return font->kerningTable[firstCodepoint * font->onePastMaxCodepoint + secondCodepoint];
+}
 
-	f32 prevWidth = 0;
+u32 GetFontLineAdvance(LoadedFont* font) {
+	return font->metrics.ascent + font->metrics.descent + font->metrics.externalLeading;
+}
+
+struct FontDrawContext {
+	f32 scale;
+	f32 leftEdge;
+	f32 leftCurrent;
+	f32 topEdge;
+	f32 topCurrent;
+};
+
+void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
+	char prevChar = 0;
 	for (char* at = text; *at; at++) {
 		if (*at == ' ') {
-			left += scale * 45;
+			context.leftCurrent += context.scale * 45;
 			continue;
 		}
 		AssetFeatures match = {};
@@ -984,25 +997,39 @@ void DebugRenderLine(LoadedFont* font, char* text) {
 		AssetMetadata* metadata = GetAssetMetadata(*debugRenderGroup.assets, bid.id);
 		f32 width = f4(metadata->_bitmapInfo.width);
 		f32 height = f4(metadata->_bitmapInfo.height);
-		left += prevWidth;
-		PushBitmap(debugRenderGroup, bid, V3{ left, up, 0 }, scale * height, V2{ 0, 0 });
-		prevWidth = 0.6f * scale * width;
-		left += prevWidth;
+		context.leftCurrent += context.scale * GetFontWidthAdvanceFor(font, prevChar, *at);
+		V3 anchor = V3{ context.leftCurrent, context.topCurrent, 0 };
+		PushBitmap(debugRenderGroup, bid, anchor, context.scale * height, V2{ 0, 0 });
+#if 0
+		PushRect(debugRenderGroup, anchor, V2{ 6, 6 }, V2{ 0, 0 }, V4{ 0, 0, 1, 1 });
+#endif
+		prevChar = *at;
 	}
+	context.leftCurrent = context.leftEdge;
+	context.topCurrent -= context.scale * GetFontLineAdvance(font);
 }
 
-void DebugRenderText(TransientState* state, LoadedBitmap& dstBitmap) {
+void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 	debugRenderGroup.pushBufferSize = 0;
-	debugRenderGroup.projection = GetOrtographicProjection(960, 540, 1);
+	debugRenderGroup.projection = GetOrtographicProjection(dstBitmap.width, dstBitmap.height, 1);
+
 	BeginRendering(debugRenderGroup);
 	LoadedFont* font = GetOrPrefetchFont(debugRenderGroup, GetFirstFontId(*debugRenderGroup.assets));
 	if (font) {
-		//char text[] = "123 456 789 0";
-		//DebugRenderLine(text);
-		//char text2[] = "This is my text. I THiNK, it is AWEsoME";
-		char text2[] = "shy\"{iSsHhBbYy\"xd\"${iId$sads}||/\\!~Vv";
-		DebugRenderLine(font, text2);
+		FontDrawContext context = {};
+		context.scale = 0.5f;
+		context.leftEdge = context.leftCurrent = -0.5f * dstBitmap.width;
+		context.topEdge = context.topCurrent = 0.5f * dstBitmap.height - 
+			context.scale * font->metrics.ascent;
+		
+		char text1[] = "YyYyYyy y\"y\"sghy\"\"";
+		char text2[] = "{jiSsYYHhkQBbYy\"xd nextline";
+		char text3[] = "${iId$sads}||/\\!~Vv";
+		DebugRenderLine(font, text1, context);
+		DebugRenderLine(font, text2, context);
+		DebugRenderLine(font, text3, context);
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, state->highPriorityQueue);
+		
 	}
 	EndRendering(debugRenderGroup);
 }
@@ -1587,7 +1614,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	
 
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
-	DebugRenderText(tranState, screenBitmap);
+	DebugRenderOverlay(tranState, screenBitmap);
 
 	RenderSoundToBuffer(state->audio, tranState->assets, soundData);
 	EndRendering(renderGroup);

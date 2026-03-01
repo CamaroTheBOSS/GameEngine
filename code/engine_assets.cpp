@@ -76,7 +76,8 @@ Asset* GetAsset(Assets& assets, u32 id) {
 
 internal
 Asset* AcquireAsset(Assets& assets, u32 aid, GenerationId gid) {
-	Assert(gid.id);
+	Assert(gid.id && "Rendering must be started with BeginRendering() which creates generation id for"
+		"specific render group. Or if not using RenderGroup, create one by yourself with NewGenerationId()");
 	Asset* asset = GetAsset(assets, aid);
 	// TODO: Should it be more finegrained lock on per asset basis?
 	BeginAssetMemoryLock(assets);
@@ -636,7 +637,7 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 	asset.state = AssetState_Pending;
 	WriteCompilatorFence;
 	AssetFileFontInfo* metadata = &GetAssetMetadata(assets, asset)->_fontInfo;
-	u32 assetSize = metadata->maxCodepoint * metadata->maxCodepoint * sizeof(u32);
+	u32 assetSize = metadata->onePastMaxCodepoint * metadata->onePastMaxCodepoint * sizeof(u32);
 	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
 	asset.memory = ptrcast(AssetMemoryHeader, AcquireAssetMemory(assets, allocSize));
 	if (!asset.memory) {
@@ -654,6 +655,8 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 	asset.memory->totalSize = allocSize;
 	asset.memory->generationId = 0;
 	asset.memory->font.kerningTable = ptrcast(u32, asset.memory + 1);
+	asset.memory->font.onePastMaxCodepoint = metadata->onePastMaxCodepoint;
+	asset.memory->font.metrics = metadata->metrics;
 
 	LockedAddMemoryHeaderToList(assets, asset.memory);
 

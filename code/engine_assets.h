@@ -20,7 +20,16 @@ struct LoadedSound {
 	f32* samples[2];
 };
 
+struct FontMetrics {
+	u32 descent;
+	u32 ascent;
+	u32 internalLeading;
+	u32 externalLeading;
+};
+
 struct LoadedFont {
+	u32 onePastMaxCodepoint;
+	FontMetrics metrics;
 	u32* kerningTable;
 };
 
@@ -117,7 +126,8 @@ struct AssetFileSoundInfo {
 };
 
 struct AssetFileFontInfo {
-	u32 maxCodepoint;
+	u32 onePastMaxCodepoint;
+	FontMetrics metrics;
 	u32 dataOffset;
 };
 
