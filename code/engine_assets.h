@@ -29,9 +29,10 @@ struct FontMetrics {
 
 struct LoadedFont {
 	u32 onePastMaxCodepoint;
+	u16 onePastMaxKerningIndex;
 	FontMetrics metrics;
-	u8* kerningTable;
 	u16* codepointToKerningIndexTable;
+	u8* kerningTable;
 };
 
 struct BitmapId {
@@ -128,6 +129,7 @@ struct AssetFileSoundInfo {
 
 struct AssetFileFontInfo {
 	u32 onePastMaxCodepoint;
+	u16 onePastMaxKerningIndex;
 	FontMetrics metrics;
 	u32 dataOffset;
 };

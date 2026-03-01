@@ -637,7 +637,9 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 	asset.state = AssetState_Pending;
 	WriteCompilatorFence;
 	AssetFileFontInfo* metadata = &GetAssetMetadata(assets, asset)->_fontInfo;
-	u32 assetSize = metadata->onePastMaxCodepoint * metadata->onePastMaxCodepoint * sizeof(u32);
+	u32 codePointDataSize = metadata->onePastMaxCodepoint * sizeof(((LoadedFont*)0)->codepointToKerningIndexTable[0]);
+	u32 kerningTableSize = metadata->onePastMaxKerningIndex * metadata->onePastMaxKerningIndex * sizeof(((LoadedFont*)0)->kerningTable[0]);
+	u32 assetSize = codePointDataSize + kerningTableSize;;
 	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
 	asset.memory = ptrcast(AssetMemoryHeader, AcquireAssetMemory(assets, allocSize));
 	if (!asset.memory) {
@@ -654,8 +656,10 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 	asset.memory->assetIndex = fid.id;
 	asset.memory->totalSize = allocSize;
 	asset.memory->generationId = 0;
-	asset.memory->font.kerningTable = ptrcast(u8, asset.memory + 1);
+	asset.memory->font.codepointToKerningIndexTable = ptrcast(u16, asset.memory + 1);
+	asset.memory->font.kerningTable = ptrcast(u8, asset.memory->font.codepointToKerningIndexTable + metadata->onePastMaxCodepoint);
 	asset.memory->font.onePastMaxCodepoint = metadata->onePastMaxCodepoint;
+	asset.memory->font.onePastMaxKerningIndex = metadata->onePastMaxKerningIndex;
 	asset.memory->font.metrics = metadata->metrics;
 
 	LockedAddMemoryHeaderToList(assets, asset.memory);
@@ -673,7 +677,7 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 	args->source = GetAssetSource(assets, asset.fileSourceIndex);
 	args->offset = metadata->dataOffset;
 	args->size = assetSize;
-	args->buffer = asset.memory->font.kerningTable;
+	args->buffer = asset.memory->font.codepointToKerningIndexTable;
 	args->task = task;
 	args->state = &asset.state;
 

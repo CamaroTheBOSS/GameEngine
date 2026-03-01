@@ -967,7 +967,10 @@ void ChangePitch(PlayingSound* sound, f32 pitch) {
 
 u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodepoint) {
 	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
-	return font->kerningTable[firstCodepoint * font->onePastMaxCodepoint + secondCodepoint];
+	u32 firstKerningIndex = font->codepointToKerningIndexTable[firstCodepoint];
+	u32 secondKerningIndex = font->codepointToKerningIndexTable[secondCodepoint];
+	Assert((firstKerningIndex != 0 || firstCodepoint == 0 || firstCodepoint == ' ') && secondKerningIndex != 0);
+	return font->kerningTable[firstKerningIndex * font->onePastMaxKerningIndex + secondKerningIndex];
 }
 
 u32 GetFontLineAdvance(LoadedFont* font) {
@@ -982,7 +985,62 @@ struct FontDrawContext {
 	f32 topCurrent;
 };
 
+u32 HexToInt(char c) {
+	if (c >= 'A' && c <= 'F') {
+		return c - 'A' + 10;
+	}
+	else if (c >= '0' && c <= '9') {
+		return c - '0';
+	}
+	Assert(!"Wrong hex character");
+	return 0;
+}
+
 void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
+#if 1
+	u32 prevChar = 0;
+	for (char* at = text; *at; at++) {
+		if (*at == ' ') {
+			context.leftCurrent += context.scale * 128;
+			prevChar = *at;
+			continue;
+		}
+		u32 codepoint = 0;
+		if (*at == '\\' &&
+			at[1] == '0' &&
+			at[2] == 'x') {
+			u32 ox1 = HexToInt(at[3]);
+			u32 ox2 = HexToInt(at[4]);
+			u32 ox3 = HexToInt(at[5]);
+			u32 ox4 = HexToInt(at[6]);
+			codepoint = (ox1 << 12) + 
+						(ox2 << 8) + 
+						(ox3 << 4) + 
+						(ox4 << 0);
+			at += 6;
+		}
+		else {
+			codepoint = *at;
+		}
+		AssetFeatures match = {};
+		AssetFeatures weight = {};
+		match[Feature_FontCodepoint] = f4(codepoint);
+		weight[Feature_FontCodepoint] = 1.f;
+		BitmapId bid = GetBestFitBitmapId(*debugRenderGroup.assets, Asset_FontGlyph, match, weight, 100000);
+		AssetMetadata* metadata = GetAssetMetadata(*debugRenderGroup.assets, bid.id);
+		f32 width = f4(metadata->_bitmapInfo.width);
+		f32 height = f4(metadata->_bitmapInfo.height);
+		context.leftCurrent += context.scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
+		V3 anchor = V3{ context.leftCurrent, context.topCurrent, 0 };
+		PushBitmap(debugRenderGroup, bid, anchor, context.scale * height, V2{ 0, 0 });
+#if 0
+		PushRect(debugRenderGroup, anchor, V2{ 6, 6 }, V2{ 0, 0 }, V4{ 0, 0, 1, 1 });
+#endif
+		prevChar = codepoint;
+	}
+	context.leftCurrent = context.leftEdge;
+	context.topCurrent -= context.scale * GetFontLineAdvance(font);
+#else
 	char prevChar = 0;
 	for (char* at = text; *at; at++) {
 		if (*at == ' ') {
@@ -1007,6 +1065,7 @@ void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 	}
 	context.leftCurrent = context.leftEdge;
 	context.topCurrent -= context.scale * GetFontLineAdvance(font);
+#endif
 }
 
 void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
@@ -1025,9 +1084,11 @@ void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 		char text1[] = "YyYyYyy y\"y\"sghy\"\"";
 		char text2[] = "{jiSsYYHhkQBbYy\"xd nextline";
 		char text3[] = "${iId$sads}||/\\!~Vv";
+		char zolc[] = "\\0x017C\\0x00F3\\0x0142\\0x0107";
 		DebugRenderLine(font, text1, context);
 		DebugRenderLine(font, text2, context);
 		DebugRenderLine(font, text3, context);
+		DebugRenderLine(font, zolc, context);
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, state->highPriorityQueue);
 		
 	}
