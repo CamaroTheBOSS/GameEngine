@@ -17,7 +17,8 @@ volatile u32 GLOBAL_THREAD_ID_GEN = 0;
 thread_local u32 THREAD_LOCAL_ID = 0;
 PlatformAPI* Platform;
 
-extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {
+extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {}
+extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub) {
 	f32* data = reinterpret_cast<f32*>(soundData.data);
 	for (u32 frame = 0; frame < soundData.nSamples; frame++) {
 		for (u32 channel = 0; channel < soundData.nChannels; channel++) {
@@ -47,7 +48,8 @@ struct Win32GameCode {
 	bool isValid = false;
 	bool reloaded = false;
 
-	game_main_loop_frame* GameMainLoopFrame = GameMainLoopFrameStub;
+	_GameMainLoopFrame* GameMainLoopFrame = GameMainLoopFrameStub;
+	_GameFillSoundBuffer* GameFillSoundBuffer = GameFillSoundBufferStub;
 };
 
 struct DebugLoopRecord {
@@ -131,12 +133,16 @@ bool Win32LoadGameCode(Win32GameCode& gameCode) {
 	bool success = CopyFileA(gameCode.pathToDll, gameCode.pathToTempDll, false);
 	gameCode.dll = LoadLibraryA(gameCode.pathToTempDll);
 	if (gameCode.dll) {
-		gameCode.GameMainLoopFrame = reinterpret_cast<game_main_loop_frame*>(GetProcAddress(gameCode.dll, "GameMainLoopFrame"));
-		gameCode.isValid = gameCode.GameMainLoopFrame != nullptr;
+		gameCode.GameMainLoopFrame = reinterpret_cast<_GameMainLoopFrame*>(GetProcAddress(gameCode.dll, "GameMainLoopFrame"));
+		gameCode.GameFillSoundBuffer = reinterpret_cast<_GameFillSoundBuffer*>(GetProcAddress(gameCode.dll, "GameFillSoundBuffer"));
+		gameCode.isValid = 
+			gameCode.GameMainLoopFrame != nullptr || 
+			gameCode.GameFillSoundBuffer != nullptr;
 		Assert(gameCode.isValid);
 	}
 	if (!gameCode.isValid) {
 		gameCode.GameMainLoopFrame = GameMainLoopFrameStub;
+		gameCode.GameFillSoundBuffer = GameFillSoundBufferStub;
 	}
 	return success;
 }
@@ -1202,36 +1208,15 @@ int CALLBACK WinMain(
 		}
 		inputData.dtFrame = targetFrameRefreshSeconds;
 		inputData.executableReloaded = gameCode.reloaded;
-		
-
-		// PART: Preparing SoundData structure for game main loop
-		UINT32 padding = 0;
-		globalSoundData.audio->GetCurrentPadding(&padding);
-		UINT32 framesAvailable = globalSoundData.bufferSizeInSamples - padding;
-		if (framesAvailable > soundSamplesToWriteEachFrame) {
-			framesAvailable = soundSamplesToWriteEachFrame;
-		}
-		if (framesAvailable == 0) {
-			// TODO: log error
-		}
-		hr = globalSoundData.renderer->GetBuffer(framesAvailable, reinterpret_cast<BYTE**>(&soundData.data));
-		if (!SUCCEEDED(hr)) {
-			_com_error err(hr);
-			LPCTSTR errMsg = err.ErrorMessage();
-		}
-		soundData.nSamples = framesAvailable;
-		soundData.nSamplesPerSec = globalSoundData.dataFormat.Format.nSamplesPerSec;
-		soundData.nChannels = globalSoundData.dataFormat.Format.nChannels;
 
 		// PART: Game main loop
 		ZeroMemory(
 			programMemory.debug.performanceCounters, 
 			ArrayCount(programMemory.debug.performanceCounters) * sizeof(DebugPerformanceCounters)
 		);
-		gameCode.GameMainLoopFrame(programMemory, globalBitmap, soundData, inputData);
+		gameCode.GameMainLoopFrame(programMemory, globalBitmap, inputData);
 		Win32OutputPerformanceCounters(programMemory.debug);
 
-	
 		// PART: Timing stuff
 		u64 rdtscEnd = __rdtsc();
 		u64 frameEndTime = Win32GetCurrentTimestamp();
@@ -1266,6 +1251,26 @@ int CALLBACK WinMain(
 		auto dim = GetWindowDimension(window);
 		Win32DisplayWindow(deviceContext, globalWin32State, globalBitmap, dim.width, dim.height);
 		ReleaseDC(window, deviceContext);
+
+		// PART: Preparing SoundData structure for game main loop
+		UINT32 padding = 0;
+		globalSoundData.audio->GetCurrentPadding(&padding);
+		UINT32 framesAvailable = globalSoundData.bufferSizeInSamples - padding;
+		if (framesAvailable > soundSamplesToWriteEachFrame) {
+			framesAvailable = soundSamplesToWriteEachFrame;
+		}
+		if (framesAvailable == 0) {
+			// TODO: log error
+		}
+		hr = globalSoundData.renderer->GetBuffer(framesAvailable, reinterpret_cast<BYTE**>(&soundData.data));
+		if (!SUCCEEDED(hr)) {
+			_com_error err(hr);
+			LPCTSTR errMsg = err.ErrorMessage();
+		}
+		soundData.nSamples = framesAvailable;
+		soundData.nSamplesPerSec = globalSoundData.dataFormat.Format.nSamplesPerSec;
+		soundData.nChannels = globalSoundData.dataFormat.Format.nChannels;
+		gameCode.GameFillSoundBuffer(programMemory, soundData);
 
 		// PART: Playing sound
 		hr = globalSoundData.renderer->ReleaseBuffer(framesAvailable, 0);

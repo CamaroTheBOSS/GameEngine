@@ -1235,7 +1235,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #endif
 		state->isInitialized = true;
 	}
-	
+
 	TransientState* tranState = ptrcast(TransientState, memory.transientMemory);
 	if (!tranState->isInitialized) {
 		InitializeArena(
@@ -1579,7 +1579,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		LoadedBitmap* LOD = map->LOD;
 		*LOD = MakeEmptyBuffer(tranState->arena, 256, 128);
 
-		
+
 		u8* row = ptrcast(u8, LOD->data);
 		V4 envMapColor = colors[mapIndex];
 		f32 envMapColorIntensity = 1.f;
@@ -1660,12 +1660,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			envMapXAxis, envMapYAxis, V4{ 1, 1, 1, 1 }, LOD, 0, 0, 0, 0);
 	}
 #endif
-	
+
 
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
 	DebugRenderOverlay(tranState, screenBitmap);
 
-	RenderSoundToBuffer(state->audio, tranState->assets, soundData);
 	EndRendering(renderGroup);
 	EndSimulation(*simRegion, world);
 	EndTempMemory(renderMemory);
@@ -1673,4 +1672,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	CheckArena(tranState->arena);
 	CheckArena(world.arena);
 	END_TIMED_SECTION(GameMainLoop);
+}
+
+extern "C" void GameFillSoundBuffer(ProgramMemory& memory, SoundData& soundData) {
+	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
+	TransientState* tranState = ptrcast(TransientState, memory.transientMemory);
+
+	RenderSoundToBuffer(state->audio, tranState->assets, soundData);
 }

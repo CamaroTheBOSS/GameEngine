@@ -12,6 +12,6 @@ pushd ..\build
 
   REM Platform layer + game code
   cl %CompilerFlags% -O2 ..\code\engine_optimized.cpp /c -Foengine_optimized.obj
-  cl %CompilerFlags% ..\code\engine.cpp -LD engine_optimized.obj /link -incremental:no -opt:ref -PDB:engine%random%.pdb -EXPORT:GameMainLoopFrame
+  cl %CompilerFlags% ..\code\engine.cpp -LD engine_optimized.obj /link -incremental:no -opt:ref -PDB:engine%random%.pdb -EXPORT:GameMainLoopFrame -EXPORT:GameFillSoundBuffer
   cl %CompilerFlags% ..\code\win32_main.cpp /link %LinkerFlags%
 popd

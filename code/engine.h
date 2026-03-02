@@ -281,6 +281,9 @@ void EndBackgroundTask(TaskWithMemory* task) {
 }
 
 /* Functionalities served by the program layer for platform layer */
-#define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, SoundData& soundData, InputData& input)
-typedef GAME_MAIN_LOOP_FRAME(game_main_loop_frame);
+#define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, InputData& input)
+#define GAME_FILL_SOUND_BUFFER(name) void name(ProgramMemory& memory, SoundData& soundData)
+typedef GAME_MAIN_LOOP_FRAME(_GameMainLoopFrame);
+typedef GAME_FILL_SOUND_BUFFER(_GameFillSoundBuffer);
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub);
+extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub);
