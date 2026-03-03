@@ -218,6 +218,15 @@ FontId GetFirstFontId(Assets& assets) {
 }
 
 inline
+FontId GetFontWithType(Assets& assets, FontType type) {
+	AssetGroup* group = GetAssetGroup(assets, Asset_Font);
+	Assert(u4(type) <= group->onePastLastAssetIndex - group->firstAssetIndex);
+	Assert(group->firstAssetIndex + type < group->onePastLastAssetIndex);
+	FontId id = { group->firstAssetIndex + type };
+	return id;
+}
+
+inline
 SoundId GetRandomSoundId(Assets& assets, AssetTypeID typeId, RandomSeries& series) {
 	SoundId id = { _GetRandomAssetId(assets, typeId, series) };
 	return id;

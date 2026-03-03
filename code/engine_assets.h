@@ -52,9 +52,15 @@ struct GenerationId {
 	u32 id;
 };
 
+enum FontType {
+	Font_Debug,
+	Font_Game
+};
+
 enum AssetFeatureID {
 	Feature_Height,
 	Feature_FacingDirection,
+	Feature_FontType,
 
 	Feature_Count
 };

@@ -970,7 +970,7 @@ u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodep
 	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
 	u32 firstKerningIndex = font->codepointToLogicalIndex[firstCodepoint];
 	u32 secondKerningIndex = font->codepointToLogicalIndex[secondCodepoint];
-	Assert((firstKerningIndex != 0 || firstCodepoint == 0 || firstCodepoint == ' ') && secondKerningIndex != 0);
+	Assert((firstKerningIndex != 0 || firstCodepoint == 0 ) && secondKerningIndex != 0);
 	return font->kerningTable[firstKerningIndex * font->onePastMaxLogicalIndex + secondKerningIndex];
 }
 
@@ -993,6 +993,7 @@ struct FontDrawContext {
 	f32 leftCurrent;
 	f32 topEdge;
 	f32 topCurrent;
+	V4 color;
 };
 
 u32 HexToInt(char c) {
@@ -1008,12 +1009,8 @@ u32 HexToInt(char c) {
 
 void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 	u32 prevChar = 0;
+	f32 spaceAdvance = context.scale * 55;
 	for (char* at = text; *at; at++) {
-		if (*at == ' ') {
-			context.leftCurrent += context.scale * 128;
-			prevChar = *at;
-			continue;
-		}
 		u32 codepoint = 0;
 		if (*at == '\\' &&
 			at[1] == '0' &&
@@ -1032,53 +1029,72 @@ void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 		else {
 			codepoint = *at;
 		}
+		if (codepoint != ' ') {
+			BitmapId bid = GetFontGlyphBitmapIdFor(font, codepoint);
+			AssetMetadata* metadata = GetAssetMetadata(*debugRenderGroup.assets, bid.id);
+			f32 width = f4(metadata->_bitmapInfo.width);
+			f32 height = f4(metadata->_bitmapInfo.height);
+			context.leftCurrent += context.scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
+			V3 anchor = V3{ context.leftCurrent, context.topCurrent, 0 };
+			PushBitmap(debugRenderGroup, bid, anchor, context.scale * height, V2{ 0, 0 }, context.color);
 #if 0
-		AssetFeatures match = {};
-		AssetFeatures weight = {};
-		match[Feature_FontCodepoint] = f4(codepoint);
-		weight[Feature_FontCodepoint] = 1.f;
-		BitmapId bid = GetBestFitBitmapId(*debugRenderGroup.assets, Asset_FontGlyph, match, weight, 100000);
-#else
-		BitmapId bid = GetFontGlyphBitmapIdFor(font, codepoint);
+			PushRect(debugRenderGroup, anchor, V2{ 6, 6 }, V2{ 0, 0 }, V4{ 0, 0, 1, 1 });
 #endif
-		AssetMetadata* metadata = GetAssetMetadata(*debugRenderGroup.assets, bid.id);
-		f32 width = f4(metadata->_bitmapInfo.width);
-		f32 height = f4(metadata->_bitmapInfo.height);
-		context.leftCurrent += context.scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
-		V3 anchor = V3{ context.leftCurrent, context.topCurrent, 0 };
-		PushBitmap(debugRenderGroup, bid, anchor, context.scale * height, V2{ 0, 0 });
-#if 0
-		PushRect(debugRenderGroup, anchor, V2{ 6, 6 }, V2{ 0, 0 }, V4{ 0, 0, 1, 1 });
-#endif
+		}
+		else {
+			context.leftCurrent += context.scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
+		}
+		
 		prevChar = codepoint;
 	}
 	context.leftCurrent = context.leftEdge;
 	context.topCurrent -= context.scale * GetFontLineAdvance(font);
 }
 
+#include <stdio.h>
 void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 	debugRenderGroup.pushBufferSize = 0;
 	debugRenderGroup.projection = GetOrtographicProjection(dstBitmap.width, dstBitmap.height, 1);
 
 	BeginRendering(debugRenderGroup);
-	LoadedFont* font = GetOrPrefetchFont(debugRenderGroup, GetFirstFontId(*debugRenderGroup.assets));
+	LoadedFont* font = GetOrPrefetchFont(
+		debugRenderGroup, GetFontWithType(*debugRenderGroup.assets, Font_Debug)
+	);
 	if (font) {
 		FontDrawContext context = {};
-		context.scale = 0.5f;
+		context.scale = 0.2f;
+		context.color = V4{ 0.8f, 0.8f, 0.8f, 1 };
 		context.leftEdge = context.leftCurrent = -0.5f * dstBitmap.width;
-		context.topEdge = context.topCurrent = 0.5f * dstBitmap.height - 
+		context.topEdge = context.topCurrent = 0.5f * dstBitmap.height -
 			context.scale * font->metrics.ascent;
 
-		char text1[] = "YyYyYyy y\"y\"sghy\"\"";
-		char text2[] = "{jiSsYYHhkQBbYy\"xd nextline";
-		char text3[] = "${iId$sads}||/\\!~Vv";
-		char zolc[] = "\\0x017C\\0x00F3\\0x0142\\0x0107";
-		DebugRenderLine(font, text1, context);
-		DebugRenderLine(font, text2, context);
-		DebugRenderLine(font, text3, context);
-		DebugRenderLine(font, zolc, context);
+		const char* names[] = {
+			"DPCT_GameMainLoop",
+			"DPCT_RenderRectangleSlowly",
+			"DPCT_RenderRectangleOptimized",
+			"DPCT_RenderFilledRectangleOptimized",
+			"DPCT_FillPixel",
+			"DPCT_FillPixelRectangleRoutine",
+		};
+		printf("-------------------------\n");
+		for (u32 counterIndex = 0; counterIndex < ArrayCount(debugGlobalMemory->performanceCounters); counterIndex++) {
+			DebugPerformanceCounters* counter = debugGlobalMemory->performanceCounters + counterIndex;
+			if (counter->counts == 0) {
+				continue;
+			}
+			Assert(counterIndex < ArrayCount(names));
+			char buffer[256];
+			sprintf_s(buffer, "%37s: %10dc,%10dn,%10dc/n",
+				names[counterIndex],
+				u4(counter->cycles),
+				u4(counter->counts),
+				u4(counter->cycles / counter->counts)
+			);
+			printf(buffer);
+			printf("\n");
+			DebugRenderLine(font, buffer, context);
+		}
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, state->highPriorityQueue);
-		
 	}
 	EndRendering(debugRenderGroup);
 }

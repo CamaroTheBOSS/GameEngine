@@ -359,48 +359,55 @@ void AddGlyphAsset(Assets& assets, LoadedFont& font, Win32FontInfo& fontInfo, u3
 			
 		}	
 	}
-	Assert(minY > 0 && minX > 0);
-	Assert(minY < maxY && minX < maxX);
-	Assert(maxY < u4(srcHeight - 2) && maxX < u4(srcWidth - 2));
-	minX--;
-	minY--;
-	maxX++;
-	maxY++;
-	u32 dstWidth = maxX - minX;
-	u32 dstHeight = maxY - minY;
-	
-	u32 dstPitch = dstWidth * BITMAP_BYTES_PER_PIXEL;
-	u32 allocSize = dstHeight * dstPitch;
-	u32* data = ptrcast(u32, malloc(allocSize));
-	memset(data, 0, allocSize);
-	u32* dstRow = data;
-	u8* srcRow = ptrcast(u8, bits) + minY * srcPitch + minX * BITMAP_BYTES_PER_PIXEL;
-	for (u32 Y = minY; Y < maxY; Y++) {
-		srcPixel = ptrcast(u32, srcRow);
-		for (u32 X = minX; X < maxX; X++) {
-			u8 alpha = *(ptrcast(u8, srcPixel));
-			V4 texel = {
-				f4(255), f4(255), f4(255), f4(alpha),
-			};
-			texel = SRGB255ToLinear1(texel);
-			texel.RGB *= texel.A;
-			texel = Linear1ToSRGB255(texel);
-			*dstRow++ = (u4(texel.A + 0.5f) << 24) +
-				(u4(texel.R + 0.5f) << 16) +
-				(u4(texel.G + 0.5f) << 8) +
-				(u4(texel.B + 0.5f) << 0);
-			srcPixel++;
-		}
-		srcRow += srcPitch;
-	}
 	Asset* asset = AddAsset(assets, Asset_FontGlyph, AssetGroup_Bitmap);
-	f32 yAlignment = (f4(fontInfo.tmDescent + heightAdvance) - f4(minY)) / f4(dstHeight);
-	f32 xAlignment = f4(1 - abcForChar->abcA) / f4(dstWidth);
-	asset->memory->bitmap.data = data;
-	asset->memory->bitmap.align = V2{ xAlignment, yAlignment };
-	asset->memory->bitmap.height = dstHeight;
-	asset->memory->bitmap.width = dstWidth;
-	asset->memory->bitmap.pitch = dstPitch;
+	if (codepoint != ' ') {
+		Assert(minY > 0 && minX > 0);
+		Assert(minY < maxY && minX < maxX);
+		Assert(maxY < u4(srcHeight - 2) && maxX < u4(srcWidth - 2));
+		minX--;
+		minY--;
+		maxX++;
+		maxY++;
+		u32 dstWidth = maxX - minX;
+		u32 dstHeight = maxY - minY;
+
+		u32 dstPitch = dstWidth * BITMAP_BYTES_PER_PIXEL;
+		u32 allocSize = dstHeight * dstPitch;
+		u32* data = ptrcast(u32, malloc(allocSize));
+		memset(data, 0, allocSize);
+		u32* dstRow = data;
+		u8* srcRow = ptrcast(u8, bits) + minY * srcPitch + minX * BITMAP_BYTES_PER_PIXEL;
+		for (u32 Y = minY; Y < maxY; Y++) {
+			srcPixel = ptrcast(u32, srcRow);
+			for (u32 X = minX; X < maxX; X++) {
+				u8 alpha = *(ptrcast(u8, srcPixel));
+				V4 texel = {
+					f4(255), f4(255), f4(255), f4(alpha),
+				};
+				texel = SRGB255ToLinear1(texel);
+				texel.RGB *= texel.A;
+				texel = Linear1ToSRGB255(texel);
+				*dstRow++ = (u4(texel.A + 0.5f) << 24) +
+					(u4(texel.R + 0.5f) << 16) +
+					(u4(texel.G + 0.5f) << 8) +
+					(u4(texel.B + 0.5f) << 0);
+				srcPixel++;
+			}
+			srcRow += srcPitch;
+		}
+		
+		f32 yAlignment = (f4(fontInfo.tmDescent + heightAdvance) - f4(minY)) / f4(dstHeight);
+		f32 xAlignment = f4(1 - abcForChar->abcA) / f4(dstWidth);
+		asset->memory->bitmap.data = data;
+		asset->memory->bitmap.align = V2{ xAlignment, yAlignment };
+		asset->memory->bitmap.height = dstHeight;
+		asset->memory->bitmap.width = dstWidth;
+		asset->memory->bitmap.pitch = dstPitch;
+	}
+	else {
+		asset->memory->bitmap = {};
+	}
+
 	AssetFileBitmapInfo* info = &assets.metadatas[asset->metadataId]._bitmapInfo;
 	info->alignment = asset->memory->bitmap.align;
 	info->height = asset->memory->bitmap.height;
@@ -632,6 +639,11 @@ void WriteBitmaps() {
 	WriteAssetsToFile(assets, "bitmaps.assf");
 }
 
+struct AddedFontHandle {
+	Win32FontInfo win32Font;
+	LoadedFont assetFont;
+};
+
 LoadedFont BeginFontAdding(Assets& assets) {
 	duringFontAdding = true;
 	LoadedFont assetFont = {};
@@ -644,30 +656,42 @@ LoadedFont BeginFontAdding(Assets& assets) {
 	return assetFont;
 }
 
-void EndFontAdding(Assets& assets, LoadedFont& assetFont, Win32FontInfo& win32Font) {
+void EndFontAdding(Assets& assets, AddedFontHandle& fontHandle) {
 	duringFontAdding = false;
-	AddFontAsset(assets, assetFont, win32Font);
-	FreeAssetFileFont(win32Font);
+	AddFontAsset(assets, fontHandle.assetFont, fontHandle.win32Font);
+	FreeAssetFileFont(fontHandle.win32Font);
 }
 
-void WriteFonts() {
-	Assets assets = InitializeAssets();
-	Win32FontInfo win32Font = CreateAssetFont("Arial");
-	//Win32FontInfo win32Font = CreateAssetFont("Calibri");
 
 
-	LoadedFont assetFont = BeginFontAdding(assets);
-	for (char c = '!'; c <= '~'; c++) {
-		AddGlyphAsset(assets, assetFont, win32Font, c);
+AddedFontHandle BeginFontAddingWithStandardGlyphs(Assets& assets, const char* fontname) {
+	AddedFontHandle result = {};
+	result.win32Font = CreateAssetFont(fontname);
+	result.assetFont = BeginFontAdding(assets);
+	for (char c = ' '; c <= '~'; c++) {
+		AddGlyphAsset(assets, result.assetFont, result.win32Font, c);
 	}
 	// ¿ó³æ
 #if 1
-	AddGlyphAsset(assets, assetFont, win32Font, 0x017C);
-	AddGlyphAsset(assets, assetFont, win32Font, 0x00F3);
-	AddGlyphAsset(assets, assetFont, win32Font, 0x0142);
-	AddGlyphAsset(assets, assetFont, win32Font, 0x0107);
+	AddGlyphAsset(assets, result.assetFont, result.win32Font, 0x017C);
+	AddGlyphAsset(assets, result.assetFont, result.win32Font, 0x00F3);
+	AddGlyphAsset(assets, result.assetFont, result.win32Font, 0x0142);
+	AddGlyphAsset(assets, result.assetFont, result.win32Font, 0x0107);
 #endif
-	EndFontAdding(assets, assetFont, win32Font);
+	return result;
+}
+
+void WriteFonts() {
+	// NOTE: All assets within a group must be added next to each other in memory,
+	// so when adding multiple fonts, we need firstly to add all the glyphs for all the fonts we
+	// plan to add and after that, all the font handlers
+	Assets assets = InitializeAssets();
+	AddedFontHandle arial = BeginFontAddingWithStandardGlyphs(assets, "Arial");
+	AddedFontHandle cascadia = BeginFontAddingWithStandardGlyphs(assets, "Cascadia Mono");
+	// NOTE: Add in specific order, look for order in engine_assets.h -> enum FontType
+	EndFontAdding(assets, cascadia);
+	EndFontAdding(assets, arial);
+	
 	
 	WriteAssetsToFile(assets, "fonts.assf");
 }
