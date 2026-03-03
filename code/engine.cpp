@@ -1051,54 +1051,6 @@ void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 	context.topCurrent -= context.scale * GetFontLineAdvance(font);
 }
 
-#include <stdio.h>
-void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
-	debugRenderGroup.pushBufferSize = 0;
-	debugRenderGroup.projection = GetOrtographicProjection(dstBitmap.width, dstBitmap.height, 1);
-
-	BeginRendering(debugRenderGroup);
-	LoadedFont* font = GetOrPrefetchFont(
-		debugRenderGroup, GetFontWithType(*debugRenderGroup.assets, Font_Debug)
-	);
-	if (font) {
-		FontDrawContext context = {};
-		context.scale = 0.2f;
-		context.color = V4{ 0.8f, 0.8f, 0.8f, 1 };
-		context.leftEdge = context.leftCurrent = -0.5f * dstBitmap.width;
-		context.topEdge = context.topCurrent = 0.5f * dstBitmap.height -
-			context.scale * font->metrics.ascent;
-
-		const char* names[] = {
-			"DPCT_GameMainLoop",
-			"DPCT_RenderRectangleSlowly",
-			"DPCT_RenderRectangleOptimized",
-			"DPCT_RenderFilledRectangleOptimized",
-			"DPCT_FillPixel",
-			"DPCT_FillPixelRectangleRoutine",
-		};
-		printf("-------------------------\n");
-		for (u32 counterIndex = 0; counterIndex < ArrayCount(debugGlobalMemory->performanceCounters); counterIndex++) {
-			DebugPerformanceCounters* counter = debugGlobalMemory->performanceCounters + counterIndex;
-			if (counter->counts == 0) {
-				continue;
-			}
-			Assert(counterIndex < ArrayCount(names));
-			char buffer[256];
-			sprintf_s(buffer, "%37s: %10dc,%10dn,%10dc/n",
-				names[counterIndex],
-				u4(counter->cycles),
-				u4(counter->counts),
-				u4(counter->cycles / counter->counts)
-			);
-			printf(buffer);
-			printf("\n");
-			DebugRenderLine(font, buffer, context);
-		}
-		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, state->highPriorityQueue);
-	}
-	EndRendering(debugRenderGroup);
-}
-
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	debugGlobalMemory = &memory.debug;
 	Platform = &memory.platformAPI;
@@ -1521,7 +1473,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
 			AssetFeatures match = {};
 			AssetFeatures weight = {};
-			match[Feature_Height] = 2.5f;
+			match[Feature_Height] = 1.5f;
 			weight[Feature_Height] = 1.f;
 			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Tree, match, weight, 10000);
 			PushBitmap(renderGroup, bmp, groundLevelPos, treeHeight, 
@@ -1691,8 +1643,84 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 }
 
 extern "C" void GameFillSoundBuffer(ProgramMemory& memory, SoundData& soundData) {
+	TIMED_BLOCK;
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	TransientState* tranState = ptrcast(TransientState, memory.transientMemory);
 
 	RenderSoundToBuffer(state->audio, tranState->assets, soundData);
+}
+
+DebugRecord debugRecords[3][65536];
+u32 debugRecordsCount_Main = __COUNTER__;
+u32 debugRecordsCount_Platform = 0;
+u32* debugRecordsCount[MAX_TRANSLATION_UNIT] = {
+	&debugRecordsCount_Main,
+	&debugRecordsCount_Optimized,
+	&debugRecordsCount_Platform
+};
+
+#include <stdio.h>
+void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
+	debugRenderGroup.pushBufferSize = 0;
+	debugRenderGroup.projection = GetOrtographicProjection(dstBitmap.width, dstBitmap.height, 1);
+
+	BeginRendering(debugRenderGroup);
+	LoadedFont* font = GetOrPrefetchFont(
+		debugRenderGroup, GetFontWithType(*debugRenderGroup.assets, Font_Debug)
+	);
+	if (font) {
+		FontDrawContext context = {};
+		context.scale = 0.15f;
+		context.color = V4{ 0.8f, 0.8f, 0.8f, 1 };
+		context.leftEdge = context.leftCurrent = -0.5f * dstBitmap.width;
+		context.topEdge = context.topCurrent = 0.5f * dstBitmap.height -
+			context.scale * font->metrics.ascent;
+
+		for (u32 translationUnit = 0; translationUnit < MAX_TRANSLATION_UNIT; translationUnit++) {
+			for (u32 recordIndex = 0; recordIndex < *debugRecordsCount[translationUnit]; recordIndex++) {
+				DebugRecord* record = debugRecords[translationUnit] + recordIndex;
+				u64 cycles_hitcount = AtomicExchangeU64(&record->cycles_hitcount, 0);
+				u32 cycles = u4(cycles_hitcount >> 32);
+				u32 hitcount = u4(cycles_hitcount);
+
+				
+				char buffer[256];
+				sprintf_s(buffer, "%25s: %10uc,%10un,%10uc/n",
+					record->function,
+					cycles,
+					hitcount,
+					cycles / hitcount
+				);
+				DebugRenderLine(font, buffer, context);
+				/*record->hitCount = 0;
+				record->cycles = 0;*/
+			}
+		}
+
+		/*const char* names[] = {
+			"DPCT_GameMainLoop",
+			"DPCT_RenderRectangleSlowly",
+			"DPCT_RenderRectangleOptimized",
+			"DPCT_RenderFilledRectangleOptimized",
+			"DPCT_FillPixel",
+			"DPCT_FillPixelRectangleRoutine",
+		};
+		for (u32 counterIndex = 0; counterIndex < ArrayCount(debugGlobalMemory->performanceCounters); counterIndex++) {
+			DebugPerformanceCounters* counter = debugGlobalMemory->performanceCounters + counterIndex;
+			if (counter->counts == 0) {
+				continue;
+			}
+			Assert(counterIndex < ArrayCount(names));
+			char buffer[256];
+			sprintf_s(buffer, "%37s: %10dc,%10dn,%10dc/n",
+				names[counterIndex],
+				u4(counter->cycles),
+				u4(counter->counts),
+				u4(counter->cycles / counter->counts)
+			);
+			DebugRenderLine(font, buffer, context);
+		}*/
+		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, state->highPriorityQueue);
+	}
+	EndRendering(debugRenderGroup);
 }

@@ -210,6 +210,7 @@ void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V
 void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
 	LoadedBitmap& texture, bool even, Rect2i clipRect)
 {
+	TIMED_BLOCK;
 	BEGIN_TIMED_SECTION(RenderRectangleOptimized);
 	V2 points[4] = {
 		origin,
@@ -510,3 +511,5 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	END_TIMED_SECTION_COUNTED(FillPixel, pixelCount);
 	END_TIMED_SECTION(RenderRectangleOptimized);
 }
+
+u32 debugRecordsCount_Optimized = __COUNTER__;

@@ -11,7 +11,7 @@ pushd ..\build
   cl %CompilerFlags% ..\code\engine_asset_file_composer.cpp /link -incremental:no gdi32.lib user32.lib
 
   REM Platform layer + game code
-  cl %CompilerFlags% -O2 ..\code\engine_optimized.cpp /c -Foengine_optimized.obj
-  cl %CompilerFlags% ..\code\engine.cpp -LD engine_optimized.obj /link -incremental:no -opt:ref -PDB:engine%random%.pdb -EXPORT:GameMainLoopFrame -EXPORT:GameFillSoundBuffer
-  cl %CompilerFlags% ..\code\win32_main.cpp /link %LinkerFlags%
+  cl %CompilerFlags% -O2 -DTRANSLATION_UNIT=1 ..\code\engine_optimized.cpp /c -Foengine_optimized.obj
+  cl %CompilerFlags% -DTRANSLATION_UNIT=0 ..\code\engine.cpp -LD engine_optimized.obj /link -incremental:no -opt:ref -PDB:engine%random%.pdb -EXPORT:GameMainLoopFrame -EXPORT:GameFillSoundBuffer
+  cl %CompilerFlags% -DTRANSLATION_UNIT=2 ..\code\win32_main.cpp /link %LinkerFlags%
 popd

@@ -8,6 +8,7 @@
 u32 ASSET_MAX_COUNT = 256 * Asset_Count;
 u32 MAX_UNICODE_CODEPOINT = 0x10FFFF;
 bool duringFontAdding = false;
+DebugRecord debugRecords[3][65536];
 
 struct Win32FontInfo {
 	HFONT font;
@@ -28,6 +29,9 @@ void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V
 void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
 	LoadedBitmap& texture, bool even, Rect2i clipRect) {}
 DebugMemory* debugGlobalMemory;
+u32 debugRecordsCount_Main;
+u32 debugRecordsCount_Optimized;
+u32 debugRecordsCount_Platform;
 
 inline
 FileData ReadEntireFile(const char* filename) {

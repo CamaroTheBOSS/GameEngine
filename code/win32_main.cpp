@@ -378,7 +378,7 @@ bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue) {
 internal
 DWORD Win32ThreadProc(LPVOID params) {
 	PlatformQueue* queue = ptrcast(PlatformQueue, params);
-	THREAD_LOCAL_ID = AtomicAddU32(&GLOBAL_THREAD_ID_GEN, 1);
+	THREAD_LOCAL_ID = AtomicAddU32(&GLOBAL_THREAD_ID_GEN, 1) + 1;
 	while (true) {
 		if (!Win32TryPopAndExecuteTaskFromQueue(queue)) {
 			WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);

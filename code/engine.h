@@ -5,6 +5,7 @@
 #include "engine_render.h"
 #include "engine_rand.h"
 #include "engine_assets.h"
+#include "engine_debug.h"
 
 // BitmapData has to have 4 bytes per pixel which is defined by BITMAP_BYTES_PER_PIXEL = 4 in engine_render.h
 struct BitmapData {
