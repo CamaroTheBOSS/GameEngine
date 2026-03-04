@@ -7,7 +7,8 @@
 
 PlatformAPI* Platform;
 RenderGroup debugRenderGroup;
-DebugGlobalState debugGlobalState;
+DebugGlobalState debugGlobalState_ = {};
+DebugGlobalState* debugGlobalState = &debugGlobalState_;
 
 internal
 void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
@@ -1651,13 +1652,6 @@ extern "C" void GameFillSoundBuffer(ProgramMemory& memory, SoundData& soundData)
 	RenderSoundToBuffer(state->audio, tranState->assets, soundData);
 }
 
-DebugRecord debugRecords[3][65536];
-u32 debugRecordsCount_Main = __COUNTER__;
-u32* debugRecordsCount[MAX_TRANSLATION_UNIT - 1] = {
-	&debugRecordsCount_Main,
-	&debugRecordsCount_Optimized,
-};
-
 #include <stdio.h>
 void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 	debugRenderGroup.pushBufferSize = 0;
@@ -1675,12 +1669,22 @@ void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 		context.topEdge = context.topCurrent = 0.5f * dstBitmap.height -
 			context.scale * font->metrics.ascent;
 
+		debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
+		debugGlobalState->debugRecordsCount[1] = debugRecordsCount_Optimized;
+		Assert(debugGlobalState->debugRecordsCount[MAX_TRANSLATION_UNIT - 1] != 0);
+
+
 		for (u32 translationUnit = 0; translationUnit < MAX_TRANSLATION_UNIT; translationUnit++) {
-			for (u32 recordIndex = 0; recordIndex < *debugRecordsCount[translationUnit]; recordIndex++) {
-				DebugRecord* record = debugRecords[translationUnit] + recordIndex;
+			for (u32 recordIndex = 0; recordIndex < debugGlobalState->debugRecordsCount[translationUnit]; recordIndex++) {
+				DebugRecord* record = debugGlobalState->debugRecords[translationUnit] + recordIndex;
 				u64 cycles_hitcount = AtomicExchangeU64(&record->cycles_hitcount, 0);
 				u32 cycles = u4(cycles_hitcount >> 32);
 				u32 hitcount = u4(cycles_hitcount);
+				u32 ratio = 0;
+				if (hitcount > 0) {
+					ratio = cycles / hitcount;
+				}
+				
 
 				// TODO: Get rid of stdio.h and sprintf_s
 				char buffer[256];
@@ -1688,7 +1692,7 @@ void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 					record->function,
 					cycles,
 					hitcount,
-					cycles / hitcount
+					ratio
 				);
 				DebugRenderLine(font, buffer, context);
 				/*record->hitCount = 0;
@@ -1700,7 +1704,8 @@ void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 	EndRendering(debugRenderGroup);
 }
 
-extern "C" DebugGlobalState* DebugFrameEnd(ProgramMemory* memory) {
-
-	return &debugGlobalState;
+extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {
+	return debugGlobalState;
 }
+
+u32 debugRecordsCount_Main = __COUNTER__;

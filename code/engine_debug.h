@@ -18,14 +18,12 @@ struct DebugRecord {
 
 struct DebugGlobalState {
 	DebugRecord debugRecords[MAX_TRANSLATION_UNIT][65536];
-	u32 debugRecordsCount[MAX_TRANSLATION_UNIT - 1];
+	u32 debugRecordsCount[MAX_TRANSLATION_UNIT];
 };
 
 extern u32 debugRecordsCount_Main;
 extern u32 debugRecordsCount_Optimized;
-extern u32* debugRecordsCount[MAX_TRANSLATION_UNIT - 1];
-extern DebugRecord debugRecords[MAX_TRANSLATION_UNIT][65536];
-extern DebugGlobalState debugGlobalState;
+extern DebugGlobalState* debugGlobalState;
 
 struct TimedBlock {
 	u16 id;
@@ -35,7 +33,7 @@ struct TimedBlock {
 	TimedBlock(const char* file, const char* function, u16 line, u16 id, u32 hitCount = 1) {
 		this->id = id;
 
-		DebugRecord* record = debugRecords[TRANSLATION_UNIT] + id;
+		DebugRecord* record = debugGlobalState->debugRecords[TRANSLATION_UNIT] + id;
 		record->file = file;
 		record->function = function;
 		record->line = line;
@@ -45,7 +43,7 @@ struct TimedBlock {
 	}
 
 	~TimedBlock() {
-		DebugRecord* record = debugRecords[TRANSLATION_UNIT] + id;
+		DebugRecord* record = debugGlobalState->debugRecords[TRANSLATION_UNIT] + id;
 		u64 delta = ((__rdtsc() - this->cycles) << 32) | this->hitcount;
 		AtomicAddU64(&record->cycles_hitcount, delta);
 	}

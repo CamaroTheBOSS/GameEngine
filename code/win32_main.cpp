@@ -16,6 +16,9 @@ LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(0);
 volatile u32 GLOBAL_THREAD_ID_GEN = 0;
 thread_local u32 THREAD_LOCAL_ID = 0;
 PlatformAPI* Platform;
+DebugGlobalState debugGlobalState_ = {};
+DebugGlobalState* debugGlobalState = &debugGlobalState_;
+extern u32 DebugRecordsCount_Platform;
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {}
 extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub) {
@@ -26,7 +29,7 @@ extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub) {
 		}
 	}
 }
-extern "C" DEBUG_FRAME_END(DebugFrameEndStub) { return 0; }
+extern "C" DEBUG_INIT(DebugInitStub) { return debugGlobalState; }
 
 struct SoundRenderData {
 	IMMDevice* device;
@@ -51,7 +54,7 @@ struct Win32GameCode {
 
 	_GameMainLoopFrame* GameMainLoopFrame = GameMainLoopFrameStub;
 	_GameFillSoundBuffer* GameFillSoundBuffer = GameFillSoundBufferStub;
-	_DebugFrameEnd* DebugFrameEnd = DebugFrameEndStub;
+	_DebugInit* DebugInit = DebugInitStub;
 };
 
 struct DebugLoopRecord {
@@ -137,7 +140,7 @@ bool Win32LoadGameCode(Win32GameCode& gameCode) {
 	if (gameCode.dll) {
 		gameCode.GameMainLoopFrame = ptrcast(_GameMainLoopFrame, GetProcAddress(gameCode.dll, "GameMainLoopFrame"));
 		gameCode.GameFillSoundBuffer = ptrcast(_GameFillSoundBuffer, GetProcAddress(gameCode.dll, "GameFillSoundBuffer"));
-		gameCode.DebugFrameEnd = ptrcast(_DebugFrameEnd, GetProcAddress(gameCode.dll, "DebugFrameEnd"));
+		gameCode.DebugInit = ptrcast(_DebugInit, GetProcAddress(gameCode.dll, "DebugInit"));
 		gameCode.isValid = 
 			gameCode.GameMainLoopFrame != nullptr || 
 			gameCode.GameFillSoundBuffer != nullptr;
@@ -147,8 +150,8 @@ bool Win32LoadGameCode(Win32GameCode& gameCode) {
 		gameCode.GameMainLoopFrame = GameMainLoopFrameStub;
 		gameCode.GameFillSoundBuffer = GameFillSoundBufferStub;
 	}
-	if (!gameCode.DebugFrameEnd) {
-		gameCode.DebugFrameEnd = DebugFrameEndStub;
+	if (!gameCode.DebugInit) {
+		gameCode.DebugInit = DebugInitStub;
 	}
 	return success;
 }
@@ -1205,6 +1208,9 @@ int CALLBACK WinMain(
 
 	while (globalRunning) {
 		Win32ReloadGameCode(gameCode);
+		debugGlobalState = gameCode.DebugInit(programMemory);
+		debugGlobalState->debugRecordsCount[TRANSLATION_UNIT] = DebugRecordsCount_Platform;
+
 		// TODO: ResetInput for Gamepad as well!
 		ResetInput(inputData.controllers[KB_CONTROLLER_IDX]);
 		Win32ProcessOSMessages(globalWin32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
@@ -1243,6 +1249,7 @@ int CALLBACK WinMain(
 			//Assert(secondsElapsedForFrame < targetFrameRefreshSeconds);
 		}
 		while (secondsElapsedForFrame < targetFrameRefreshSeconds) {
+			TIMED_BLOCK;
 			YieldProcessor();
 			frameEndTime = Win32GetCurrentTimestamp();
 			secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
@@ -1289,10 +1296,8 @@ int CALLBACK WinMain(
 			_com_error err(hr);
 			LPCTSTR errMsg = err.ErrorMessage();
 		}
-
-		gameCode.DebugFrameEnd(programMemory);
 	}
 	return 0;
 }
 
-u32 debugRecordsCount_Platform = __COUNTER__;
+u32 DebugRecordsCount_Platform = __COUNTER__;
