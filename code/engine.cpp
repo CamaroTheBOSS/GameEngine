@@ -7,6 +7,7 @@
 
 PlatformAPI* Platform;
 RenderGroup debugRenderGroup;
+DebugGlobalState debugGlobalState;
 
 internal
 void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
@@ -1652,11 +1653,9 @@ extern "C" void GameFillSoundBuffer(ProgramMemory& memory, SoundData& soundData)
 
 DebugRecord debugRecords[3][65536];
 u32 debugRecordsCount_Main = __COUNTER__;
-u32 debugRecordsCount_Platform = 0;
-u32* debugRecordsCount[MAX_TRANSLATION_UNIT] = {
+u32* debugRecordsCount[MAX_TRANSLATION_UNIT - 1] = {
 	&debugRecordsCount_Main,
 	&debugRecordsCount_Optimized,
-	&debugRecordsCount_Platform
 };
 
 #include <stdio.h>
@@ -1683,7 +1682,7 @@ void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 				u32 cycles = u4(cycles_hitcount >> 32);
 				u32 hitcount = u4(cycles_hitcount);
 
-				
+				// TODO: Get rid of stdio.h and sprintf_s
 				char buffer[256];
 				sprintf_s(buffer, "%25s: %10uc,%10un,%10uc/n",
 					record->function,
@@ -1696,31 +1695,12 @@ void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 				record->cycles = 0;*/
 			}
 		}
-
-		/*const char* names[] = {
-			"DPCT_GameMainLoop",
-			"DPCT_RenderRectangleSlowly",
-			"DPCT_RenderRectangleOptimized",
-			"DPCT_RenderFilledRectangleOptimized",
-			"DPCT_FillPixel",
-			"DPCT_FillPixelRectangleRoutine",
-		};
-		for (u32 counterIndex = 0; counterIndex < ArrayCount(debugGlobalMemory->performanceCounters); counterIndex++) {
-			DebugPerformanceCounters* counter = debugGlobalMemory->performanceCounters + counterIndex;
-			if (counter->counts == 0) {
-				continue;
-			}
-			Assert(counterIndex < ArrayCount(names));
-			char buffer[256];
-			sprintf_s(buffer, "%37s: %10dc,%10dn,%10dc/n",
-				names[counterIndex],
-				u4(counter->cycles),
-				u4(counter->counts),
-				u4(counter->cycles / counter->counts)
-			);
-			DebugRenderLine(font, buffer, context);
-		}*/
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, state->highPriorityQueue);
 	}
 	EndRendering(debugRenderGroup);
+}
+
+extern "C" DebugGlobalState* DebugFrameEnd(ProgramMemory* memory) {
+
+	return &debugGlobalState;
 }

@@ -15,10 +15,17 @@ struct DebugRecord {
 	u16 line;
 	u64 cycles_hitcount;
 };
+
+struct DebugGlobalState {
+	DebugRecord debugRecords[MAX_TRANSLATION_UNIT][65536];
+	u32 debugRecordsCount[MAX_TRANSLATION_UNIT - 1];
+};
+
 extern u32 debugRecordsCount_Main;
 extern u32 debugRecordsCount_Optimized;
-extern u32* debugRecordsCount[MAX_TRANSLATION_UNIT];
+extern u32* debugRecordsCount[MAX_TRANSLATION_UNIT - 1];
 extern DebugRecord debugRecords[MAX_TRANSLATION_UNIT][65536];
+extern DebugGlobalState debugGlobalState;
 
 struct TimedBlock {
 	u16 id;

@@ -26,6 +26,7 @@ extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub) {
 		}
 	}
 }
+extern "C" DEBUG_FRAME_END(DebugFrameEndStub) { return 0; }
 
 struct SoundRenderData {
 	IMMDevice* device;
@@ -50,6 +51,7 @@ struct Win32GameCode {
 
 	_GameMainLoopFrame* GameMainLoopFrame = GameMainLoopFrameStub;
 	_GameFillSoundBuffer* GameFillSoundBuffer = GameFillSoundBufferStub;
+	_DebugFrameEnd* DebugFrameEnd = DebugFrameEndStub;
 };
 
 struct DebugLoopRecord {
@@ -133,8 +135,9 @@ bool Win32LoadGameCode(Win32GameCode& gameCode) {
 	bool success = CopyFileA(gameCode.pathToDll, gameCode.pathToTempDll, false);
 	gameCode.dll = LoadLibraryA(gameCode.pathToTempDll);
 	if (gameCode.dll) {
-		gameCode.GameMainLoopFrame = reinterpret_cast<_GameMainLoopFrame*>(GetProcAddress(gameCode.dll, "GameMainLoopFrame"));
-		gameCode.GameFillSoundBuffer = reinterpret_cast<_GameFillSoundBuffer*>(GetProcAddress(gameCode.dll, "GameFillSoundBuffer"));
+		gameCode.GameMainLoopFrame = ptrcast(_GameMainLoopFrame, GetProcAddress(gameCode.dll, "GameMainLoopFrame"));
+		gameCode.GameFillSoundBuffer = ptrcast(_GameFillSoundBuffer, GetProcAddress(gameCode.dll, "GameFillSoundBuffer"));
+		gameCode.DebugFrameEnd = ptrcast(_DebugFrameEnd, GetProcAddress(gameCode.dll, "DebugFrameEnd"));
 		gameCode.isValid = 
 			gameCode.GameMainLoopFrame != nullptr || 
 			gameCode.GameFillSoundBuffer != nullptr;
@@ -143,6 +146,9 @@ bool Win32LoadGameCode(Win32GameCode& gameCode) {
 	if (!gameCode.isValid) {
 		gameCode.GameMainLoopFrame = GameMainLoopFrameStub;
 		gameCode.GameFillSoundBuffer = GameFillSoundBufferStub;
+	}
+	if (!gameCode.DebugFrameEnd) {
+		gameCode.DebugFrameEnd = DebugFrameEndStub;
 	}
 	return success;
 }
@@ -1015,11 +1021,13 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.debug.Allocate = DebugAllocate;
 	programMemory.debug.GetCurrThreadId = Win32GetCurrentThreadId;
 	programMemory.permanentMemorySize = MB(64);
-	programMemory.transientMemorySize = GB(static_cast<u64>(3));
+	programMemory.transientMemorySize = MB(512);
+	//programMemory.debugMemorySize = MB(512);
 	programMemory.memoryBlockSize = programMemory.permanentMemorySize + programMemory.transientMemorySize;
+		//+ programMemory.debugMemorySize;
 	programMemory.memoryBlock = VirtualAlloc(
 		MEM_ALLOC_START,
-		programMemory.permanentMemorySize + programMemory.transientMemorySize,
+		programMemory.memoryBlockSize,
 		MEM_RESERVE | MEM_COMMIT,
 		PAGE_READWRITE
 	);
@@ -1029,10 +1037,12 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 		return {};
 	}
 	programMemory.permanentMemory = programMemory.memoryBlock;
-	programMemory.transientMemory = reinterpret_cast<void*>(
-		reinterpret_cast<u8*>(programMemory.permanentMemory) + programMemory.permanentMemorySize
-		);
+	programMemory.transientMemory = ptrcast(void, ptrcast(u8, programMemory.permanentMemory) + 
+		programMemory.permanentMemorySize);
+	//programMemory.debugMemory = ptrcast(void, ptrcast(u8, programMemory.transientMemory) +
+	//	programMemory.transientMemorySize);
 	Assert(programMemory.permanentMemorySize >= sizeof(ProgramState));
+	Assert(programMemory.transientMemorySize >= sizeof(TransientState));
 	state.dLoopRecord.stateMemoryBlock = VirtualAlloc(
 		0, programMemory.permanentMemorySize + programMemory.transientMemorySize,
 		MEM_RESERVE | MEM_COMMIT,
@@ -1192,6 +1202,7 @@ int CALLBACK WinMain(
 	u64 rdtscStart = __rdtsc();
 	u64 frameStartTime = Win32GetCurrentTimestamp();
 	QueryPerformanceFrequency(&globalPerformanceFreq);
+
 	while (globalRunning) {
 		Win32ReloadGameCode(gameCode);
 		// TODO: ResetInput for Gamepad as well!
@@ -1278,6 +1289,10 @@ int CALLBACK WinMain(
 			_com_error err(hr);
 			LPCTSTR errMsg = err.ErrorMessage();
 		}
+
+		gameCode.DebugFrameEnd(programMemory);
 	}
 	return 0;
 }
+
+u32 debugRecordsCount_Platform = __COUNTER__;
