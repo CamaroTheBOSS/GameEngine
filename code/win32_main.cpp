@@ -219,7 +219,7 @@ void Win32LoadXInput() {
 }
 /* -----------------------------------------------------------------------------*/
 internal
-void Win32InitAudioClient() {
+void Win32InitAudioClient(f32 targetFrameRefreshSeconds) {
 	// TODO: Decrease latency, current latency=22ms which is greater than 16ms
 
 	// TODO: FIX MEMORY LEAKS WHEN TAKING EARLY RETURN
@@ -302,8 +302,7 @@ void Win32InitAudioClient() {
 		_com_error err(hr);
 		LPCTSTR errMsg = err.ErrorMessage();
 	}
-	
-	REFERENCE_TIME requestedDuration = 500000;  // NOTE: 1'000'000 * 100ns = 0.1sec
+	REFERENCE_TIME requestedDuration = u4(targetFrameRefreshSeconds * f4(10e6)); //1'000'000;  // NOTE: 1'000'000 * 100ns = 0.1sec
 	hr = audioClient->Initialize(
 		AUDCLNT_SHAREMODE_SHARED,
 		0,
@@ -1115,13 +1114,6 @@ int CALLBACK WinMain(
 		// TODO log error with _com_error err.ErrorMessage()
 		return 0;
 	}
-	Win32InitAudioClient();
-
-	globalSoundData.audio->Start();
-	if (!SUCCEEDED(hr)) {
-		// TODO log error with _com_error err.ErrorMessage()
-		return 0;
-	}
 
 	WNDCLASSEXA windowClass = {};
 	windowClass.cbSize = sizeof(WNDCLASSEX);
@@ -1194,14 +1186,22 @@ int CALLBACK WinMain(
 	HDC deviceContext = GetDC(window);
 	Win32ResizeBitmapMemory(globalBitmap, globalBitmapWidth, globalBitmapHeight);
 	globalRunning = true;
-
+	
 	UINT schedulerGranularityMs = 1;
 	bool sleepIsGranular = timeBeginPeriod(schedulerGranularityMs) == NO_ERROR;
 	u32 frameRefreshHz = 60;
 	f32 targetFrameRefreshSeconds = 1.0f / f4(frameRefreshHz);
-	u32 safetyMargin = 32;
-	u32 soundSamplesToWriteEachFrame = safetyMargin + u4(globalSoundData.dataFormat.Format.nSamplesPerSec * targetFrameRefreshSeconds);
-	
+	f32 safetyMarginRefreshSeconds = 0.015f;
+	f32 refreshSecondsWithSafetyMargin = targetFrameRefreshSeconds + safetyMarginRefreshSeconds;
+
+	Win32InitAudioClient(refreshSecondsWithSafetyMargin);
+	globalSoundData.audio->Start();
+	if (!SUCCEEDED(hr)) {
+		// TODO log error with _com_error err.ErrorMessage()
+		return 0;
+	}
+	u32 soundSamplesToWriteEachFrame = u4(globalSoundData.dataFormat.Format.nSamplesPerSec * refreshSecondsWithSafetyMargin);
+
 	u64 rdtscStart = __rdtsc();
 	u64 frameStartTime = Win32GetCurrentTimestamp();
 	QueryPerformanceFrequency(&globalPerformanceFreq);
