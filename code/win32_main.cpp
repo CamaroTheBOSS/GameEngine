@@ -168,27 +168,6 @@ void Win32UnloadGameCode(Win32GameCode& gameCode) {
 }
 
 internal
-void Win32OutputPerformanceCounters(DebugMemory& memory) {
-#if 0
-	char buffer[256] = "Debug Counters:\n";
-	OutputDebugStringA(buffer);
-	for (u32 counterIndex = 0; counterIndex < ArrayCount(memory.performanceCounters); counterIndex++) {
-		DebugPerformanceCounters* counter = memory.performanceCounters + counterIndex;
-		if (counter->counts == 0) {
-			continue;
-		}
-		sprintf_s(buffer, "\t%d:   %dc,  %dn,  %dc/n\n",
-			counterIndex,
-			u4(counter->cycles), 
-			u4(counter->counts), 
-			u4(counter->cycles / counter->counts)
-		);
-		OutputDebugStringA(buffer);
-	}
-#endif
-}
-
-internal
 u64 Win32GetLastWriteTime(const char* filename) {
 	struct _stat64i32 stats;
 	_stat(filename, &stats);
@@ -1099,7 +1078,6 @@ int CALLBACK WinMain(
 ) {
 	InitializeQueue(globalHighPriorityQueue, 8);
 	InitializeQueue(globalLowPriorityQueue, 2);
-	
 #if 1
 	u32 globalBitmapWidth = 960;
 	u32 globalBitmapHeight = 540;
@@ -1207,6 +1185,7 @@ int CALLBACK WinMain(
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 
 	while (globalRunning) {
+		TIMED_BLOCK_BEGIN(InputProcessing);
 		Win32ReloadGameCode(gameCode);
 		debugGlobalState = gameCode.DebugInit(programMemory);
 		debugGlobalState->debugRecordsCount[TRANSLATION_UNIT] = DebugRecordsCount_Platform;
@@ -1225,16 +1204,14 @@ int CALLBACK WinMain(
 		}
 		inputData.dtFrame = targetFrameRefreshSeconds;
 		inputData.executableReloaded = gameCode.reloaded;
-
+		TIMED_BLOCK_END(InputProcessing);
+		TIMED_BLOCK_BEGIN(GameMainLoop);
 		// PART: Game main loop
-		ZeroMemory(
-			programMemory.debug.performanceCounters, 
-			ArrayCount(programMemory.debug.performanceCounters) * sizeof(DebugPerformanceCounters)
-		);
 		gameCode.GameMainLoopFrame(programMemory, globalBitmap, inputData);
-		Win32OutputPerformanceCounters(programMemory.debug);
+		TIMED_BLOCK_END(GameMainLoop);
 
 		// PART: Timing stuff
+		TIMED_BLOCK_BEGIN(WaitTillNextFrame);
 		u64 rdtscEnd = __rdtsc();
 		u64 frameEndTime = Win32GetCurrentTimestamp();
 		f32 secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
@@ -1254,23 +1231,25 @@ int CALLBACK WinMain(
 			frameEndTime = Win32GetCurrentTimestamp();
 			secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
 		}
+		frameStartTime = frameEndTime;
+		TIMED_BLOCK_END(WaitTillNextFrame);
+
+		// TODO: Move this to debugoverlay
+#if 1
 		float msElapsed = 1'000.f * secondsElapsedForFrame;
 		float fps = 1'000.f / msElapsed;
 		float megaCycles = static_cast<float>(rdtscEnd - rdtscStart) / 1'000'000.f;
 		rdtscStart = rdtscEnd;
-		frameStartTime = frameEndTime;
-#if 0
-		char buffer[256];
-		sprintf_s(buffer, "%0.2fms/f,  %0.2ffps/f,  %0.2fMc/f,   frames_av %d\n", msElapsed, fps, megaCycles, framesAvailable);
-		OutputDebugStringA(buffer);
 #endif
-
+		TIMED_BLOCK_BEGIN(DisplayWindow);
 		// PART: Displaying window
 		auto dim = GetWindowDimension(window);
 		Win32DisplayWindow(deviceContext, globalWin32State, globalBitmap, dim.width, dim.height);
 		ReleaseDC(window, deviceContext);
+		TIMED_BLOCK_END(DisplayWindow);
 
 		// PART: Preparing SoundData structure for game main loop
+		TIMED_BLOCK_BEGIN(GatherAndRenderSound);
 		UINT32 padding = 0;
 		globalSoundData.audio->GetCurrentPadding(&padding);
 		UINT32 framesAvailable = globalSoundData.bufferSizeInSamples - padding;
@@ -1296,6 +1275,7 @@ int CALLBACK WinMain(
 			_com_error err(hr);
 			LPCTSTR errMsg = err.ErrorMessage();
 		}
+		TIMED_BLOCK_END(GatherAndRenderSound);
 	}
 	return 0;
 }

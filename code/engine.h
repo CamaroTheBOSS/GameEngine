@@ -115,32 +115,13 @@ typedef void	(*PlatformQueueCallback)(void* data);
 typedef void	(*_PlatformWaitForQueueCompletion)(PlatformQueue* queue);
 typedef bool	(*_PlatformPushTaskToQueue)(PlatformQueue* queue, PlatformQueueCallback callback, void* args);
 
-enum DebugPerformanceCountersType {
-	DPCT_GameMainLoop,
-	DPCT_RenderRectangleSlowly,
-	DPCT_RenderRectangleOptimized,
-	DPCT_RenderFilledRectangleOptimized,
-	DPCT_FillPixel,
-	DPCT_FillPixelRectangleRoutine,
-};
-struct DebugPerformanceCounters {
-	u64 cycles;
-	u64 counts;
-};
 struct DebugMemory {
 	_DebugReadEntireFile ReadEntireFile;
 	_DebugWriteFile WriteFile;
 	_DebugFreeFile FreeFile;
 	_DebugAllocate Allocate;
 	_DebugGetCurrentThreadId GetCurrThreadId;
-	DebugPerformanceCounters performanceCounters[256];
 };
-#define BEGIN_TIMED_SECTION(id) u64 startCycleCount_##id = __rdtsc();
-#define END_TIMED_SECTION_COUNTED(id, count) debugGlobalMemory->performanceCounters[DPCT_##id].cycles += __rdtsc() - startCycleCount_##id; \
-	debugGlobalMemory->performanceCounters[DPCT_##id].counts += count
-#define END_TIMED_SECTION_MULTITHREADED(id, count) InterlockedAdd(ptrcast(volatile long, &debugGlobalMemory->performanceCounters[DPCT_##id].cycles), __rdtsc() - startCycleCount_##id); \
-	InterlockedAdd(ptrcast(volatile long, &debugGlobalMemory->performanceCounters[DPCT_##id].counts), count)
-#define END_TIMED_SECTION(id) END_TIMED_SECTION_COUNTED(id, 1)
 extern DebugMemory* debugGlobalMemory;
 
 /*----------------------------------------------------------------*/

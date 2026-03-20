@@ -15,6 +15,11 @@ u64 AtomicExchangeU64(volatile u64* dst, u64 value) {
 }
 
 inline
+u32 AtomicExchangeU32(volatile u32* dst, u32 value) {
+	return _InterlockedExchange(ptrcast(volatile long, dst), value);
+}
+
+inline
 u32 AtomicAddU32(volatile u32* dst, u32 adder) {
 	return _InterlockedExchangeAdd(ptrcast(volatile long, dst), adder);
 }

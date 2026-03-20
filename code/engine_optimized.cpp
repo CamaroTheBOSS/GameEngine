@@ -5,7 +5,6 @@ DebugMemory* debugGlobalMemory;
 void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
 	bool even, Rect2i clipRect)
 {
-	BEGIN_TIMED_SECTION(RenderFilledRectangleOptimized);
 	V2 points[4] = {
 		origin,
 		origin + xAxis,
@@ -120,7 +119,6 @@ void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
 	u32 rowAdvance = 2 * bitmap.pitch;
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
-	BEGIN_TIMED_SECTION(FillPixelRectangleRoutine);
 	LLVM_MCA_BEGIN(opt_render_filled_rect);
 	for (i32 Y = minY; Y < maxY; Y += 2) {
 		u32* dstPixel = ptrcast(u32, row);
@@ -197,13 +195,6 @@ void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V
 		row += rowAdvance;
 	}
 	LLVM_MCA_END(opt_render_filled_rect);
-	u32 pixelCount = 0;
-	if (maxY > minY && maxX > minX) {
-		pixelCount = ((maxY - minY) * (maxX - minX)) / 2;
-	}
-	// TODO: This counter is not thread safe!
-	END_TIMED_SECTION_COUNTED(FillPixelRectangleRoutine, pixelCount);
-	END_TIMED_SECTION(RenderFilledRectangleOptimized);
 }
 
 
@@ -211,7 +202,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	LoadedBitmap& texture, bool even, Rect2i clipRect)
 {
 	TIMED_BLOCK;
-	BEGIN_TIMED_SECTION(RenderRectangleOptimized);
 	V2 points[4] = {
 		origin,
 		origin + xAxis,
@@ -333,7 +323,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
 	u32 rowAdvance = 2 * bitmap.pitch;
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
-	BEGIN_TIMED_SECTION(FillPixel);
 	LLVM_MCA_BEGIN(opt_render_rect);
 	for (i32 Y = minY; Y < maxY; Y += 2) {
 		u32* dstPixel = ptrcast(u32, row);
@@ -503,13 +492,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 		row += rowAdvance;
 	}
 	LLVM_MCA_END(opt_render_rect);
-	u32 pixelCount = 0;
-	if (maxY > minY && maxX > minX) {
-		pixelCount = ((maxY - minY) * (maxX - minX)) / 2;
-	}
-	// TODO: This counter is not thread safe!
-	END_TIMED_SECTION_COUNTED(FillPixel, pixelCount);
-	END_TIMED_SECTION(RenderRectangleOptimized);
 }
 
 u32 debugRecordsCount_Optimized = __COUNTER__;

@@ -1056,7 +1056,6 @@ void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	debugGlobalMemory = &memory.debug;
 	Platform = &memory.platformAPI;
-	BEGIN_TIMED_SECTION(GameMainLoop);
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	World& world = state->world;
 	if (!state->isInitialized) {
@@ -1641,7 +1640,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	EndTempMemory(simMemory);
 	CheckArena(tranState->arena);
 	CheckArena(world.arena);
-	END_TIMED_SECTION(GameMainLoop);
 }
 
 extern "C" void GameFillSoundBuffer(ProgramMemory& memory, SoundData& soundData) {
@@ -1677,6 +1675,7 @@ void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 		for (u32 translationUnit = 0; translationUnit < MAX_TRANSLATION_UNIT; translationUnit++) {
 			for (u32 recordIndex = 0; recordIndex < debugGlobalState->debugRecordsCount[translationUnit]; recordIndex++) {
 				DebugRecord* record = debugGlobalState->debugRecords[translationUnit] + recordIndex;
+#if 0
 				u64 cycles_hitcount = AtomicExchangeU64(&record->cycles_hitcount, 0);
 				u32 cycles = u4(cycles_hitcount >> 32);
 				u32 hitcount = u4(cycles_hitcount);
@@ -1697,11 +1696,22 @@ void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 				DebugRenderLine(font, buffer, context);
 				/*record->hitCount = 0;
 				record->cycles = 0;*/
+#else
+				char buffer[256];
+				sprintf_s(buffer, "%25s:%4d | %25s",
+					record->blockName,
+					record->line,
+					record->file
+				);
+				DebugRenderLine(font, buffer, context);
+#endif
 			}
 		}
+
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, state->highPriorityQueue);
 	}
 	EndRendering(debugRenderGroup);
+	AtomicExchangeU32(&debugGlobalState->nextEventIndex, 0);
 }
 
 extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {

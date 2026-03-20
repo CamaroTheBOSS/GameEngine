@@ -235,7 +235,6 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 	LoadedBitmap& texture, LoadedBitmap* normalMap, EnvironmentMap* topMap, 
 	EnvironmentMap* middleMap, EnvironmentMap* bottomMap)
 {
-	BEGIN_TIMED_SECTION(RenderRectangleSlowly);
 	u32 colorU32 =  (scast(u32, 255 * color.A) << 24) +
 					(scast(u32, 255 * color.R) << 16) +
 					(scast(u32, 255 * color.G) << 8) +
@@ -276,7 +275,6 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 	f32 testCoefficient = (xAxisLength / yAxisLength);
 	
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
-	BEGIN_TIMED_SECTION(FillPixel);
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
 		for (i32 X = minX; X < maxX; X++) {
@@ -412,8 +410,6 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 		}
 		row += bitmap.pitch;
 	}
-	END_TIMED_SECTION_COUNTED(FillPixel, (maxY - minY) * (maxX - minX));
-	END_TIMED_SECTION(RenderRectangleSlowly);
 }
 
 internal
