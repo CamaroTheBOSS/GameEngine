@@ -51,10 +51,9 @@ void RecordDebugEvent(u32 counter, DebugEventType type, u32 hitCount = 1) {
 	Assert(eventIndex < MAX_DEBUG_EVENTS);
 	DebugEvent* event = debugGlobalState->debugEvents[debugGlobalState->frameIndex] + eventIndex;
 	event->debugRecordIndex = counter;
-	event->cycles = __rdtsc();
+	event->cycles = __rdtscp(&event->coreId);
 	event->hitCount = hitCount;
 	event->type = type;
-	__rdtscp(&event->coreId);
 	u64 threadLocalGsPtr = __readgsqword(0x30);
 	event->threadId = *ptrcast(u32, threadLocalGsPtr + 0x48);
 }
