@@ -1643,7 +1643,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 }
 
 extern "C" void GameFillSoundBuffer(ProgramMemory& memory, SoundData& soundData) {
-	TIMED_BLOCK;
+	TIMED_FUNCTION;
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	TransientState* tranState = ptrcast(TransientState, memory.transientMemory);
 

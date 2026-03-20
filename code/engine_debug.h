@@ -45,7 +45,6 @@ extern u32 debugRecordsCount_Main;
 extern u32 debugRecordsCount_Optimized;
 extern DebugGlobalState* debugGlobalState;
 
-#include <windows.h>
 inline
 void RecordDebugEvent(u32 counter, DebugEventType type, u32 hitCount = 1) {
 	u32 eventIndex = AtomicAddU32(&debugGlobalState->nextEventIndex, 1);
@@ -58,12 +57,11 @@ void RecordDebugEvent(u32 counter, DebugEventType type, u32 hitCount = 1) {
 	__rdtscp(&event->coreId);
 	u64 threadLocalGsPtr = __readgsqword(0x30);
 	event->threadId = *ptrcast(u32, threadLocalGsPtr + 0x48);
-	
 }
 
-#define TIMED_BLOCK__(line) TimedBlock block##line(__FILE__, __FUNCTION__, __LINE__, __COUNTER__)
-#define TIMED_BLOCK_(line) TIMED_BLOCK__(line)
-#define TIMED_BLOCK TIMED_BLOCK_(__LINE__)
+#define TIMED_FUNCTION__(line) TimedBlock block##line(__FILE__, __FUNCTION__, __LINE__, __COUNTER__)
+#define TIMED_FUNCTION_(line) TIMED_FUNCTION__(line)
+#define TIMED_FUNCTION TIMED_FUNCTION_(__LINE__)
 
 #define TIMED_BLOCK_BEGIN__(counter, fileName, name, lineNumber) \
 	DebugRecord* record##lineNumber = debugGlobalState->debugRecords[TRANSLATION_UNIT] + counter;	\

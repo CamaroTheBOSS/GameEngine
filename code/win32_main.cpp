@@ -1226,7 +1226,6 @@ int CALLBACK WinMain(
 			//Assert(secondsElapsedForFrame < targetFrameRefreshSeconds);
 		}
 		while (secondsElapsedForFrame < targetFrameRefreshSeconds) {
-			TIMED_BLOCK;
 			YieldProcessor();
 			frameEndTime = Win32GetCurrentTimestamp();
 			secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
