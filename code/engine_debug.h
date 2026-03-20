@@ -18,7 +18,6 @@ struct DebugRecord {
 };
 
 enum DebugEventType : u8 {
-	Event_FrameMarker,
 	Event_BlockBegin,
 	Event_BlockEnd,
 };
@@ -37,8 +36,8 @@ struct DebugGlobalState {
 	u32 debugRecordsCount[MAX_TRANSLATION_UNIT];
 
 	DebugEvent debugEvents[MAX_DEBUG_FRAMES][MAX_DEBUG_EVENTS];
-	volatile u32 nextEventIndex;
-	volatile u32 frameIndex;
+	u32 debugEventsCount[MAX_DEBUG_FRAMES];
+	volatile u64 frameAndEventIndex;
 };
 
 extern u32 debugRecordsCount_Main;
@@ -47,9 +46,11 @@ extern DebugGlobalState* debugGlobalState;
 
 inline
 void RecordDebugEvent(u32 counter, DebugEventType type, u32 hitCount = 1) {
-	u32 eventIndex = AtomicAddU32(&debugGlobalState->nextEventIndex, 1);
+	u64 frameAndEventIndex = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);
+	u32 frameIndex = frameAndEventIndex >> 32;
+	u32 eventIndex = frameAndEventIndex && U32_MAX;
 	Assert(eventIndex < MAX_DEBUG_EVENTS);
-	DebugEvent* event = debugGlobalState->debugEvents[debugGlobalState->frameIndex] + eventIndex;
+	DebugEvent* event = debugGlobalState->debugEvents[frameIndex] + eventIndex;
 	event->debugRecordIndex = counter;
 	event->cycles = __rdtscp(&event->coreId);
 	event->hitCount = hitCount;
@@ -77,6 +78,11 @@ void RecordDebugEvent(u32 counter, DebugEventType type, u32 hitCount = 1) {
 	RecordDebugEvent(counter, Event_BlockEnd);
 #define TIMED_BLOCK_END(blockName) \
 	TIMED_BLOCK_END_(counter##blockName)
+
+#define MARKUP_FRAME { \
+	u32 newFrameIndex = ((debugGlobalState->frameAndEventIndex >> 32) + 1) % MAX_DEBUG_FRAMES; \
+	u64 oldFrameAndEventIndex = AtomicExchangeU64(&debugGlobalState->frameAndEventIndex, u64(newFrameIndex) << 32); \
+	debugGlobalState->debugEventsCount[oldFrameAndEventIndex >> 32] = oldFrameAndEventIndex & U32_MAX; }
 
 struct ManualTimedBlock {
 	u16 counter;

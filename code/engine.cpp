@@ -1697,21 +1697,24 @@ void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap) {
 				/*record->hitCount = 0;
 				record->cycles = 0;*/
 #else
-				char buffer[256];
-				sprintf_s(buffer, "%25s:%4d | %25s",
-					record->blockName,
-					record->line,
-					record->file
-				);
-				DebugRenderLine(font, buffer, context);
+				if (record->blockName) {
+					char buffer[256];
+					sprintf_s(buffer, "%25s:%4d | %25s",
+						record->blockName,
+						record->line,
+						record->file
+					);
+					DebugRenderLine(font, buffer, context);
+				}
 #endif
 			}
 		}
 
+		// Collate debug events
+
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, state->highPriorityQueue);
 	}
 	EndRendering(debugRenderGroup);
-	AtomicExchangeU32(&debugGlobalState->nextEventIndex, 0);
 }
 
 extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {

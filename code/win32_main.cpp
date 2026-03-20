@@ -1185,6 +1185,12 @@ int CALLBACK WinMain(
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 
 	while (globalRunning) {
+		MARKUP_FRAME;
+		{
+			u32 newFrameIndex = ((debugGlobalState->frameAndEventIndex >> 32) + 1) % MAX_DEBUG_FRAMES;																	\
+			u64 oldFrameAndEventIndex = AtomicExchangeU64(&debugGlobalState->frameAndEventIndex, u64(newFrameIndex) << 32);
+			debugGlobalState->debugEventsCount[oldFrameAndEventIndex >> 32] = oldFrameAndEventIndex & U32_MAX;
+		}
 		TIMED_BLOCK_BEGIN(InputProcessing);
 		Win32ReloadGameCode(gameCode);
 		debugGlobalState = gameCode.DebugInit(programMemory);
