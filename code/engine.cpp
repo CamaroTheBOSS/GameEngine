@@ -189,6 +189,7 @@ struct FillGroundBufferTaskArgs {
 
 internal
 void FillGroundBufferBackgroundTask(void* data) {
+	TIMED_FUNCTION;
 	FillGroundBufferTaskArgs* args = ptrcast(FillGroundBufferTaskArgs, data);
 	TaskWithMemory* task = args->task;
 	LoadedBitmap* buffer = &args->groundBuffer->buffer;
@@ -1054,7 +1055,6 @@ void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
-	TIMED_FUNCTION;
 	debugGlobalMemory = &memory.debug;
 	Platform = &memory.platformAPI;
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
@@ -1655,6 +1655,7 @@ DebugEventStack* GetDebugStackForThread(DebugState* state, u32 threadId) {
 	for (u32 stackIndex = 0; stackIndex < state->eventStacksCount; stackIndex++) {
 		DebugEventStack* stack = state->eventStacks + stackIndex;
 		if (stack->threadId == threadId) {
+			Assert(stack->events);
 			return stack;
 		}
 	}
@@ -1663,6 +1664,9 @@ DebugEventStack* GetDebugStackForThread(DebugState* state, u32 threadId) {
 	stack->threadId = threadId;
 	stack->laneId = state->eventStacksCount - 1;
 	stack->events = PushStructSize(state->arena, OpenDebugEvent);
+	stack->events->event = 0;
+	stack->events->next = 0;
+	stack->events->parent = 0;
 	return stack;
 }
 
@@ -1681,10 +1685,10 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 		);
 		debugState->isInitialized = true;
 	}
-
 	debugRenderGroup.pushBufferSize = 0;
 	debugRenderGroup.projection = GetOrtographicProjection(dstBitmap.width, dstBitmap.height, 1);
 
+	TemporaryMemory overlayMemory = BeginTempMemory(debugState->arena);
 	BeginRendering(debugRenderGroup);
 	LoadedFont* font = GetOrPrefetchFont(
 		debugRenderGroup, GetFontWithType(*debugRenderGroup.assets, Font_Debug)
@@ -1710,6 +1714,20 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 		f32 threadLaneTotalWidth = threadLaneWidth + threadLaneSpace;
 		f32 frameLaneSpace = 10.f;
 		f32 scale = 1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ);
+#if 0
+		static u32 staticFrames = 0;
+		for (u32 stackIndex = 0; stackIndex < debugState->eventStacksCount; stackIndex++) {
+			DebugEventStack* stack = debugState->eventStacks + stackIndex;
+			OpenDebugEvent* openingDebugEvent = stack->events;
+			do {
+				if (openingDebugEvent->event) {
+					Assert(stack->threadId == openingDebugEvent->event->threadId);
+				}
+				openingDebugEvent = openingDebugEvent->next;
+			} while (openingDebugEvent);
+		}
+		staticFrames++;
+#endif
 
 		u32 currentFrameIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
 		for (u32 frameIndex = currentFrameIndex;;) {
@@ -1720,11 +1738,15 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 			DebugFrameInfo* frameInfo = debugGlobalState->frameInfos + frameIndex;
 
 			DebugEvent* eventsInFrame = debugGlobalState->debugEvents[frameIndex];
+			u32 eventsInFrameCount = debugGlobalState->debugEventsCount[frameIndex];
 			for (u32 eventIndex = 0; 
-				eventIndex < debugGlobalState->debugEventsCount[frameIndex];
+				eventIndex < eventsInFrameCount;
 				eventIndex++
 				) {
 				DebugEvent* event = eventsInFrame + eventIndex;
+				if (event->translationUnit == 0) {
+					int breakhere = 5;
+				}
 				if (event->type == Event_BlockBegin) {
 					DebugEventStack* stack = GetDebugStackForThread(debugState, event->threadId);
 					OpenDebugEvent* newOpenEvent = debugState->openEventFreeList;
@@ -1734,6 +1756,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 					else {
 						newOpenEvent = PushStructSize(debugState->arena, OpenDebugEvent);
 					}
+					Assert(stack->threadId == event->threadId);
 					newOpenEvent->next = stack->events;
 					newOpenEvent->event = event;
 					newOpenEvent->parent = stack->events->event;
@@ -1743,28 +1766,37 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 					DebugEventStack* stack = GetDebugStackForThread(debugState, event->threadId);
 					OpenDebugEvent* openingDebugEvent = stack->events;
 					DebugEvent* openEvent = openingDebugEvent->event;
-					Assert(openEvent->debugRecordIndex == event->debugRecordIndex);
-					Assert(openEvent->translationUnit == event->translationUnit);
-					Assert(openEvent->threadId == event->threadId);
-					if (!openingDebugEvent->parent) {
-						Assert(frameInfo->regionsCount < ArrayCount(frameInfo->regions));
-						DebugProfilerRegion* region = frameInfo->regions + frameInfo->regionsCount++;
-						f32 frameCyclesRange = f4(frameInfo->endCycles - frameInfo->startCycles);
-						// TODO: If minT < 0 -> that means openEvent started on one of the previous frames.
-						// Do something about it!
-						region->minT = f4(openEvent->cycles - frameInfo->startCycles) * scale;
-						region->maxT = f4(event->cycles - frameInfo->startCycles) * scale;
-						region->recordIndex = event->debugRecordIndex;
-						region->translationUnit = event->translationUnit;
-						region->laneId = stack->laneId;
-					}
-					else {
-						//TODO: Do something with regions which HAVE parent!
-					}
-					
-					stack->events = openingDebugEvent->next;
-					openingDebugEvent->next = debugState->openEventFreeList;
-					debugState->openEventFreeList = openingDebugEvent;
+					if (openEvent) {
+						if (openEvent->debugRecordIndex == event->debugRecordIndex &&
+							openEvent->translationUnit == event->translationUnit &&
+							openEvent->threadId == event->threadId)
+						{
+							if (!openingDebugEvent->parent) {
+								f32 minT = f4(openEvent->cycles - frameInfo->startCycles) * scale;
+								f32 maxT = f4(event->cycles - frameInfo->startCycles) * scale;
+								f32 thresholdT = 0.01f;
+								if (maxT - minT > thresholdT) {
+									Assert(frameInfo->regionsCount < ArrayCount(frameInfo->regions));
+									DebugProfilerRegion* region = frameInfo->regions + frameInfo->regionsCount++;
+									f32 frameCyclesRange = f4(frameInfo->endCycles - frameInfo->startCycles);
+									// TODO: If minT < 0 -> that means openEvent started on one of the previous frames.
+									// Do something about it!
+									region->minT = minT;
+									region->maxT = maxT;
+									region->recordIndex = event->debugRecordIndex;
+									region->translationUnit = event->translationUnit;
+									region->laneId = stack->laneId;
+								}
+								
+							}
+							else {
+								//TODO: Do something with regions which HAVE parent!
+							}
+							stack->events = openingDebugEvent->next;
+							openingDebugEvent->next = debugState->openEventFreeList;
+							debugState->openEventFreeList = openingDebugEvent;
+						}
+					}		
 				}
 				else {
 					Assert(!"Unknown event type");
@@ -1830,6 +1862,14 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, tranState->highPriorityQueue);
 	}
 	EndRendering(debugRenderGroup);
+	EndTempMemory(overlayMemory);
+	for (u32 stackIndex = 0; stackIndex < debugState->eventStacksCount; stackIndex++) {
+		DebugEventStack* stack = debugState->eventStacks + stackIndex;
+		stack->threadId = 0;
+		stack->laneId = 0;
+		stack->events = 0;
+	}
+	debugState->eventStacksCount = 0;
 }
 
 extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {

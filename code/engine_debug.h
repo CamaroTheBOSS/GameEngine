@@ -90,19 +90,18 @@ struct DebugState {
 	bool isInitialized;
 };
 
-inline
-void RecordDebugEvent(u32 counter, DebugEventType type, u32 hitCount = 1) {
-	u64 frameAndEventIndex = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);
-	u32 frameIndex = frameAndEventIndex >> 32;
-	u32 eventIndex = frameAndEventIndex & U32_MAX;
-	Assert(eventIndex < MAX_DEBUG_EVENTS);
-	DebugEvent* event = debugGlobalState->debugEvents[frameIndex] + eventIndex;
-	event->debugRecordIndex = counter;
-	event->cycles = __rdtscp(&event->coreId);
-	event->hitCount = hitCount;
-	event->type = type;
-	event->translationUnit = TRANSLATION_UNIT;
-	event->threadId = GetFastThreadId();
+#define RecordDebugEvent(counter, eventtype, hitcount) {\
+	u64 frameAndEventIndex = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);\
+	u32 frameIndex = frameAndEventIndex >> 32;\
+	u32 eventIndex = frameAndEventIndex & U32_MAX;\
+	Assert(eventIndex < MAX_DEBUG_EVENTS);\
+	DebugEvent* event = debugGlobalState->debugEvents[frameIndex] + eventIndex;\
+	event->debugRecordIndex = counter;\
+	event->cycles = __rdtscp(&event->coreId);\
+	event->hitCount = hitcount;\
+	event->type = eventtype;\
+	event->translationUnit = TRANSLATION_UNIT;\
+	event->threadId = GetFastThreadId();\
 }
 
 #define TIMED_FUNCTION__(line) TimedBlock block##line(__FILE__, __FUNCTION__, __LINE__, __COUNTER__)
@@ -114,7 +113,7 @@ void RecordDebugEvent(u32 counter, DebugEventType type, u32 hitCount = 1) {
 	record##lineNumber->file = fileName;															\
 	record##lineNumber->blockName = name;															\
 	record##lineNumber->line = lineNumber;															\
-	RecordDebugEvent(counter, Event_BlockBegin);
+	RecordDebugEvent(counter, Event_BlockBegin, 1);
 #define TIMED_BLOCK_BEGIN_(counter, fileName, name, lineNumber) \
 	TIMED_BLOCK_BEGIN__(counter, fileName, name, lineNumber)
 #define TIMED_BLOCK_BEGIN(blockName)		\
@@ -122,7 +121,7 @@ void RecordDebugEvent(u32 counter, DebugEventType type, u32 hitCount = 1) {
 	TIMED_BLOCK_BEGIN_(counter##blockName, __FILE__, #blockName, __LINE__)
 
 #define TIMED_BLOCK_END_(counter) \
-	RecordDebugEvent(counter, Event_BlockEnd);
+	RecordDebugEvent(counter, Event_BlockEnd, 1);
 #define TIMED_BLOCK_END(blockName) \
 	TIMED_BLOCK_END_(counter##blockName)
 

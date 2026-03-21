@@ -547,6 +547,7 @@ struct RenderTiledArgs {
 };
 
 void RenderTiled(void* data) {
+	TIMED_FUNCTION;
 	RenderTiledArgs* args = ptrcast(RenderTiledArgs, data);
 	RenderGroupToBuffer(*args->group, *args->dstBuffer, args->clipRect, false);
 	RenderGroupToBuffer(*args->group, *args->dstBuffer, args->clipRect, true);
