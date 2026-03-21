@@ -1054,6 +1054,7 @@ void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
+	TIMED_FUNCTION;
 	debugGlobalMemory = &memory.debug;
 	Platform = &memory.platformAPI;
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
@@ -1661,24 +1662,8 @@ DebugEventStack* GetDebugStackForThread(DebugState* state, u32 threadId) {
 	DebugEventStack* stack = state->eventStacks + state->eventStacksCount++;
 	stack->threadId = threadId;
 	stack->laneId = state->eventStacksCount - 1;
+	stack->events = PushStructSize(state->arena, OpenDebugEvent);
 	return stack;
-}
-
-internal
-DebugProfilerRegion* AddRegionForFrame(DebugFrameInfo* frameInfo, DebugEvent* openEvent, DebugEvent* closeEvent) {
-	Assert(frameInfo->regionsCount < ArrayCount(frameInfo->regions));
-	DebugProfilerRegion* region = frameInfo->regions + frameInfo->regionsCount++;
-	f32 frameCyclesRange = f4(frameInfo->endCycles - frameInfo->startCycles);
-	region->minT = f4(openEvent->cycles - frameInfo->startCycles) / (60 * DEBUG_CPU_FREQ);
-	region->maxT = f4(closeEvent->cycles - frameInfo->startCycles) / (60 * DEBUG_CPU_FREQ);
-	region->recordIndex = closeEvent->debugRecordIndex;
-	region->translationUnit = closeEvent->translationUnit;
-	Assert(openEvent->cycles > frameInfo->startCycles);
-	Assert(openEvent->cycles < frameInfo->endCycles);
-	Assert(closeEvent->cycles > frameInfo->startCycles);
-	Assert(closeEvent->cycles < frameInfo->endCycles);
-
-	return region;
 }
 
 #include <stdio.h>
@@ -1719,11 +1704,12 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 		// Collate debug events
 		f32 profilerPosY = -200.f;
 		f32 profilerPosX = -350.f;
-		f32 profilerHeight = 300.f;
+		f32 profilerHeight = 200.f;
 		f32 threadLaneWidth = 8.f;
 		f32 threadLaneSpace = 2.f;
 		f32 threadLaneTotalWidth = threadLaneWidth + threadLaneSpace;
 		f32 frameLaneSpace = 10.f;
+		f32 scale = 1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ);
 
 		u32 currentFrameIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
 		for (u32 frameIndex = currentFrameIndex;;) {
@@ -1750,35 +1736,35 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 					}
 					newOpenEvent->next = stack->events;
 					newOpenEvent->event = event;
+					newOpenEvent->parent = stack->events->event;
 					stack->events = newOpenEvent;
 				}
 				else if (event->type == Event_BlockEnd) {
 					DebugEventStack* stack = GetDebugStackForThread(debugState, event->threadId);
-					OpenDebugEvent* parentOpenEvent = stack->events;
-					if (parentOpenEvent) {
-						DebugEvent* parentDebugEvent = parentOpenEvent->event;
-						Assert(parentDebugEvent->debugRecordIndex == event->debugRecordIndex);
-						Assert(parentDebugEvent->translationUnit == event->translationUnit);
-						Assert(parentDebugEvent->threadId == event->threadId);
-						/*
-						DebugRecord* record = debugGlobalState->debugRecords[event->translationUnit] + event->debugRecordIndex;
-						u32 cycles = u4(event->cycles - parentDebugEvent->cycles);
-						if (record->blockName) {
-							char buffer[256];
-							sprintf_s(buffer, "[%6d|%2d] %25s: %12u",
-								event->threadId,
-								event->coreId,
-								record->blockName,
-								cycles
-							);
-							DebugRenderLine(font, buffer, context);
-						}*/
-						DebugProfilerRegion* region = AddRegionForFrame(frameInfo, parentDebugEvent, event);
+					OpenDebugEvent* openingDebugEvent = stack->events;
+					DebugEvent* openEvent = openingDebugEvent->event;
+					Assert(openEvent->debugRecordIndex == event->debugRecordIndex);
+					Assert(openEvent->translationUnit == event->translationUnit);
+					Assert(openEvent->threadId == event->threadId);
+					if (!openingDebugEvent->parent) {
+						Assert(frameInfo->regionsCount < ArrayCount(frameInfo->regions));
+						DebugProfilerRegion* region = frameInfo->regions + frameInfo->regionsCount++;
+						f32 frameCyclesRange = f4(frameInfo->endCycles - frameInfo->startCycles);
+						// TODO: If minT < 0 -> that means openEvent started on one of the previous frames.
+						// Do something about it!
+						region->minT = f4(openEvent->cycles - frameInfo->startCycles) * scale;
+						region->maxT = f4(event->cycles - frameInfo->startCycles) * scale;
+						region->recordIndex = event->debugRecordIndex;
+						region->translationUnit = event->translationUnit;
 						region->laneId = stack->laneId;
-						stack->events = parentOpenEvent->next;
-						parentOpenEvent->next = debugState->openEventFreeList;
-						debugState->openEventFreeList = parentOpenEvent;
 					}
+					else {
+						//TODO: Do something with regions which HAVE parent!
+					}
+					
+					stack->events = openingDebugEvent->next;
+					openingDebugEvent->next = debugState->openEventFreeList;
+					debugState->openEventFreeList = openingDebugEvent;
 				}
 				else {
 					Assert(!"Unknown event type");
@@ -1798,7 +1784,6 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 			V4{0, 0, 0, 1},
 		};
 		u32 frameIndexForDrawing = 0;
-		
 		f32 frameWidth = f4(debugState->eventStacksCount) * threadLaneTotalWidth + frameLaneSpace;
 		for (u32 frameIndex = currentFrameIndex;;) {
 			u32 colorIndexForDrawing = 0;
@@ -1810,16 +1795,23 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 			for (u32 regionIndex = 0; regionIndex < frameInfo->regionsCount; regionIndex++) {
 				DebugProfilerRegion* region = frameInfo->regions + regionIndex;
 
-				V3 center = {
+				V3 spanCenter = {
 					profilerPosX + frameIndexForDrawing * frameWidth + (f4(region->laneId) + 0.5f) * threadLaneTotalWidth,
 					profilerPosY + 0.5f * f4(region->maxT + region->minT) * profilerHeight,
 					0
 				};
-				V2 size = {
+				V2 spanSize = {
 					threadLaneWidth,
 					f4(region->maxT - region->minT) * profilerHeight
 				};
-				PushRect(debugRenderGroup, center, size, V2{ 0, 0 }, colors[colorIndexForDrawing]);
+				PushRect(debugRenderGroup, spanCenter, spanSize, V2{ 0, 0 }, colors[colorIndexForDrawing]);
+				DebugRecord* record = debugGlobalState->debugRecords[region->translationUnit] + region->recordIndex;
+				if (record->blockName) {
+					char buffer[256];
+					sprintf_s(buffer, "%25s", record->blockName);
+					context.color = colors[colorIndexForDrawing];
+					DebugRenderLine(font, buffer, context);
+				}
 
 				colorIndexForDrawing = (colorIndexForDrawing + 1) % ArrayCount(colors);
 			}
@@ -1827,11 +1819,14 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 			frameIndexForDrawing++;
 			frameInfo->regionsCount = 0;
 		}
-		for (u32 stackIndex = 0; stackIndex < debugState->eventStacksCount; stackIndex++) {
-			DebugEventStack* stack = debugState->eventStacks + stackIndex;
-			stack->events = 0;
-		}
-
+		f32 profilerWidth = f4(frameIndexForDrawing + 1) * frameWidth;
+		V3 targetFrameRateCenter = {
+			profilerPosX + 0.5f * profilerWidth,
+			profilerPosY + profilerHeight,
+			0
+		};
+		V2 targetFrameRateSize = { profilerWidth, 2.f };
+		PushRect(debugRenderGroup, targetFrameRateCenter, targetFrameRateSize, V2{ 0, 0 }, V4{0, 0, 0, 1});
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, tranState->highPriorityQueue);
 	}
 	EndRendering(debugRenderGroup);

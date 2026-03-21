@@ -9,7 +9,8 @@
 #define MAX_TRANSLATION_UNIT 3
 #define MAX_DEBUG_THREADS 64
 #define MAX_STACK_REGIONS 128
-#define DEBUG_CPU_FREQ (2.9f * 1024 * 1024)
+#define DEBUG_CPU_FREQ (2.9f * 1000 * 1000)
+#define DEBUG_TARGET_REFRESH_MS 16.6666666f
 static_assert(TRANSLATION_UNIT < MAX_TRANSLATION_UNIT);
 static_assert(MAX_DEBUG_RECORDS <= U16_MAX);
 
@@ -68,6 +69,7 @@ extern DebugGlobalState* debugGlobalState;
 
 struct OpenDebugEvent {
 	DebugEvent* event;
+	DebugEvent* parent;
 	OpenDebugEvent* next;
 };
 
