@@ -153,6 +153,8 @@ struct ProgramMemory {
 	void* permanentMemory;
 	u64 transientMemorySize;
 	void* transientMemory;
+	u64 debugMemorySize;
+	void* debugMemory;
 
 	PlatformQueue* highPriorityQueue;
 	PlatformQueue* lowPriorityQueue;

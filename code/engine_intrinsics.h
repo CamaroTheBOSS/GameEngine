@@ -30,6 +30,12 @@ u64 AtomicAddU64(volatile u64* dst, u64 adder) {
 }
 
 inline
+u32 GetFastThreadId() {
+	u64 threadLocalGsPtr = __readgsqword(0x30);
+	return *ptrcast(u32, threadLocalGsPtr + 0x48);
+}
+
+inline
 i32 RoundF32ToI32(f32 value) {
 	return scast(i32, roundf(value));
 }

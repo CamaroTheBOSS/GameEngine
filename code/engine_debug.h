@@ -4,9 +4,12 @@
 #define TRANSLATION_UNIT 0
 #endif
 #define MAX_DEBUG_EVENTS 262143
-#define MAX_DEBUG_FRAMES 120
+#define MAX_DEBUG_FRAMES 40
 #define MAX_DEBUG_RECORDS 65535
 #define MAX_TRANSLATION_UNIT 3
+#define MAX_DEBUG_THREADS 64
+#define MAX_STACK_REGIONS 128
+#define DEBUG_CPU_FREQ (2.9f * 1024 * 1024)
 static_assert(TRANSLATION_UNIT < MAX_TRANSLATION_UNIT);
 static_assert(MAX_DEBUG_RECORDS <= U16_MAX);
 
@@ -26,9 +29,26 @@ struct DebugEvent {
 	DebugEventType type;
 	u32 debugRecordIndex;
 	u32 threadId;
-	u32 coreId;
 	u32 hitCount;
+	u32 coreId;
+	u32 translationUnit;
 	u64 cycles;
+};
+
+struct DebugProfilerRegion {
+	f32 minT;
+	f32 maxT;
+	u32 laneId;
+	u32 recordIndex;
+	u32 translationUnit;
+};
+
+struct DebugFrameInfo {
+	u64 startCycles;
+	u64 endCycles;
+
+	u32 regionsCount;
+	DebugProfilerRegion regions[MAX_STACK_REGIONS];
 };
 
 struct DebugGlobalState {
@@ -37,37 +57,62 @@ struct DebugGlobalState {
 
 	DebugEvent debugEvents[MAX_DEBUG_FRAMES][MAX_DEBUG_EVENTS];
 	u32 debugEventsCount[MAX_DEBUG_FRAMES];
+
 	volatile u64 frameAndEventIndex;
+	DebugFrameInfo frameInfos[MAX_DEBUG_FRAMES];
 };
 
 extern u32 debugRecordsCount_Main;
 extern u32 debugRecordsCount_Optimized;
 extern DebugGlobalState* debugGlobalState;
 
+struct OpenDebugEvent {
+	DebugEvent* event;
+	OpenDebugEvent* next;
+};
+
+struct DebugEventStack {
+	u32 threadId;
+	u32 laneId;
+	OpenDebugEvent* events;
+};
+
+struct DebugState {
+	MemoryArena arena;
+
+	u32 eventStacksCount;
+	DebugEventStack eventStacks[MAX_DEBUG_THREADS];
+	OpenDebugEvent* openEventFreeList;
+
+	u64 targetFrameRdtsc;
+	bool isInitialized;
+};
+
 inline
 void RecordDebugEvent(u32 counter, DebugEventType type, u32 hitCount = 1) {
 	u64 frameAndEventIndex = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);
 	u32 frameIndex = frameAndEventIndex >> 32;
-	u32 eventIndex = frameAndEventIndex && U32_MAX;
+	u32 eventIndex = frameAndEventIndex & U32_MAX;
 	Assert(eventIndex < MAX_DEBUG_EVENTS);
 	DebugEvent* event = debugGlobalState->debugEvents[frameIndex] + eventIndex;
 	event->debugRecordIndex = counter;
 	event->cycles = __rdtscp(&event->coreId);
 	event->hitCount = hitCount;
 	event->type = type;
-	u64 threadLocalGsPtr = __readgsqword(0x30);
-	event->threadId = *ptrcast(u32, threadLocalGsPtr + 0x48);
+	event->translationUnit = TRANSLATION_UNIT;
+	event->threadId = GetFastThreadId();
 }
 
 #define TIMED_FUNCTION__(line) TimedBlock block##line(__FILE__, __FUNCTION__, __LINE__, __COUNTER__)
 #define TIMED_FUNCTION_(line) TIMED_FUNCTION__(line)
 #define TIMED_FUNCTION TIMED_FUNCTION_(__LINE__)
 
-#define TIMED_BLOCK_BEGIN__(counter, fileName, name, lineNumber) \
+#define TIMED_BLOCK_BEGIN__(counter, fileName, name, lineNumber)									\
 	DebugRecord* record##lineNumber = debugGlobalState->debugRecords[TRANSLATION_UNIT] + counter;	\
-	record##lineNumber->file = fileName;																\
-	record##lineNumber->blockName = name;														\
-	record##lineNumber->line = lineNumber;
+	record##lineNumber->file = fileName;															\
+	record##lineNumber->blockName = name;															\
+	record##lineNumber->line = lineNumber;															\
+	RecordDebugEvent(counter, Event_BlockBegin);
 #define TIMED_BLOCK_BEGIN_(counter, fileName, name, lineNumber) \
 	TIMED_BLOCK_BEGIN__(counter, fileName, name, lineNumber)
 #define TIMED_BLOCK_BEGIN(blockName)		\
@@ -79,9 +124,12 @@ void RecordDebugEvent(u32 counter, DebugEventType type, u32 hitCount = 1) {
 #define TIMED_BLOCK_END(blockName) \
 	TIMED_BLOCK_END_(counter##blockName)
 
-#define MARKUP_FRAME { \
-	u32 newFrameIndex = ((debugGlobalState->frameAndEventIndex >> 32) + 1) % MAX_DEBUG_FRAMES; \
+#define MARKUP_FRAME(cyclesStart, cyclesEnd) { \
+	u32 newFrameIndex = ((debugGlobalState->frameAndEventIndex >> 32) + 1) % MAX_DEBUG_FRAMES;						\
 	u64 oldFrameAndEventIndex = AtomicExchangeU64(&debugGlobalState->frameAndEventIndex, u64(newFrameIndex) << 32); \
+	u32 oldFrameIndex = oldFrameAndEventIndex >> 32;																\
+	DebugFrameInfo* info = debugGlobalState->frameInfos + oldFrameIndex;											\
+	info->startCycles = cyclesStart; info->endCycles = cyclesEnd;									\
 	debugGlobalState->debugEventsCount[oldFrameAndEventIndex >> 32] = oldFrameAndEventIndex & U32_MAX; }
 
 struct ManualTimedBlock {
@@ -101,6 +149,6 @@ struct TimedBlock {
 	}
 };
 
-struct TransientState;
+struct ProgramMemory;
 struct LoadedBitmap;
-void DebugRenderOverlay(TransientState* state, LoadedBitmap& dstBitmap);
+void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap);

@@ -1003,9 +1003,10 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.debug.GetCurrThreadId = Win32GetCurrentThreadId;
 	programMemory.permanentMemorySize = MB(64);
 	programMemory.transientMemorySize = MB(512);
-	//programMemory.debugMemorySize = MB(512);
-	programMemory.memoryBlockSize = programMemory.permanentMemorySize + programMemory.transientMemorySize;
-		//+ programMemory.debugMemorySize;
+	programMemory.debugMemorySize = MB(512);
+	programMemory.memoryBlockSize = programMemory.permanentMemorySize + 
+		programMemory.transientMemorySize +
+		programMemory.debugMemorySize;
 	programMemory.memoryBlock = VirtualAlloc(
 		MEM_ALLOC_START,
 		programMemory.memoryBlockSize,
@@ -1020,10 +1021,11 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.permanentMemory = programMemory.memoryBlock;
 	programMemory.transientMemory = ptrcast(void, ptrcast(u8, programMemory.permanentMemory) + 
 		programMemory.permanentMemorySize);
-	//programMemory.debugMemory = ptrcast(void, ptrcast(u8, programMemory.transientMemory) +
-	//	programMemory.transientMemorySize);
+	programMemory.debugMemory = ptrcast(void, ptrcast(u8, programMemory.transientMemory) +
+		programMemory.transientMemorySize);
 	Assert(programMemory.permanentMemorySize >= sizeof(ProgramState));
 	Assert(programMemory.transientMemorySize >= sizeof(TransientState));
+	Assert(programMemory.debugMemorySize >= sizeof(DebugState) || programMemory.debugMemorySize == 0);
 	state.dLoopRecord.stateMemoryBlock = VirtualAlloc(
 		0, programMemory.permanentMemorySize + programMemory.transientMemorySize,
 		MEM_RESERVE | MEM_COMMIT,
@@ -1179,22 +1181,17 @@ int CALLBACK WinMain(
 		return 0;
 	}
 	u32 soundSamplesToWriteEachFrame = u4(globalSoundData.dataFormat.Format.nSamplesPerSec * refreshSecondsWithSafetyMargin);
+	QueryPerformanceFrequency(&globalPerformanceFreq);
+
+	Win32ReloadGameCode(gameCode);
+	debugGlobalState = gameCode.DebugInit(programMemory);
+	debugGlobalState->debugRecordsCount[TRANSLATION_UNIT] = DebugRecordsCount_Platform;
 
 	u64 rdtscStart = __rdtsc();
 	u64 frameStartTime = Win32GetCurrentTimestamp();
-	QueryPerformanceFrequency(&globalPerformanceFreq);
-
 	while (globalRunning) {
-		MARKUP_FRAME;
-		{
-			u32 newFrameIndex = ((debugGlobalState->frameAndEventIndex >> 32) + 1) % MAX_DEBUG_FRAMES;																	\
-			u64 oldFrameAndEventIndex = AtomicExchangeU64(&debugGlobalState->frameAndEventIndex, u64(newFrameIndex) << 32);
-			debugGlobalState->debugEventsCount[oldFrameAndEventIndex >> 32] = oldFrameAndEventIndex & U32_MAX;
-		}
 		TIMED_BLOCK_BEGIN(InputProcessing);
 		Win32ReloadGameCode(gameCode);
-		debugGlobalState = gameCode.DebugInit(programMemory);
-		debugGlobalState->debugRecordsCount[TRANSLATION_UNIT] = DebugRecordsCount_Platform;
 
 		// TODO: ResetInput for Gamepad as well!
 		ResetInput(inputData.controllers[KB_CONTROLLER_IDX]);
@@ -1218,7 +1215,6 @@ int CALLBACK WinMain(
 
 		// PART: Timing stuff
 		TIMED_BLOCK_BEGIN(WaitTillNextFrame);
-		u64 rdtscEnd = __rdtsc();
 		u64 frameEndTime = Win32GetCurrentTimestamp();
 		f32 secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
 		f32 desiredSleepTimeMs = 1000.0f * (targetFrameRefreshSeconds - secondsElapsedForFrame) - 5;
@@ -1238,14 +1234,6 @@ int CALLBACK WinMain(
 		}
 		frameStartTime = frameEndTime;
 		TIMED_BLOCK_END(WaitTillNextFrame);
-
-		// TODO: Move this to debugoverlay
-#if 1
-		float msElapsed = 1'000.f * secondsElapsedForFrame;
-		float fps = 1'000.f / msElapsed;
-		float megaCycles = static_cast<float>(rdtscEnd - rdtscStart) / 1'000'000.f;
-		rdtscStart = rdtscEnd;
-#endif
 		TIMED_BLOCK_BEGIN(DisplayWindow);
 		// PART: Displaying window
 		auto dim = GetWindowDimension(window);
@@ -1281,6 +1269,10 @@ int CALLBACK WinMain(
 			LPCTSTR errMsg = err.ErrorMessage();
 		}
 		TIMED_BLOCK_END(GatherAndRenderSound);
+		u64 rdtscEnd = __rdtsc();
+		MARKUP_FRAME(rdtscStart, rdtscEnd);
+		u64 diff = rdtscEnd - rdtscStart;
+		rdtscStart = rdtscEnd;
 	}
 	return 0;
 }
