@@ -1,4 +1,4 @@
-#include "engine_world.h"
+#include "engine.h"
 
 #define CHUNK_DIM_IN_TILES 4
 #define CHUNK_HEIGHT_IN_TILES 1
@@ -67,6 +67,7 @@ WorldPosition GetChunkPositionFromWorldPosition(World& world, i32 absX, i32 absY
 
 internal
 WorldChunk* GetWorldChunk(World& world, i32 chunkX, i32 chunkY, i32 chunkZ, MemoryArena* arena) {
+	TIMED_FUNCTION;
 	static_assert((ArrayCount(world.hashWorldChunks) & (ArrayCount(world.hashWorldChunks) - 1)) == 0 &&
 					"hashValue is ANDed with a mask based with assert that the size of hashWorldChunks is power of two");
 	Assert(chunkX > INT32_MIN + CHUNK_SAFE_MARGIN);
@@ -219,6 +220,7 @@ internal
 void ChangeEntityChunkLocationRaw(World& world, MemoryArena& arena, u32 lowEntityIndex,
 	WorldPosition* oldPos, WorldPosition& newPos)
 {
+	TIMED_FUNCTION;
 	if (oldPos && AreOnTheSameChunk(*oldPos, newPos)) {
 		return;
 	}

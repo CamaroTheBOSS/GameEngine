@@ -1,4 +1,4 @@
-#include "engine_simulation.h"
+#include "engine.h"
 
 internal
 u32 AddEntity(World& world, EntityStorage& storage) {
@@ -49,6 +49,7 @@ Entity* GetEntityByStorageIndex(SimRegion& simRegion, u32 storageEntityIndex) {
 
 inline
 void TryAddEntityToSim(SimRegion& simRegion, World& world, u32 storageEntityIndex, Entity& entity) {
+	TIMED_FUNCTION;
 	V3 simSpacePos = Subtract(world, entity.worldPos, simRegion.origin);
 	if (!IsInRectangle(simRegion.bounds, simSpacePos)) {
 		return;
@@ -76,6 +77,7 @@ internal
 SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 	WorldPosition& origin, Rect3 bounds)
 {
+	TIMED_FUNCTION;
 	SimRegion* simRegion = PushStructSize(simArena, SimRegion);
 	simRegion->entityCount = 0;
 	simRegion->maxEntityCount = ArrayCount(simRegion->entities);
@@ -108,6 +110,7 @@ SimRegion* BeginSimulation(MemoryArena& simArena, World& world,
 
 internal
 void EndSimulation(SimRegion& simRegion, World& world) {
+	TIMED_FUNCTION;
 	for (u32 entityIndex = 0; entityIndex < simRegion.entityCount; entityIndex++) {
 		Entity* entity = simRegion.entities + entityIndex;
 		EntityStorage* storage = GetEntityStorage(world, entity->storageIndex);

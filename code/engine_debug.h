@@ -90,6 +90,8 @@ struct DebugState {
 	u32 frameWriteIndex;
 	DebugFrameInfo* frames;
 
+	DebugRecord* selectedRecord;
+
 	bool paused;
 	bool restartRequested;
 	bool isInitialized;

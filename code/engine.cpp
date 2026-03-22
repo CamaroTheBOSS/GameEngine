@@ -479,6 +479,7 @@ void ClearCollisionRuleForEntityPair(World& world, u32 firstStorageIndex, u32 se
 
 internal
 void ClearCollisionRuleForEntity(World& world, u32 entityStorageIndex) {
+	TIMED_FUNCTION;
 	u32 hash = GetCollisionHashValue(world, entityStorageIndex);
 	PairwiseCollision* firstBlock = world.hashCollisions[hash];
 	if (!firstBlock) {
@@ -561,6 +562,7 @@ void HandleOverlap(World& world, Entity& mover, Entity& obstacle, f32* ground) {
 
 internal 
 bool EntitiesOverlaps(Entity& entity, Entity& other) {
+	TIMED_FUNCTION;
 	for (u32 entityVolumeIndex = 0;
 		entityVolumeIndex < entity.collision->volumeCount;
 		entityVolumeIndex++) {
@@ -642,6 +644,7 @@ bool HandleCollision(World& world, Entity& mover, Entity& obstacle) {
 
 internal
 void MoveEntity(SimRegion& simRegion, ProgramState* state, World& world, Entity& entity, V3 acceleration, f32 dt) {
+	TIMED_FUNCTION;
 	f32 distanceRemaining = (entity.distanceRemaining != 0.f) ?
 		entity.distanceRemaining :
 		100000.f;
@@ -979,6 +982,7 @@ bool WasPressed(Button& button) {
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
+	TIMED_FUNCTION;
 	debugGlobalMemory = &memory.debug;
 	Platform = &memory.platformAPI;
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);

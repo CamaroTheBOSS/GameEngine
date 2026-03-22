@@ -146,6 +146,7 @@ V4 SampleEnvMap(EnvironmentMap envMap, V2 screenSpaceUV, V3 rayDirection) {
 
 internal
 void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color, bool even, Rect2i clipRect) {
+	TIMED_FUNCTION;
 	Rect2i fillRect;
 	fillRect.minY = FloorF32ToI32(start.Y);
 	fillRect.maxY = CeilF32ToI32(end.Y) + 1;
@@ -199,6 +200,7 @@ void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color
 // TODO: Do I really need Opaque version for faster rendering when I know alpha is 255.f?
 internal
 void RenderRectangleOpaque(LoadedBitmap& bitmap, V2 start, V2 end, V3 color) {
+	TIMED_FUNCTION;
 	i32 minX = RoundF32ToI32(start.X);
 	i32 maxX = RoundF32ToI32(end.X);
 	i32 minY = RoundF32ToI32(start.Y);
@@ -235,6 +237,7 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 	LoadedBitmap& texture, LoadedBitmap* normalMap, EnvironmentMap* topMap, 
 	EnvironmentMap* middleMap, EnvironmentMap* bottomMap)
 {
+	TIMED_FUNCTION;
 	u32 colorU32 =  (scast(u32, 255 * color.A) << 24) +
 					(scast(u32, 255 * color.R) << 16) +
 					(scast(u32, 255 * color.G) << 8) +
@@ -414,6 +417,7 @@ void RenderRectangleSlowly(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, 
 
 internal
 void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 position) {
+	TIMED_FUNCTION;
 	i32 minX = RoundF32ToI32(position.X);
 	i32 maxX = minX + loadedBitmap.width;
 	i32 minY = RoundF32ToI32(position.Y);
@@ -478,6 +482,7 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 
 internal
 void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i clipRect, bool even) {
+	TIMED_FUNCTION;
 	u32 relativeRenderAddress = 0;
 	while (relativeRenderAddress < group.pushBufferSize) {
 		RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + relativeRenderAddress);
@@ -725,6 +730,7 @@ bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height,
 
 inline
 bool PushBitmap(RenderGroup& group, BitmapId bid, V3 center, f32 height, V2 offset, V4 color) {
+	TIMED_FUNCTION;
 	LoadedBitmap* bitmap = GetBitmap(*group.assets, bid, group.generationId);
 	if (!bitmap && group.renderInBackground) {
 		// Note: If rendering in background, we want to always grab the bitmap no matter

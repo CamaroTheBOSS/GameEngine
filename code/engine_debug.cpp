@@ -110,6 +110,18 @@ DebugEventStack* GetDebugStackForThread(DebugState* state, u32 threadId) {
 	return stack;
 }
 
+bool IsEventRecordingNeeded(OpenDebugEvent* openingEvent, DebugRecord* record) {
+	if (!record) {
+		return !openingEvent->parent;
+	}
+	if (!openingEvent->parent) {
+		return false;
+	}
+	DebugRecord* another = debugGlobalState->debugRecords[openingEvent->parent->translationUnit] + openingEvent->parent->debugRecordIndex;
+	bool result = (another->file == record->file) && (another->line == record->line);
+	return result;
+}
+
 #include <stdio.h>
 void DebugCollateEvents(DebugState* debugState) {
 	TemporaryMemory stackMemory = BeginTempMemory(debugState->arena);
@@ -156,7 +168,7 @@ void DebugCollateEvents(DebugState* debugState) {
 						openEvent->translationUnit == event->translationUnit &&
 						openEvent->threadId == event->threadId)
 					{
-						if (!openingDebugEvent->parent) {
+						if (IsEventRecordingNeeded(openingDebugEvent, debugState->selectedRecord)) {
 							f32 minT = f4(openEvent->cycles - frameInfo->startCycles) * scale;
 							f32 maxT = f4(event->cycles - frameInfo->startCycles) * scale;
 							f32 thresholdT = 0.01f;
@@ -213,9 +225,9 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		mousePos = Hadamard(mousePos, V2i(dstBitmap.width, dstBitmap.height));
 		if (WasPressed(controller.B.mouseRight)) {
 			debugState->paused = !debugState->paused;
-			debugState->restartRequested = true;
+			debugState->restartRequested = debugState->restartRequested || !debugState->paused;
 		}
-
+		DebugRecord* hotRecord = 0;
 		f32 fontScale = 0.15f;
 		V4 fontColor = V4{ 0.8f, 0.8f, 0.8f, 1 };
 		debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
@@ -275,10 +287,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 						V2 textPos = mousePos + V2{ 0, 10.f };
 						DebugRenderLine(font, buffer, textPos, fontScale, fontColor);
 					}
-					if (WasPressed(controller.B.mouseLeft)) {
-						char text[] = "Was Pressed";
-						DebugRenderLine(font, text, V2{ 0, 80 }, 0.3f, V4{ 1, 1, 1, 1 });
-					}
+					hotRecord = record;
 				}
 				colorIndexForDrawing = (colorIndexForDrawing + 1) % ArrayCount(colors);
 			}
@@ -292,6 +301,11 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		};
 		V2 targetFrameRateSize = { profilerWidth, 2.f };
 		PushRect(debugRenderGroup, targetFrameRateCenter, targetFrameRateSize, V2{ 0, 0 }, V4{ 0, 0, 0, 1 });
+
+		if (WasPressed(controller.B.mouseLeft)) {
+			debugState->selectedRecord = hotRecord;
+			debugState->restartRequested = debugState->paused;
+		}
 
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, tranState->highPriorityQueue);
 	}
@@ -333,12 +347,13 @@ extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory) {
 		ResetDebugCollation(debugState, frameWriteIndex);
 		debugState->isInitialized = true;
 	}
-	if (debugState->paused) {
-		return 0;
-	}
 	if (debugState->restartRequested) {
 		ResetDebugCollation(debugState, frameWriteIndex);
 	}
+	if (debugState->paused) {
+		return 0;
+	}
+	
 	DebugCollateEvents(debugState);
 	DebugFrameInfo* result = debugState->frames + frameWriteIndex;
 	return result;
