@@ -31,6 +31,7 @@ u32 GetFontLineAdvance(LoadedFont* font) {
 	return font->metrics.ascent + font->metrics.descent + font->metrics.externalLeading;
 }
 
+inline
 u32 HexToInt(char c) {
 	if (c >= 'A' && c <= 'F') {
 		return c - 'A' + 10;
@@ -42,6 +43,7 @@ u32 HexToInt(char c) {
 	return 0;
 }
 
+internal
 void DebugRenderLine(LoadedFont* font, char* text, V2 pos, f32 scale, V4 color) {
 	u32 prevChar = 0;
 	f32 spaceAdvance = scale * 55;
@@ -80,6 +82,7 @@ void DebugRenderLine(LoadedFont* font, char* text, V2 pos, f32 scale, V4 color) 
 	}
 }
 
+internal
 void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 	DebugRenderLine(font, text, context.leftTopCurrent, context.scale, context.color);
 	context.leftTopCurrent.E[1] -= context.scale * GetFontLineAdvance(font);
@@ -127,9 +130,6 @@ void DebugCollateEvents(DebugState* debugState) {
 			eventIndex++
 			) {
 			DebugEvent* event = eventsInFrame + eventIndex;
-			if (event->translationUnit == 0) {
-				int breakhere = 5;
-			}
 			if (event->type == Event_BlockBegin) {
 				DebugEventStack* stack = GetDebugStackForThread(debugState, event->threadId);
 				OpenDebugEvent* newOpenEvent = debugState->openEventFreeList;
@@ -217,8 +217,8 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		Assert(debugGlobalState->debugRecordsCount[MAX_TRANSLATION_UNIT - 1] != 0);
 
 		// Collate debug events
-		f32 profilerPosY = -200.f;
-		f32 profilerPosX = -350.f;
+		f32 profilerPosY = -0.4f * f4(dstBitmap.height);
+		f32 profilerPosX = -0.5f * f4(dstBitmap.width);
 		f32 profilerHeight = 200.f;
 		f32 threadLaneWidth = 8.f;
 		f32 threadLaneSpace = 2.f;
@@ -320,7 +320,6 @@ extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory) {
 		ResetDebugCollation(debugState, frameWriteIndex);
 		debugState->isInitialized = true;
 	}
-	//ResetDebugCollation(debugState, frameWriteIndex);
 	DebugCollateEvents(debugState);
 	DebugFrameInfo* result = debugState->frames + frameWriteIndex;
 	return result;
