@@ -30,7 +30,7 @@ extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub) {
 	}
 }
 extern "C" DEBUG_INIT(DebugInitStub) { return debugGlobalState; }
-extern "C" DEBUG_FINISH_FRAME(DebugFinishFrameStub) {};
+extern "C" DEBUG_FINISH_FRAME(DebugFinishFrameStub) { return 0; };
 
 struct SoundRenderData {
 	IMMDevice* device;
@@ -1276,9 +1276,11 @@ int CALLBACK WinMain(
 		}
 		TIMED_BLOCK_END(GatherAndRenderSound);
 
-		gameCode.DebugFinishFrame(programMemory);
+		DebugFrameInfo* frameInfo = gameCode.DebugFinishFrame(programMemory);
 		u64 rdtscEnd = __rdtsc();
-		MARKUP_FRAME(rdtscStart, rdtscEnd);
+		if (frameInfo) {
+			MARKUP_FRAME(frameInfo, rdtscStart, rdtscEnd);
+		}
 		rdtscStart = rdtscEnd;
 	}
 	return 0;

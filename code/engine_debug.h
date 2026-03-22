@@ -60,7 +60,6 @@ struct DebugGlobalState {
 	u32 debugEventsCount[MAX_DEBUG_FRAMES];
 
 	volatile u64 frameAndEventIndex;
-	DebugFrameInfo frameInfos[MAX_DEBUG_FRAMES];
 };
 
 extern u32 debugRecordsCount_Main;
@@ -86,6 +85,11 @@ struct DebugState {
 	u32 eventStacksCount;
 	DebugEventStack* eventStacks;
 	OpenDebugEvent* openEventFreeList;
+
+	u32 frameCount;
+	u32 maxFrameCount;
+	u32 currentFrame;
+	DebugFrameInfo* frames;
 
 	bool isInitialized;
 };
@@ -125,12 +129,11 @@ struct DebugState {
 #define TIMED_BLOCK_END(blockName) \
 	TIMED_BLOCK_END_(counter##blockName)
 
-#define MARKUP_FRAME(cyclesStart, cyclesEnd) { \
+#define MARKUP_FRAME(frameInfo, cyclesStart, cyclesEnd) { \
 	u32 newFrameIndex = ((debugGlobalState->frameAndEventIndex >> 32) + 1) % MAX_DEBUG_FRAMES;						\
 	u64 oldFrameAndEventIndex = AtomicExchangeU64(&debugGlobalState->frameAndEventIndex, u64(newFrameIndex) << 32); \
 	u32 oldFrameIndex = oldFrameAndEventIndex >> 32;																\
-	DebugFrameInfo* info = debugGlobalState->frameInfos + oldFrameIndex;											\
-	info->startCycles = cyclesStart; info->endCycles = cyclesEnd;									\
+	frameInfo->startCycles = cyclesStart; frameInfo->endCycles = cyclesEnd;									\
 	debugGlobalState->debugEventsCount[oldFrameAndEventIndex >> 32] = oldFrameAndEventIndex & U32_MAX; }
 
 struct ManualTimedBlock {
