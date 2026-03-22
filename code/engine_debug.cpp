@@ -132,9 +132,11 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		FontDrawContext context = {};
 		context.scale = 0.15f;
 		context.color = V4{ 0.8f, 0.8f, 0.8f, 1 };
-		context.leftEdge = context.leftCurrent = -0.5f * dstBitmap.width;
-		context.topEdge = context.topCurrent = 0.5f * dstBitmap.height -
-			context.scale * font->metrics.ascent;
+		context.leftTopStart = V2{
+			-0.5f * f4(dstBitmap.width),
+			0.5f * f4(dstBitmap.height) - context.scale * f4(font->metrics.ascent)
+		};
+		context.leftTopCurrent = context.leftTopStart;
 
 		debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
 		debugGlobalState->debugRecordsCount[1] = debugRecordsCount_Optimized;
@@ -191,6 +193,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 							record->file,
 							record->line
 						);
+						context.leftTopCurrent = mousePos;
 						//context.color = colors[colorIndexForDrawing];
 						DebugRenderLine(font, buffer, context);
 					}

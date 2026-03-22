@@ -1028,21 +1028,21 @@ void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 			AssetMetadata* metadata = GetAssetMetadata(*debugRenderGroup.assets, bid.id);
 			f32 width = f4(metadata->_bitmapInfo.width);
 			f32 height = f4(metadata->_bitmapInfo.height);
-			context.leftCurrent += context.scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
-			V3 anchor = V3{ context.leftCurrent, context.topCurrent, 0 };
+			context.leftTopCurrent.E[0] += context.scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
+			V3 anchor = ToV3(context.leftTopCurrent, 0);
 			PushBitmap(debugRenderGroup, bid, anchor, context.scale * height, V2{ 0, 0 }, context.color);
 #if 0
 			PushRect(debugRenderGroup, anchor, V2{ 6, 6 }, V2{ 0, 0 }, V4{ 0, 0, 1, 1 });
 #endif
 		}
 		else {
-			context.leftCurrent += context.scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
+			context.leftTopCurrent.E[0] += context.scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
 		}
 		
 		prevChar = codepoint;
 	}
-	context.leftCurrent = context.leftEdge;
-	context.topCurrent -= context.scale * GetFontLineAdvance(font);
+	context.leftTopCurrent.E[0] = context.leftTopStart.E[0];
+	context.leftTopCurrent.E[1] -= context.scale * GetFontLineAdvance(font);
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {

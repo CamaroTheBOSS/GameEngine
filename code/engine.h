@@ -229,10 +229,8 @@ struct GroundBuffer {
 
 struct FontDrawContext {
 	f32 scale;
-	f32 leftEdge;
-	f32 leftCurrent;
-	f32 topEdge;
-	f32 topCurrent;
+	V2 leftTopStart;
+	V2 leftTopCurrent;
 	V4 color;
 };
 
