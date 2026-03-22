@@ -81,12 +81,12 @@ struct DebugEventStack {
 
 struct DebugState {
 	MemoryArena arena;
+	TemporaryMemory scratchBuffer;
 
 	u32 eventStacksCount;
-	DebugEventStack eventStacks[MAX_DEBUG_THREADS];
+	DebugEventStack* eventStacks;
 	OpenDebugEvent* openEventFreeList;
 
-	u64 targetFrameRdtsc;
 	bool isInitialized;
 };
 

@@ -19,7 +19,7 @@ DebugEventStack* GetDebugStackForThread(DebugState* state, u32 threadId) {
 			return stack;
 		}
 	}
-	Assert(state->eventStacksCount < ArrayCount(state->eventStacks));
+	Assert(state->eventStacksCount < MAX_DEBUG_THREADS);
 	DebugEventStack* stack = state->eventStacks + state->eventStacksCount++;
 	stack->threadId = threadId;
 	stack->laneId = state->eventStacksCount - 1;
@@ -32,7 +32,6 @@ DebugEventStack* GetDebugStackForThread(DebugState* state, u32 threadId) {
 
 #include <stdio.h>
 void DebugCollateEvents(DebugState* debugState) {
-	TemporaryMemory collationMemory = BeginTempMemory(debugState->arena);
 	u32 currentFrameIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
 	f32 scale = 1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ);
 	for (u32 frameIndex = currentFrameIndex;;) {
@@ -108,7 +107,6 @@ void DebugCollateEvents(DebugState* debugState) {
 			}
 		}
 	}
-	EndTempMemory(collationMemory);
 }
 
 void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
@@ -204,15 +202,6 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, tranState->highPriorityQueue);
 	}
 	EndRendering(debugRenderGroup);
-
-
-	for (u32 stackIndex = 0; stackIndex < debugState->eventStacksCount; stackIndex++) {
-		DebugEventStack* stack = debugState->eventStacks + stackIndex;
-		stack->threadId = 0;
-		stack->laneId = 0;
-		stack->events = 0;
-	}
-	debugState->eventStacksCount = 0;
 }
 
 extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {
@@ -230,7 +219,15 @@ extern "C" void DebugFinishFrame(ProgramMemory* memory) {
 			ptrcast(u8, memory->debugMemory) + sizeof(DebugState),
 			memory->debugMemorySize - sizeof(DebugState)
 		);
+		debugState->openEventFreeList = 0;
+		debugState->eventStacksCount = 0;
+		debugState->scratchBuffer = BeginTempMemory(debugState->arena);
 		debugState->isInitialized = true;
 	}
+	EndTempMemory(debugState->scratchBuffer);
+	debugState->openEventFreeList = 0;
+	debugState->eventStacksCount = 0;
+	debugState->scratchBuffer = BeginTempMemory(debugState->arena);
+	debugState->eventStacks = PushArray(debugState->arena, MAX_DEBUG_THREADS, DebugEventStack);
 	DebugCollateEvents(debugState);
 }
