@@ -42,9 +42,9 @@ u32 HexToInt(char c) {
 	return 0;
 }
 
-void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
+void DebugRenderLine(LoadedFont* font, char* text, V2 pos, f32 scale, V4 color) {
 	u32 prevChar = 0;
-	f32 spaceAdvance = context.scale * 55;
+	f32 spaceAdvance = scale * 55;
 	for (char* at = text; *at; at++) {
 		u32 codepoint = 0;
 		if (*at == '\\' &&
@@ -69,20 +69,19 @@ void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
 			AssetMetadata* metadata = GetAssetMetadata(*debugRenderGroup.assets, bid.id);
 			f32 width = f4(metadata->_bitmapInfo.width);
 			f32 height = f4(metadata->_bitmapInfo.height);
-			context.leftTopCurrent.E[0] += context.scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
-			V3 anchor = ToV3(context.leftTopCurrent, 0);
-			PushBitmap(debugRenderGroup, bid, anchor, context.scale * height, V2{ 0, 0 }, context.color);
-#if 0
-			PushRect(debugRenderGroup, anchor, V2{ 6, 6 }, V2{ 0, 0 }, V4{ 0, 0, 1, 1 });
-#endif
+			pos.X += scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
+			V3 anchor = ToV3(pos, 0);
+			PushBitmap(debugRenderGroup, bid, anchor, scale * height, V2{ 0, 0 }, color);
 		}
 		else {
-			context.leftTopCurrent.E[0] += context.scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
+			pos.X += scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
 		}
-
 		prevChar = codepoint;
 	}
-	context.leftTopCurrent.E[0] = context.leftTopStart.E[0];
+}
+
+void DebugRenderLine(LoadedFont* font, char* text, FontDrawContext& context) {
+	DebugRenderLine(font, text, context.leftTopCurrent, context.scale, context.color);
 	context.leftTopCurrent.E[1] -= context.scale * GetFontLineAdvance(font);
 }
 
@@ -205,15 +204,8 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		V2 mousePos = { controller.mouse.X - 0.5f, controller.mouse.Y - 0.5f };
 		mousePos = Hadamard(mousePos, V2i(dstBitmap.width, dstBitmap.height));
 
-		FontDrawContext context = {};
-		context.scale = 0.15f;
-		context.color = V4{ 0.8f, 0.8f, 0.8f, 1 };
-		context.leftTopStart = V2{
-			-0.5f * f4(dstBitmap.width),
-			0.5f * f4(dstBitmap.height) - context.scale * f4(font->metrics.ascent)
-		};
-		context.leftTopCurrent = context.leftTopStart;
-
+		f32 fontScale = 0.15f;
+		V4 fontColor = V4{ 0.8f, 0.8f, 0.8f, 1 };
 		debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
 		debugGlobalState->debugRecordsCount[1] = debugRecordsCount_Optimized;
 		Assert(debugGlobalState->debugRecordsCount[MAX_TRANSLATION_UNIT - 1] != 0);
@@ -269,14 +261,9 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 							record->file,
 							record->line
 						);
-						context.leftTopCurrent = mousePos;
-						//context.color = colors[colorIndexForDrawing];
-						DebugRenderLine(font, buffer, context);
+						DebugRenderLine(font, buffer, mousePos, fontScale, fontColor);
 					}
 				}
-				/*char buffer[256];
-				sprintf_s(buffer, "MOUSE: %4f, %4f", mousePos.X, mousePos.Y);
-				DebugRenderLine(font, buffer, context);*/
 				colorIndexForDrawing = (colorIndexForDrawing + 1) % ArrayCount(colors);
 			}
 

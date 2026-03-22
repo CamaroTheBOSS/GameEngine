@@ -153,6 +153,13 @@ struct TimedBlock {
 	}
 };
 
+struct FontDrawContext {
+	f32 scale;
+	V2 leftTopStart;
+	V2 leftTopCurrent;
+	V4 color;
+};
+
 struct ProgramMemory;
 struct LoadedBitmap;
 struct InputData;

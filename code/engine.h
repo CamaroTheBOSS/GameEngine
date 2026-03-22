@@ -227,13 +227,6 @@ struct GroundBuffer {
 	GroundBufferState state;
 };
 
-struct FontDrawContext {
-	f32 scale;
-	V2 leftTopStart;
-	V2 leftTopCurrent;
-	V4 color;
-};
-
 struct TransientState {
 	MemoryArena arena;
 	GroundBuffer groundBuffers[256];
