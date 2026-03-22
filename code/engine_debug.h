@@ -86,9 +86,7 @@ struct DebugState {
 	DebugEventStack* eventStacks;
 	OpenDebugEvent* openEventFreeList;
 
-	u32 frameCount;
-	u32 maxFrameCount;
-	u32 currentFrame;
+	u32 frameReadIndex;
 	DebugFrameInfo* frames;
 
 	bool isInitialized;

@@ -107,17 +107,21 @@ DebugEventStack* GetDebugStackForThread(DebugState* state, u32 threadId) {
 
 #include <stdio.h>
 void DebugCollateEvents(DebugState* debugState) {
-	u32 currentFrameIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
-	f32 scale = 1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ);
-	for (u32 frameIndex = currentFrameIndex;;) {
-		frameIndex = (frameIndex + 1) % MAX_DEBUG_FRAMES;
-		if (frameIndex == currentFrameIndex) {
-			break;
-		}
-		DebugFrameInfo* frameInfo = debugState->frames + frameIndex;
+	TemporaryMemory stackMemory = BeginTempMemory(debugState->arena);
+	debugState->eventStacks = PushArray(debugState->arena, MAX_DEBUG_THREADS, DebugEventStack);
+	debugState->eventStacksCount = 0;
+	debugState->openEventFreeList = 0;
 
-		DebugEvent* eventsInFrame = debugGlobalState->debugEvents[frameIndex];
-		u32 eventsInFrameCount = debugGlobalState->debugEventsCount[frameIndex];
+	u32 frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
+	f32 scale = 1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ);
+	for (; 
+		debugState->frameReadIndex != frameWriteIndex;
+		debugState->frameReadIndex = (debugState->frameReadIndex + 1) % MAX_DEBUG_FRAMES
+		) {
+		DebugFrameInfo* frameInfo = debugState->frames + debugState->frameReadIndex;
+		frameInfo->regionsCount = 0;
+		DebugEvent* eventsInFrame = debugGlobalState->debugEvents[debugState->frameReadIndex];
+		u32 eventsInFrameCount = debugGlobalState->debugEventsCount[debugState->frameReadIndex];
 		for (u32 eventIndex = 0;
 			eventIndex < eventsInFrameCount;
 			eventIndex++
@@ -182,6 +186,8 @@ void DebugCollateEvents(DebugState* debugState) {
 			}
 		}
 	}
+
+	EndTempMemory(stackMemory);
 }
 
 void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputData& input) {
@@ -266,9 +272,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 				}
 				colorIndexForDrawing = (colorIndexForDrawing + 1) % ArrayCount(colors);
 			}
-
 			frameIndexForDrawing++;
-			frameInfo->regionsCount = 0;
 		}
 		f32 profilerWidth = f4(frameIndexForDrawing + 1) * frameWidth;
 		V3 targetFrameRateCenter = {
@@ -283,6 +287,18 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 	EndRendering(debugRenderGroup);
 }
 
+internal
+void ResetDebugCollation(DebugState* debugState, u32 frameWriteIndex) {
+	EndTempMemory(debugState->scratchBuffer);
+	CheckArena(debugState->arena);
+	debugState->openEventFreeList = 0;
+	debugState->eventStacksCount = 0;
+	debugState->eventStacks = 0;
+	debugState->frameReadIndex = (frameWriteIndex + 1) % MAX_DEBUG_FRAMES;
+	debugState->scratchBuffer = BeginTempMemory(debugState->arena);
+	debugState->frames = PushArray(debugState->arena, MAX_DEBUG_FRAMES, DebugFrameInfo);
+}
+
 extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {
 	return debugGlobalState;
 }
@@ -293,32 +309,19 @@ extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory) {
 		return 0;
 	}
 	DebugState* debugState = ptrcast(DebugState, memory->debugMemory);
+	u32 frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
 	if (!debugState->isInitialized) {
 		InitializeArena(
 			debugState->arena,
 			ptrcast(u8, memory->debugMemory) + sizeof(DebugState),
 			memory->debugMemorySize - sizeof(DebugState)
 		);
-		debugState->openEventFreeList = 0;
-		debugState->eventStacksCount = 0;
-		debugState->maxFrameCount = MAX_DEBUG_FRAMES;
-		debugState->frameCount = 0;
-		debugState->currentFrame = 0;
 		debugState->scratchBuffer = BeginTempMemory(debugState->arena);
+		ResetDebugCollation(debugState, frameWriteIndex);
 		debugState->isInitialized = true;
 	}
-	EndTempMemory(debugState->scratchBuffer);
-	debugState->openEventFreeList = 0;
-	debugState->eventStacksCount = 0;
-	debugState->currentFrame = 0;
-	debugState->frameCount = 0;
-	debugState->scratchBuffer = BeginTempMemory(debugState->arena);
-	debugState->eventStacks = PushArray(debugState->arena, MAX_DEBUG_THREADS, DebugEventStack);
-	debugState->frames = PushArray(debugState->arena, debugState->maxFrameCount, DebugFrameInfo);
+	//ResetDebugCollation(debugState, frameWriteIndex);
 	DebugCollateEvents(debugState);
-
-	u32 frameIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
-	DebugFrameInfo* result = debugState->frames + frameIndex;
-	//debugState->currentFrame = (debugState->currentFrame + 1) % debugState->maxFrameCount;
+	DebugFrameInfo* result = debugState->frames + frameWriteIndex;
 	return result;
 }
