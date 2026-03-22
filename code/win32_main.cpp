@@ -30,6 +30,7 @@ extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub) {
 	}
 }
 extern "C" DEBUG_INIT(DebugInitStub) { return debugGlobalState; }
+extern "C" DEBUG_FINISH_FRAME(DebugFinishFrameStub) {};
 
 struct SoundRenderData {
 	IMMDevice* device;
@@ -55,6 +56,7 @@ struct Win32GameCode {
 	_GameMainLoopFrame* GameMainLoopFrame = GameMainLoopFrameStub;
 	_GameFillSoundBuffer* GameFillSoundBuffer = GameFillSoundBufferStub;
 	_DebugInit* DebugInit = DebugInitStub;
+	_DebugFinishFrame* DebugFinishFrame = DebugFinishFrameStub;
 };
 
 struct DebugLoopRecord {
@@ -141,6 +143,7 @@ bool Win32LoadGameCode(Win32GameCode& gameCode) {
 		gameCode.GameMainLoopFrame = ptrcast(_GameMainLoopFrame, GetProcAddress(gameCode.dll, "GameMainLoopFrame"));
 		gameCode.GameFillSoundBuffer = ptrcast(_GameFillSoundBuffer, GetProcAddress(gameCode.dll, "GameFillSoundBuffer"));
 		gameCode.DebugInit = ptrcast(_DebugInit, GetProcAddress(gameCode.dll, "DebugInit"));
+		gameCode.DebugFinishFrame = ptrcast(_DebugFinishFrame, GetProcAddress(gameCode.dll, "DebugFinishFrame"));
 		gameCode.isValid = 
 			gameCode.GameMainLoopFrame != nullptr || 
 			gameCode.GameFillSoundBuffer != nullptr;
@@ -152,6 +155,9 @@ bool Win32LoadGameCode(Win32GameCode& gameCode) {
 	}
 	if (!gameCode.DebugInit) {
 		gameCode.DebugInit = DebugInitStub;
+	}
+	if (!gameCode.DebugFinishFrame) {
+		gameCode.DebugFinishFrame = DebugFinishFrameStub;
 	}
 	return success;
 }
@@ -1269,9 +1275,10 @@ int CALLBACK WinMain(
 			LPCTSTR errMsg = err.ErrorMessage();
 		}
 		TIMED_BLOCK_END(GatherAndRenderSound);
+
+		gameCode.DebugFinishFrame(programMemory);
 		u64 rdtscEnd = __rdtsc();
 		MARKUP_FRAME(rdtscStart, rdtscEnd);
-		u64 diff = rdtscEnd - rdtscStart;
 		rdtscStart = rdtscEnd;
 	}
 	return 0;

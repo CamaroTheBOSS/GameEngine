@@ -268,9 +268,12 @@ void EndBackgroundTask(TaskWithMemory* task) {
 #define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, InputData& input)
 #define GAME_FILL_SOUND_BUFFER(name) void name(ProgramMemory& memory, SoundData& soundData)
 #define DEBUG_INIT(name) DebugGlobalState* name(ProgramMemory& memory)
+#define DEBUG_FINISH_FRAME(name) void name(ProgramMemory& memory)
 typedef GAME_MAIN_LOOP_FRAME(_GameMainLoopFrame);
 typedef GAME_FILL_SOUND_BUFFER(_GameFillSoundBuffer);
 typedef DEBUG_INIT(_DebugInit);
+typedef DEBUG_FINISH_FRAME(_DebugFinishFrame);
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub);
 extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub);
 extern "C" DEBUG_INIT(DebugInitStub);
+extern "C" DEBUG_FINISH_FRAME(DebugFinishFrameStub);
