@@ -89,6 +89,8 @@ struct DebugState {
 	u32 frameReadIndex;
 	DebugFrameInfo* frames;
 
+	bool paused;
+	bool restartRequested;
 	bool isInitialized;
 };
 

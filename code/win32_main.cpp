@@ -827,32 +827,44 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 		case WM_QUIT: {
 			globalRunning = false;
 		} break;
-		case WM_LBUTTONUP: {
-			u32 vkCode = static_cast<u32>(msg.wParam);
-			bool wasDown = msg.lParam & (scast(LPARAM, 1) << 30);
-			bool isDown = !(msg.lParam & (scast(LPARAM, 1) << 31));
-			bool altIsDown = (msg.lParam & (scast(LPARAM, 1) << 29));
-			if (vkCode == VK_MBUTTON) {
-				controller.B.mouseMiddle.isDown = isDown;
-				controller.B.mouseMiddle.wasDown = wasDown;
-			}
-			else if (vkCode == VK_RBUTTON) {
-				controller.B.mouseRight.isDown = isDown;
-				controller.B.mouseRight.wasDown = wasDown;
-			}
-			else if (vkCode == VK_LBUTTON) {
-				controller.B.mouseLeft.isDown = isDown;
-				controller.B.mouseLeft.wasDown = wasDown;
-			}
-			else if (vkCode == VK_XBUTTON1) {
-				controller.B.mouse1B.isDown = isDown;
-				controller.B.mouse1B.wasDown = wasDown;
+		case WM_LBUTTONDOWN:
+			controller.B.mouseLeft.isDown = true;
+			controller.B.mouseLeft.wasDown = false;
+			break;
+		case WM_LBUTTONUP:
+			controller.B.mouseLeft.isDown = false;
+			controller.B.mouseLeft.wasDown = true;
+			break;
+		case WM_RBUTTONDOWN:
+			controller.B.mouseRight.isDown = true;
+			controller.B.mouseRight.wasDown = false;
+			break;
+		case WM_RBUTTONUP:
+			controller.B.mouseRight.isDown = false;
+			controller.B.mouseRight.wasDown = true;
+			break;
+		case WM_XBUTTONDOWN: {
+			u32 vkCode = u4(msg.wParam);
+			if (vkCode == VK_XBUTTON1) {
+				controller.B.mouse1B.isDown = true;
+				controller.B.mouse1B.wasDown = false;
 			}
 			else if (vkCode == VK_XBUTTON2) {
-				controller.B.mouse2B.isDown = isDown;
-				controller.B.mouse2B.wasDown = wasDown;
+				controller.B.mouse2B.isDown = true;
+				controller.B.mouse2B.wasDown = false;
 			}
 		} break;
+		case WM_XBUTTONUP: {
+			u32 vkCode = u4(msg.wParam);
+			if (vkCode == VK_XBUTTON1) {
+				controller.B.mouse1B.isDown = false;
+				controller.B.mouse1B.wasDown = true;
+			}
+			else if (vkCode == VK_XBUTTON2) {
+				controller.B.mouse2B.isDown = false;
+				controller.B.mouse2B.wasDown = true;
+			}
+		} break;	
 		case WM_SYSKEYDOWN:
 		case WM_SYSKEYUP:
 		case WM_KEYDOWN:

@@ -968,6 +968,16 @@ void ChangePitch(PlayingSound* sound, f32 pitch) {
 	sound->pitch = pitch;
 }
 
+inline
+bool IsPressed(Button& button) {
+	return button.isDown;
+}
+
+inline
+bool WasPressed(Button& button) {
+	return !button.wasDown && button.isDown;
+}
+
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	debugGlobalMemory = &memory.debug;
 	Platform = &memory.platformAPI;
@@ -1170,7 +1180,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		Controller& controller = input.controllers[playerIdx]; 
 		PlayerControls& playerControls = state->playerControls[playerIdx];
 		u32 playerLowEntityIndex = state->playerEntityIndexes[playerIdx];
-		if (controller.B.kSpace.isDown && playerLowEntityIndex == 0) {
+		if (WasPressed(controller.B.kSpace) && playerLowEntityIndex == 0) {
 			playerLowEntityIndex = InitializePlayer(state);
 			state->playerEntityIndexes[playerIdx] = playerLowEntityIndex;
 		}
@@ -1181,48 +1191,48 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		playerControls.acceleration = {};
 		f32 speed = 75.0f;
-		if (controller.B.kA.isDown) {
+		if (IsPressed(controller.B.kA)) {
 			playerControls.acceleration.X -= 1.f;
-			if (!controller.B.kA.wasDown) {
-				PlayingSound* first = state->audio.playingSounds;
-				ChangeVolume(first, V2{ 1.f, 0.f }, 5);
-				PlaySound(state->audio, tranState->assets, GetFirstSoundIdWithType(tranState->assets, Asset_Bloop), 0);
-			}
 		}
-		if (controller.B.kW.isDown) {
+		if (IsPressed(controller.B.kW)) {
 			playerControls.acceleration.Y += 1.f;
-			if (!controller.B.kW.wasDown) {
-				PlayingSound* first = state->audio.playingSounds;
-				ChangeVolume(first, V2{ 1.f, 1.f }, 5);
-			}
 		}
-		if (controller.B.kS.isDown) {
+		if (IsPressed(controller.B.kS)) {
 			playerControls.acceleration.Y -= 1.f;
-			if (!controller.B.kS.wasDown) {
-				PlayingSound* first = state->audio.playingSounds;
-				ChangeVolume(first, V2{0.f, 0.f}, 5);
-			}
 		}
-		if (controller.B.kD.isDown) {
+		if (IsPressed(controller.B.kD)) {
 			playerControls.acceleration.X += 1.f;
-			if (!controller.B.kD.wasDown) {
-				PlayingSound* first = state->audio.playingSounds;
-				ChangeVolume(first, V2{ 0.f, 1.f }, 5);
-			}
 		}
-		if (controller.B.kSpace.isDown) {
+		if (IsPressed(controller.B.kSpace)) {
 			speed = 250.0f;
-			if (!controller.B.kSpace.wasDown) {
-				PlayingSound* first = state->audio.playingSounds;
-				static i32 index = -1;
-				f32 pitches[] = { 0.9f, 0.8f, 0.7f, 0.6f, 0.5f, 0.6f,
-					0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f,
-					1.5f, 1.4f, 1.3f, 1.2f, 1.1f, 1.0f };
-				index = (index + 1) % ArrayCount(pitches);
-				ChangePitch(first, pitches[index]);
-			}
 		}
-		if (controller.B.mouseLeft.isDown && IsFlagSet(*entity->sword, EntityFlag_NonSpatial)) {
+		if (WasPressed(controller.B.kA)) {
+			PlayingSound* first = state->audio.playingSounds;
+			ChangeVolume(first, V2{ 1.f, 0.f }, 5);
+			PlaySound(state->audio, tranState->assets, GetFirstSoundIdWithType(tranState->assets, Asset_Bloop), 0);
+		}
+		if (WasPressed(controller.B.kW)) {
+			PlayingSound* first = state->audio.playingSounds;
+			ChangeVolume(first, V2{ 1.f, 1.f }, 5);
+		}
+		if (WasPressed(controller.B.kS)) {
+			PlayingSound* first = state->audio.playingSounds;
+			ChangeVolume(first, V2{ 0.f, 0.f }, 5);
+		}
+		if (WasPressed(controller.B.kD)) {
+			PlayingSound* first = state->audio.playingSounds;
+			ChangeVolume(first, V2{ 0.f, 1.f }, 5);
+		}
+		if (WasPressed(controller.B.kSpace)) {
+			PlayingSound* first = state->audio.playingSounds;
+			static i32 index = -1;
+			f32 pitches[] = { 0.9f, 0.8f, 0.7f, 0.6f, 0.5f, 0.6f,
+				0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f,
+				1.5f, 1.4f, 1.3f, 1.2f, 1.1f, 1.0f };
+			index = (index + 1) % ArrayCount(pitches);
+			ChangePitch(first, pitches[index]);
+		}
+		if (WasPressed(controller.B.mouseLeft) && IsFlagSet(*entity->sword, EntityFlag_NonSpatial)) {
 			entity->sword->distanceRemaining = 5.f;
 			entity->sword->timeRemaining = 4.f;
 
@@ -1246,10 +1256,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 
 		playerControls.acceleration.Z = 0.f;
-		if (controller.B.kArrowUp.isDown) {
+		if (IsPressed(controller.B.kArrowUp)) {
 			playerControls.acceleration.Z += 10.0f;
 		}
-		if (controller.B.kArrowDown.isDown) {
+		if (IsPressed(controller.B.kArrowDown)) {
 			playerControls.acceleration.Z -= 10.0f;
 		}
 		f32 playerAccLength = Length(playerControls.acceleration);
