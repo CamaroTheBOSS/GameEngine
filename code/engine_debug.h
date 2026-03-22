@@ -155,4 +155,5 @@ struct TimedBlock {
 
 struct ProgramMemory;
 struct LoadedBitmap;
-void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap);
+struct InputData;
+void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputData& input);

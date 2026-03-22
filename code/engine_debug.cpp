@@ -109,7 +109,7 @@ void DebugCollateEvents(DebugState* debugState) {
 	}
 }
 
-void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
+void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputData& input) {
 	if (memory->debugMemorySize == 0) {
 		return;
 	}
@@ -125,6 +125,10 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 		debugRenderGroup, GetFontWithType(*debugRenderGroup.assets, Font_Debug)
 	);
 	if (font) {
+		Controller& controller = input.controllers[KB_CONTROLLER_IDX];
+		V2 mousePos = { controller.mouse.X - 0.5f, controller.mouse.Y - 0.5f };
+		mousePos = Hadamard(mousePos, V2i(dstBitmap.width, dstBitmap.height));
+
 		FontDrawContext context = {};
 		context.scale = 0.15f;
 		context.color = V4{ 0.8f, 0.8f, 0.8f, 1 };
@@ -176,15 +180,24 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap) {
 					threadLaneWidth,
 					f4(region->maxT - region->minT) * profilerHeight
 				};
-				PushRect(debugRenderGroup, spanCenter, spanSize, V2{ 0, 0 }, colors[colorIndexForDrawing]);
-				DebugRecord* record = debugGlobalState->debugRecords[region->translationUnit] + region->recordIndex;
-				if (record->blockName) {
-					char buffer[256];
-					sprintf_s(buffer, "%25s", record->blockName);
-					context.color = colors[colorIndexForDrawing];
-					DebugRenderLine(font, buffer, context);
+				Rect2 rectangle = GetRectFromCenterDim(spanCenter.XY, spanSize);
+				PushRect(debugRenderGroup, rectangle, 0, V2{ 0, 0 }, colors[colorIndexForDrawing]);
+				if (IsInRectangle(rectangle, mousePos)) {
+					DebugRecord* record = debugGlobalState->debugRecords[region->translationUnit] + region->recordIndex;
+					if (record->blockName) {
+						char buffer[256];
+						sprintf_s(buffer, "%s | %s:%d", 
+							record->blockName,
+							record->file,
+							record->line
+						);
+						//context.color = colors[colorIndexForDrawing];
+						DebugRenderLine(font, buffer, context);
+					}
 				}
-
+				/*char buffer[256];
+				sprintf_s(buffer, "MOUSE: %4f, %4f", mousePos.X, mousePos.Y);
+				DebugRenderLine(font, buffer, context);*/
 				colorIndexForDrawing = (colorIndexForDrawing + 1) % ArrayCount(colors);
 			}
 
@@ -209,6 +222,7 @@ extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {
 }
 
 extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory) {
+	TIMED_FUNCTION;
 	if (memory->debugMemorySize == 0) {
 		return 0;
 	}

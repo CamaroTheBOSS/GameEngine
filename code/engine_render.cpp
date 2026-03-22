@@ -765,6 +765,11 @@ bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
 }
 
 inline
+bool PushRect(RenderGroup& group, Rect2 rectangle, f32 Z, V2 offset, V4 color) {
+	return PushRect(group, ToV3(GetCenter(rectangle), Z), GetDim(rectangle), offset, color);
+}
+
+inline
 LoadedFont* GetOrPrefetchFont(RenderGroup& group, FontId fid) {
 	LoadedFont* font = GetFont(*group.assets, fid, group.generationId);
 	if (!font) {

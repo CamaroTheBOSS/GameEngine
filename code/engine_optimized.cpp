@@ -5,6 +5,7 @@ DebugMemory* debugGlobalMemory;
 void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
 	bool even, Rect2i clipRect)
 {
+	TIMED_FUNCTION;
 	V2 points[4] = {
 		origin,
 		origin + xAxis,

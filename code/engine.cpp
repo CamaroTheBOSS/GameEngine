@@ -1624,7 +1624,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
-	DebugRenderOverlay(&memory, screenBitmap);
+	DebugRenderOverlay(&memory, screenBitmap, input);
 
 	EndRendering(renderGroup);
 	EndSimulation(*simRegion, world);

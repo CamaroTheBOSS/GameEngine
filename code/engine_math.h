@@ -527,7 +527,7 @@ V2 GetMaxCorner(Rect2 rect) {
 
 inline
 V2 GetCenter(Rect2 rect) {
-	return 0.5f * (rect.max - rect.min);
+	return 0.5f * (rect.max + rect.min);
 }
 
 inline
