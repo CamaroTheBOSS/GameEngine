@@ -3,7 +3,7 @@
 #if !defined(TRANSLATION_UNIT)
 #define TRANSLATION_UNIT 0
 #endif
-#define MAX_DEBUG_EVENTS 262143
+#define MAX_DEBUG_EVENTS 462143
 #define MAX_DEBUG_FRAMES 40
 #define MAX_DEBUG_RECORDS 65535
 #define MAX_TRANSLATION_UNIT 3
@@ -87,6 +87,7 @@ struct DebugState {
 	OpenDebugEvent* openEventFreeList;
 
 	u32 frameReadIndex;
+	u32 frameWriteIndex;
 	DebugFrameInfo* frames;
 
 	bool paused;
@@ -133,7 +134,7 @@ struct DebugState {
 	u32 newFrameIndex = ((debugGlobalState->frameAndEventIndex >> 32) + 1) % MAX_DEBUG_FRAMES;						\
 	u64 oldFrameAndEventIndex = AtomicExchangeU64(&debugGlobalState->frameAndEventIndex, u64(newFrameIndex) << 32); \
 	u32 oldFrameIndex = oldFrameAndEventIndex >> 32;																\
-	frameInfo->startCycles = cyclesStart; frameInfo->endCycles = cyclesEnd;									\
+	if (frameInfo) {frameInfo->startCycles = cyclesStart; frameInfo->endCycles = cyclesEnd;}									\
 	debugGlobalState->debugEventsCount[oldFrameAndEventIndex >> 32] = oldFrameAndEventIndex & U32_MAX; }
 
 struct ManualTimedBlock {

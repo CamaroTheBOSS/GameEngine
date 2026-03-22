@@ -1290,9 +1290,7 @@ int CALLBACK WinMain(
 
 		DebugFrameInfo* frameInfo = gameCode.DebugFinishFrame(programMemory);
 		u64 rdtscEnd = __rdtsc();
-		if (frameInfo) {
-			MARKUP_FRAME(frameInfo, rdtscStart, rdtscEnd);
-		}
+		MARKUP_FRAME(frameInfo, rdtscStart, rdtscEnd);
 		rdtscStart = rdtscEnd;
 	}
 	return 0;

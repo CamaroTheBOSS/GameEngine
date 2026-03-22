@@ -117,10 +117,10 @@ void DebugCollateEvents(DebugState* debugState) {
 	debugState->eventStacksCount = 0;
 	debugState->openEventFreeList = 0;
 
-	u32 frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
+	debugState->frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
 	f32 scale = 1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ);
 	for (; 
-		debugState->frameReadIndex != frameWriteIndex;
+		debugState->frameReadIndex != debugState->frameWriteIndex;
 		debugState->frameReadIndex = (debugState->frameReadIndex + 1) % MAX_DEBUG_FRAMES
 		) {
 		DebugFrameInfo* frameInfo = debugState->frames + debugState->frameReadIndex;
@@ -211,7 +211,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		Controller& controller = input.controllers[KB_CONTROLLER_IDX];
 		V2 mousePos = { controller.mouse.X - 0.5f, controller.mouse.Y - 0.5f };
 		mousePos = Hadamard(mousePos, V2i(dstBitmap.width, dstBitmap.height));
-		if (controller.B.mouseRight.wasDown) {
+		if (WasPressed(controller.B.mouseRight)) {
 			debugState->paused = !debugState->paused;
 			debugState->restartRequested = true;
 		}
@@ -240,13 +240,12 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 			V4{1, 1, 0, 1},
 			V4{0, 0, 0, 1},
 		};
-		u32 currentFrameIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
 		u32 frameIndexForDrawing = 0;
 		f32 frameWidth = f4(debugState->eventStacksCount) * threadLaneTotalWidth + frameLaneSpace;
-		for (u32 frameIndex = currentFrameIndex;;) {
+		for (u32 frameIndex = debugState->frameWriteIndex;;) {
 			u32 colorIndexForDrawing = 0;
 			frameIndex = (frameIndex + 1) % MAX_DEBUG_FRAMES;
-			if (frameIndex == currentFrameIndex) {
+			if (frameIndex == debugState->frameWriteIndex) {
 				break;
 			}
 			DebugFrameInfo* frameInfo = debugState->frames + frameIndex;
@@ -276,6 +275,10 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 						V2 textPos = mousePos + V2{ 0, 10.f };
 						DebugRenderLine(font, buffer, textPos, fontScale, fontColor);
 					}
+					if (WasPressed(controller.B.mouseLeft)) {
+						char text[] = "Was Pressed";
+						DebugRenderLine(font, text, V2{ 0, 80 }, 0.3f, V4{ 1, 1, 1, 1 });
+					}
 				}
 				colorIndexForDrawing = (colorIndexForDrawing + 1) % ArrayCount(colors);
 			}
@@ -289,16 +292,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		};
 		V2 targetFrameRateSize = { profilerWidth, 2.f };
 		PushRect(debugRenderGroup, targetFrameRateCenter, targetFrameRateSize, V2{ 0, 0 }, V4{ 0, 0, 0, 1 });
-		
-		Button& button = controller.B.mouseLeft;
-		if (IsPressed(button)) {
-			char text[] = "Is Pressed";
-			DebugRenderLine(font, text, V2{ 0, 100 }, 0.3f, V4{ 1, 1, 1, 1 });
-		}
-		if (WasPressed(button)) {
-			char text[] = "Was Pressed";
-			DebugRenderLine(font, text, V2{ 0, 80 }, 0.3f, V4{ 1, 1, 1, 1 });
-		}
+
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, tranState->highPriorityQueue);
 	}
 	EndRendering(debugRenderGroup);
@@ -339,12 +333,12 @@ extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory) {
 		ResetDebugCollation(debugState, frameWriteIndex);
 		debugState->isInitialized = true;
 	}
-	/*if (!debugState->paused) {
+	if (debugState->paused) {
 		return 0;
 	}
 	if (debugState->restartRequested) {
 		ResetDebugCollation(debugState, frameWriteIndex);
-	}*/
+	}
 	DebugCollateEvents(debugState);
 	DebugFrameInfo* result = debugState->frames + frameWriteIndex;
 	return result;
