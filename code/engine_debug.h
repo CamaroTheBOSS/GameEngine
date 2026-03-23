@@ -48,10 +48,7 @@ struct DebugProfilerRegion {
 	u64 frameStartCycles;
 	u64 frameEndCycles;
 
-	bool isRoot;
-	u32 parentRecordIndex;
-	u32 parentTranslationUnit;
-
+	u32 parentRegionIndex;
 	DebugRecord* parentRecord;
 };
 
@@ -86,7 +83,8 @@ extern DebugGlobalState* debugGlobalState;
 
 struct OpenDebugEvent {
 	DebugEvent* event;
-	DebugEvent* parent;
+	u32 childRegionCount;
+	u16 childRegionIndexes[32];
 	OpenDebugEvent* next;
 };
 
@@ -109,6 +107,8 @@ struct DebugState {
 	DebugFrameInfo* frames;
 
 	DebugRecord* selectedRecord;
+	u32 selectedRegionIndex;
+	u32 selectedFrameIndex;
 
 	bool paused;
 	bool isInitialized;

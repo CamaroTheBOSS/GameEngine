@@ -104,23 +104,8 @@ DebugEventStack* GetDebugStackForThread(DebugState* state, u32 threadId) {
 	stack->threadId = threadId;
 	stack->laneId = state->eventStacksCount - 1;
 	stack->events = PushStructSize(state->arena, OpenDebugEvent);
-	stack->events->event = 0;
-	stack->events->next = 0;
-	stack->events->parent = 0;
+	*stack->events = {};
 	return stack;
-}
-
-inline
-bool IsEventRecordingNeeded(OpenDebugEvent* openingEvent, DebugRecord* record) {
-	if (!record) {
-		return !openingEvent->parent;
-	}
-	if (!openingEvent->parent) {
-		return false;
-	}
-	DebugRecord* another = debugGlobalState->debugRecords[openingEvent->parent->translationUnit] + openingEvent->parent->debugRecordIndex;
-	bool result = (another->file == record->file) && (another->line == record->line);
-	return result;
 }
 
 inline
@@ -151,6 +136,7 @@ void DebugCollateEvents(DebugState* debugState) {
 		) {
 		DebugFrameInfo* frameInfo = debugState->frames + debugState->frameReadIndex;
 		frameInfo->regionsCount = 0;
+
 		DebugEvent* eventsInFrame = debugGlobalState->debugEvents[debugState->frameReadIndex];
 		u32 eventsInFrameCount = debugGlobalState->debugEventsCount[debugState->frameReadIndex];
 		for (u32 eventIndex = 0;
@@ -170,13 +156,14 @@ void DebugCollateEvents(DebugState* debugState) {
 				Assert(stack->threadId == event->threadId);
 				newOpenEvent->next = stack->events;
 				newOpenEvent->event = event;
-				newOpenEvent->parent = stack->events->event;
+				newOpenEvent->childRegionCount = 0;
 				stack->events = newOpenEvent;
 			}
 			else if (event->type == Event_BlockEnd) {
 				DebugEventStack* stack = GetDebugStackForThread(debugState, event->threadId);
-				OpenDebugEvent* openingDebugEvent = stack->events;
-				DebugEvent* openEvent = openingDebugEvent->event;
+				OpenDebugEvent* block = stack->events;
+				OpenDebugEvent* parentBlock = block->next;
+				DebugEvent* openEvent = block->event;
 				if (openEvent) {
 					if (openEvent->debugRecordIndex == event->debugRecordIndex &&
 						openEvent->translationUnit == event->translationUnit &&
@@ -187,26 +174,37 @@ void DebugCollateEvents(DebugState* debugState) {
 						f32 thresholdT = 0.01f;
 						if (maxT - minT > thresholdT) {
 							Assert(frameInfo->regionsCount < ArrayCount(frameInfo->regions));
-							DebugProfilerRegion* region = frameInfo->regions + frameInfo->regionsCount++;
+							u16 regionIndex = u2(frameInfo->regionsCount++);
+							DebugProfilerRegion* region = frameInfo->regions + regionIndex;
 							// TODO: If minT < 0 -> that means openEvent started on one of the previous frames.
 							// Do something about it!
+							if (event->debugRecordIndex == 2 && event->translationUnit == 2) {
+								int breakhere = 5;
+							}
 							region->minT = minT;
 							region->maxT = maxT;
 							region->recordIndex = event->debugRecordIndex;
 							region->translationUnit = event->translationUnit;
 							region->laneId = stack->laneId;
 							region->parentRecord = 0;
-							if (openingDebugEvent->parent) {
-								region->parentRecord = GetDebugRecordFor(openingDebugEvent->parent);
+							if (parentBlock->event) {
+								region->parentRecord = GetDebugRecordFor(parentBlock->event);
+								Assert(parentBlock->childRegionCount < ArrayCount(parentBlock->childRegionIndexes));
+								parentBlock->childRegionIndexes[parentBlock->childRegionCount++] = regionIndex;
 							}
 							region->startCycles = openEvent->cycles;
 							region->endCycles = event->cycles;
 							region->frameStartCycles = frameInfo->startCycles;
 							region->frameEndCycles = frameInfo->endCycles;
+							region->parentRegionIndex = U32_MAX;
+							for (u32 index = 0; index < block->childRegionCount; index++) {
+								DebugProfilerRegion* childRegion = frameInfo->regions + block->childRegionIndexes[index];
+								childRegion->parentRegionIndex = regionIndex;
+							}
 						}
-						stack->events = openingDebugEvent->next;
-						openingDebugEvent->next = debugState->openEventFreeList;
-						debugState->openEventFreeList = openingDebugEvent;
+						stack->events = parentBlock;
+						block->next = debugState->openEventFreeList;
+						debugState->openEventFreeList = block;
 					}
 				}
 			}
@@ -242,6 +240,8 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 			debugState->paused = !debugState->paused;
 		}
 		DebugRecord* hotRecord = 0;
+		u32 hotRegionIndex = U32_MAX;
+		u32 hotFrameIndex = U32_MAX;
 		f32 fontScale = 0.15f;
 		V4 fontColor = V4{ 0.8f, 0.8f, 0.8f, 1 };
 		debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
@@ -276,6 +276,11 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 			for (u32 regionIndex = 0; regionIndex < frameInfo->regionsCount; regionIndex++) {
 				DebugProfilerRegion* region = frameInfo->regions + regionIndex;
 				if (debugState->selectedRecord != region->parentRecord) {
+					continue;
+				}
+				if (debugState->selectedFrameIndex != U32_MAX &&
+					(debugState->selectedRegionIndex != region->parentRegionIndex ||
+					debugState->selectedFrameIndex != frameIndex)) {
 					continue;
 				}
 
@@ -321,6 +326,8 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 						DebugRenderLine(font, buffer, textPos, fontScale, fontColor);
 					}
 					hotRecord = record;
+					hotRegionIndex = regionIndex;
+					hotFrameIndex = frameIndex;
 				}
 				PushRect(debugRenderGroup, rectangle, 0, V2{ 0, 0 }, isHovered ? V4{1, 1, 1, 1} : colors[colorIndex]);
 			}
@@ -338,6 +345,11 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		if (WasPressed(controller.B.mouseLeft)) {
 			debugState->selectedRecord = hotRecord;
 		}
+		if (WasPressed(controller.B.mouseMiddle)) {
+			debugState->selectedRegionIndex = hotRegionIndex;
+			debugState->selectedFrameIndex = hotFrameIndex;
+			debugState->selectedRecord = hotRecord;
+		}
 
 		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, tranState->highPriorityQueue);
 	}
@@ -352,6 +364,9 @@ void ResetDebugCollation(DebugState* debugState, u32 frameWriteIndex) {
 	debugState->eventStacksCount = 0;
 	debugState->eventStacks = 0;
 	debugState->paused = 0;
+	debugState->selectedFrameIndex = U32_MAX;
+	debugState->selectedRegionIndex = U32_MAX;
+	debugState->selectedRecord = 0;
 	debugState->frameReadIndex = (frameWriteIndex + 1) % MAX_DEBUG_FRAMES;
 	debugState->scratchBuffer = BeginTempMemory(debugState->arena);
 	debugState->frames = PushArray(debugState->arena, MAX_DEBUG_FRAMES, DebugFrameInfo);

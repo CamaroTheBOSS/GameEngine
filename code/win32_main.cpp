@@ -865,7 +865,15 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 				controller.B.mouse2B.isDown = false;
 				controller.B.mouse2B.wasDown = true;
 			}
-		} break;	
+		} break;
+		case WM_MBUTTONDOWN: {
+			controller.B.mouseMiddle.isDown = true;
+			controller.B.mouseMiddle.wasDown = false;
+		} break;
+		case WM_MBUTTONUP: {
+			controller.B.mouseMiddle.isDown = false;
+			controller.B.mouseMiddle.wasDown = true;
+		} break;
 		case WM_SYSKEYDOWN:
 		case WM_SYSKEYUP:
 		case WM_KEYDOWN:
