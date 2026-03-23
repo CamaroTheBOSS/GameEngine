@@ -110,6 +110,7 @@ DebugEventStack* GetDebugStackForThread(DebugState* state, u32 threadId) {
 	return stack;
 }
 
+inline
 bool IsEventRecordingNeeded(OpenDebugEvent* openingEvent, DebugRecord* record) {
 	if (!record) {
 		return !openingEvent->parent;
@@ -122,7 +123,14 @@ bool IsEventRecordingNeeded(OpenDebugEvent* openingEvent, DebugRecord* record) {
 	return result;
 }
 
+inline
+DebugRecord* GetDebugRecord(u32 tUnit, u32 recordIndex) {
+	DebugRecord* record = debugGlobalState->debugRecords[tUnit] + recordIndex;
+	return record;
+}
+
 #include <stdio.h>
+internal
 void DebugCollateEvents(DebugState* debugState) {
 	TemporaryMemory stackMemory = BeginTempMemory(debugState->arena);
 	debugState->eventStacks = PushArray(debugState->arena, MAX_DEBUG_THREADS, DebugEventStack);
@@ -168,26 +176,42 @@ void DebugCollateEvents(DebugState* debugState) {
 						openEvent->translationUnit == event->translationUnit &&
 						openEvent->threadId == event->threadId)
 					{
-						if (IsEventRecordingNeeded(openingDebugEvent, debugState->selectedRecord)) {
-							f32 minT = f4(openEvent->cycles - frameInfo->startCycles) * scale;
-							f32 maxT = f4(event->cycles - frameInfo->startCycles) * scale;
-							f32 thresholdT = 0.01f;
-							if (maxT - minT > thresholdT) {
-								Assert(frameInfo->regionsCount < ArrayCount(frameInfo->regions));
-								DebugProfilerRegion* region = frameInfo->regions + frameInfo->regionsCount++;
-								f32 frameCyclesRange = f4(frameInfo->endCycles - frameInfo->startCycles);
-								// TODO: If minT < 0 -> that means openEvent started on one of the previous frames.
-								// Do something about it!
-								region->minT = minT;
-								region->maxT = maxT;
-								region->recordIndex = event->debugRecordIndex;
-								region->translationUnit = event->translationUnit;
-								region->laneId = stack->laneId;
+						f32 minT = f4(openEvent->cycles - frameInfo->startCycles) * scale;
+						f32 maxT = f4(event->cycles - frameInfo->startCycles) * scale;
+						f32 thresholdT = 0.01f;
+						if (maxT - minT > thresholdT) {
+							Assert(frameInfo->regionsCount < ArrayCount(frameInfo->regions));
+							DebugProfilerRegion* region = frameInfo->regions + frameInfo->regionsCount++;
+							// TODO: If minT < 0 -> that means openEvent started on one of the previous frames.
+							// Do something about it!
+							region->minT = minT;
+							region->maxT = maxT;
+							region->recordIndex = event->debugRecordIndex;
+							region->translationUnit = event->translationUnit;
+							region->laneId = stack->laneId;
+							region->isRoot = !openingDebugEvent->parent;
+							if (!region->isRoot) {
+								region->parentRecordIndex = openingDebugEvent->parent->debugRecordIndex;
+								region->parentTranslationUnit = openingDebugEvent->parent->translationUnit;	
+								Assert(
+									region->parentRecordIndex != region->recordIndex ||
+									region->parentTranslationUnit != region->translationUnit
+								);
 							}
 
-						}
-						else {
-							//TODO: Do something with regions which HAVE parent!
+							region->startCycles = openEvent->cycles;
+							region->endCycles = event->cycles;
+							region->frameStartCycles = frameInfo->startCycles;
+							region->frameEndCycles = frameInfo->endCycles;
+#if 0
+							DebugRecord* record = GetDebugRecord(region->translationUnit, region->recordIndex);
+							if (strcmp(record->blockName, "GameMainLoop") == 0 || 1) {
+								if (maxT - minT > 0.8f) {
+									int breakhere = 0;
+								}
+								int breakhere = 0;
+							}
+#endif
 						}
 						stack->events = openingDebugEvent->next;
 						openingDebugEvent->next = debugState->openEventFreeList;
@@ -200,11 +224,20 @@ void DebugCollateEvents(DebugState* debugState) {
 			}
 		}
 	}
-
 	EndTempMemory(stackMemory);
 }
 
+bool IsRenderingRegionNeeded(DebugState* debugState, DebugProfilerRegion* region) {
+	if (!debugState->regionSelection.selecting) {
+		return region->isRoot;
+	}
+	return !region->isRoot && debugState->regionSelection.laneId == region->laneId &&
+		debugState->regionSelection.translationUnit == region->parentTranslationUnit &&
+		debugState->regionSelection.recordIndex == region->parentRecordIndex;
+}
+
 void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputData& input) {
+	TIMED_FUNCTION;
 	if (memory->debugMemorySize == 0) {
 		return;
 	}
@@ -227,7 +260,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 			debugState->paused = !debugState->paused;
 			debugState->restartRequested = debugState->restartRequested || !debugState->paused;
 		}
-		DebugRecord* hotRecord = 0;
+		DebugProfilerRegion* hotRegion = 0;
 		f32 fontScale = 0.15f;
 		V4 fontColor = V4{ 0.8f, 0.8f, 0.8f, 1 };
 		debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
@@ -255,7 +288,6 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		u32 frameIndexForDrawing = 0;
 		f32 frameWidth = f4(debugState->eventStacksCount) * threadLaneTotalWidth + frameLaneSpace;
 		for (u32 frameIndex = debugState->frameWriteIndex;;) {
-			u32 colorIndexForDrawing = 0;
 			frameIndex = (frameIndex + 1) % MAX_DEBUG_FRAMES;
 			if (frameIndex == debugState->frameWriteIndex) {
 				break;
@@ -263,7 +295,10 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 			DebugFrameInfo* frameInfo = debugState->frames + frameIndex;
 			for (u32 regionIndex = 0; regionIndex < frameInfo->regionsCount; regionIndex++) {
 				DebugProfilerRegion* region = frameInfo->regions + regionIndex;
-
+				if (!IsRenderingRegionNeeded(debugState, region)) {
+					continue;
+				}
+		
 				V3 spanCenter = {
 					profilerPosX + frameIndexForDrawing * frameWidth + (f4(region->laneId) + 0.5f) * threadLaneTotalWidth,
 					profilerPosY + 0.5f * f4(region->maxT + region->minT) * profilerHeight,
@@ -274,7 +309,8 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 					f4(region->maxT - region->minT) * profilerHeight
 				};
 				Rect2 rectangle = GetRectFromCenterDim(spanCenter.XY, spanSize);
-				PushRect(debugRenderGroup, rectangle, 0, V2{ 0, 0 }, colors[colorIndexForDrawing]);
+				u32 colorIndex = (13 * region->translationUnit + region->recordIndex) % ArrayCount(colors);
+				PushRect(debugRenderGroup, rectangle, 0, V2{ 0, 0 }, colors[colorIndex]);
 				if (IsInRectangle(rectangle, mousePos)) {
 					DebugRecord* record = debugGlobalState->debugRecords[region->translationUnit] + region->recordIndex;
 					if (record->blockName) {
@@ -286,10 +322,26 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 						);
 						V2 textPos = mousePos + V2{ 0, 10.f };
 						DebugRenderLine(font, buffer, textPos, fontScale, fontColor);
+						textPos = V2{ -400, 250.f };
+						sprintf_s(buffer, "t<%4f,%4f>, f<%llu, %llu> (%d)",
+							region->minT,
+							region->maxT,
+							region->frameStartCycles,
+							region->frameEndCycles,
+							u4(region->frameEndCycles - region->frameStartCycles)
+							
+						);
+						DebugRenderLine(font, buffer, textPos, fontScale, fontColor);
+						textPos = V2{ -400, 230.f };
+						sprintf_s(buffer, "c<%llu, %llu> (%d)",
+							region->startCycles,
+							region->endCycles,
+							u4(region->endCycles - region->startCycles)
+						);
+						DebugRenderLine(font, buffer, textPos, fontScale, fontColor);
 					}
-					hotRecord = record;
+					hotRegion = region;
 				}
-				colorIndexForDrawing = (colorIndexForDrawing + 1) % ArrayCount(colors);
 			}
 			frameIndexForDrawing++;
 		}
@@ -303,7 +355,15 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		PushRect(debugRenderGroup, targetFrameRateCenter, targetFrameRateSize, V2{ 0, 0 }, V4{ 0, 0, 0, 1 });
 
 		if (WasPressed(controller.B.mouseLeft)) {
-			debugState->selectedRecord = hotRecord;
+			if (!hotRegion) {
+				debugState->regionSelection.selecting = false;
+			}
+			else {
+				debugState->regionSelection.selecting = true;
+				debugState->regionSelection.laneId = hotRegion->laneId;
+				debugState->regionSelection.recordIndex = hotRegion->recordIndex;
+				debugState->regionSelection.translationUnit = hotRegion->translationUnit;
+			}
 			debugState->restartRequested = debugState->paused;
 		}
 

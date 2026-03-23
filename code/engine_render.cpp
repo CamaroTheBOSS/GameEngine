@@ -560,6 +560,7 @@ void RenderTiled(void* data) {
 
 internal
 void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue) {
+	TIMED_FUNCTION;
 	constexpr u32 tileCountX = 4;
 	constexpr u32 tileCountY = 4;
 	RenderTiledArgs workArgs[tileCountX * tileCountY] = {};

@@ -1169,7 +1169,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			groundBuffer->pos = NullPosition();
 		}
 	}
-
+	TIMED_BLOCK_BEGIN(BeginSimAndInputProc);
 	SetCamera(state);
 	TemporaryMemory simMemory = BeginTempMemory(tranState->arena);
 	ProjectionProps projection = GetStandardProjection(bitmap.width, bitmap.height);
@@ -1272,6 +1272,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		playerControls.acceleration -= 10.0f * entity->vel;
 	}
+	TIMED_BLOCK_END(BeginSimAndInputProc);
+	TIMED_BLOCK_BEGIN(GroundChunks);
 	LoadedBitmap screenBitmap = {};
 	screenBitmap.height = bitmap.height;
 	screenBitmap.width = bitmap.width;
@@ -1340,7 +1342,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 #endif
-
+	
 #if 0
 	for (i32 chunkY = minChunk.chunkY; chunkY <= maxChunk.chunkY; chunkY++) {
 		for (i32 chunkX = minChunk.chunkX; chunkX <= maxChunk.chunkX; chunkX++) {
@@ -1352,6 +1354,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 #endif
+	TIMED_BLOCK_END(GroundChunks);
+	TIMED_BLOCK_BEGIN(UpdateEntities);
 	PushRectBorders(renderGroup, V3{ 0.f, 0.f, 0.f }, GetDim(playerView), V4{ 1, 1, 0, 1 }, 0.4f);
 	PushRectBorders(renderGroup, V3{ 0.f, 0.f, 0.f }, GetDim(simBounds).XY, V4{ 1, 0, 0, 1 }, 0.4f);
 	f32 fadeUpStartZ = 0.f * state->world.tileSizeInMeters.Z;
@@ -1460,6 +1464,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
 	}
+	TIMED_BLOCK_END(UpdateEntities);
 #if 0
 	EnvironmentMap* maps[3] = {
 		&tranState->topEnvMap,
@@ -1559,7 +1564,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 #endif
 
-
+	TIMED_BLOCK_BEGIN(Finishing);
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
 	DebugRenderOverlay(&memory, screenBitmap, input);
 
@@ -1569,6 +1574,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	EndTempMemory(simMemory);
 	CheckArena(tranState->arena);
 	CheckArena(world.arena);
+	TIMED_BLOCK_END(Finishing);
 }
 
 extern "C" void GameFillSoundBuffer(ProgramMemory& memory, SoundData& soundData) {

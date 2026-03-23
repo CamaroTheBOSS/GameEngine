@@ -8,7 +8,7 @@
 #define MAX_DEBUG_RECORDS 65535
 #define MAX_TRANSLATION_UNIT 3
 #define MAX_DEBUG_THREADS 64
-#define MAX_STACK_REGIONS 128
+#define MAX_STACK_REGIONS 4096
 #define DEBUG_CPU_FREQ (2.9f * 1000 * 1000)
 #define DEBUG_TARGET_REFRESH_MS 16.6666666f
 static_assert(TRANSLATION_UNIT < MAX_TRANSLATION_UNIT);
@@ -39,6 +39,22 @@ struct DebugEvent {
 struct DebugProfilerRegion {
 	f32 minT;
 	f32 maxT;
+	u32 laneId;
+	u32 recordIndex;
+	u32 translationUnit;
+
+	u64 startCycles;
+	u64 endCycles;
+	u64 frameStartCycles;
+	u64 frameEndCycles;
+
+	bool isRoot;
+	u32 parentRecordIndex;
+	u32 parentTranslationUnit;
+};
+
+struct DebugProfilerRegionSelection {
+	bool selecting;
 	u32 laneId;
 	u32 recordIndex;
 	u32 translationUnit;
@@ -90,7 +106,7 @@ struct DebugState {
 	u32 frameWriteIndex;
 	DebugFrameInfo* frames;
 
-	DebugRecord* selectedRecord;
+	DebugProfilerRegionSelection regionSelection;
 
 	bool paused;
 	bool restartRequested;
