@@ -1,6 +1,8 @@
 #include "engine.h"
 
+#if defined(INTERNAL_BUILD)
 DebugMemory* debugGlobalMemory;
+#endif
 
 void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
 	bool even, Rect2i clipRect)

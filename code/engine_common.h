@@ -32,17 +32,20 @@
 #if !defined(internal)
 #define internal static
 #endif
-#define noapi
 #define PI 3.14159f
 #define TAU 6.28318f
 #define kB(bytes) ((bytes) * 1024)
 #define MB(bytes) (kB(bytes) * 1024)
 #define GB(bytes) (MB(bytes) * 1024)
 #define TB(bytes) (GB(bytes) * 1024)
+#if defined(INTERNAL_BUILD)
 #if COMPILER_MSVC == 1
 	#define Assert(expression) if (!(expression)) { *(char*)0 = 0; }
 #else
 	#define Assert(expression) if (!(expression)) { __builtin_trap(); }
+#endif
+#else
+	#define Assert(expression)
 #endif
 #define AssertMainThread Assert(debugGlobalMemory->GetCurrThreadId() == 0)
 #define InvalidDefaultCase default: { Assert(0) } break

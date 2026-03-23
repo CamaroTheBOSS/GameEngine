@@ -127,7 +127,7 @@ struct DebugState {
 	event->translationUnit = TRANSLATION_UNIT;\
 	event->threadId = GetFastThreadId();\
 }
-
+#if defined(PROFILER)
 #define TIMED_FUNCTION__(line) TimedBlock block##line(__FILE__, __FUNCTION__, __LINE__, __COUNTER__)
 #define TIMED_FUNCTION_(line) TIMED_FUNCTION__(line)
 #define TIMED_FUNCTION TIMED_FUNCTION_(__LINE__)
@@ -155,7 +155,14 @@ struct DebugState {
 	u32 oldFrameIndex = oldFrameAndEventIndex >> 32;																\
 	if (frameInfo) {frameInfo->startCycles = cyclesStart; frameInfo->endCycles = cyclesEnd;}									\
 	debugGlobalState->debugEventsCount[oldFrameAndEventIndex >> 32] = oldFrameAndEventIndex & U32_MAX; }
-
+#else
+#define TIMED_FUNCTION
+#define TIMED_BLOCK_BEGIN__(counter, fileName, name, lineNumber)
+#define TIMED_BLOCK_BEGIN(blockName)
+#define TIMED_BLOCK_END_(counter)
+#define TIMED_BLOCK_END(blockName)
+#define MARKUP_FRAME(frameInfo, cyclesStart, cyclesEnd)
+#endif
 struct ManualTimedBlock {
 	u16 counter;
 };

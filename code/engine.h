@@ -122,7 +122,9 @@ struct DebugMemory {
 	_DebugAllocate Allocate;
 	_DebugGetCurrentThreadId GetCurrThreadId;
 };
+#if defined(INTERNAL_BUILD)
 extern DebugMemory* debugGlobalMemory;
+#endif
 
 /*----------------------------------------------------------------*/
 struct PlatformAPI {

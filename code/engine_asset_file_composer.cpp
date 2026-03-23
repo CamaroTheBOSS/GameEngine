@@ -13,7 +13,9 @@ void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V
 	bool even, Rect2i clipRect) {}
 void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
 	LoadedBitmap& texture, bool even, Rect2i clipRect) {}
+#if defined(INTERNAL_BUILD)
 DebugMemory* debugGlobalMemory;
+#endif
 u32 debugRecordsCount_Main;
 u32 debugRecordsCount_Optimized;
 DebugGlobalState* debugGlobalState;

@@ -983,7 +983,9 @@ bool WasPressed(Button& button) {
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TIMED_FUNCTION;
+#if defined(INTERNAL_BUILD)
 	debugGlobalMemory = &memory.debug;
+#endif
 	Platform = &memory.platformAPI;
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	World& world = state->world;
@@ -1566,7 +1568,10 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 	TIMED_BLOCK_BEGIN(Finishing);
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
+#if defined(PROFILER)
 	DebugRenderOverlay(&memory, screenBitmap, input);
+#endif
+	
 
 	EndRendering(renderGroup);
 	EndSimulation(*simRegion, world);

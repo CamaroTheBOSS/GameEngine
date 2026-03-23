@@ -246,7 +246,6 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		V4 fontColor = V4{ 0.8f, 0.8f, 0.8f, 1 };
 		debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
 		debugGlobalState->debugRecordsCount[1] = debugRecordsCount_Optimized;
-		Assert(debugGlobalState->debugRecordsCount[MAX_TRANSLATION_UNIT - 1] != 0);
 
 		// Collate debug events
 		f32 profilerPosY = -0.47f * f4(dstBitmap.height);

@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 
 
-#if defined(HANDMADE_INTERNAL_BUILD)
+#if defined(INTERNAL_BUILD)
 LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(TB(static_cast<u64>(10)));
 #else
 LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(0);
@@ -85,7 +85,6 @@ struct Win32State {
 	DebugLoopRecord dLoopRecord;
 };
 
-noapi 
 struct ScreenDimension {
 	int width;
 	int height;
@@ -1030,7 +1029,11 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.debug.GetCurrThreadId = Win32GetCurrentThreadId;
 	programMemory.permanentMemorySize = MB(64);
 	programMemory.transientMemorySize = MB(512);
+#if defined(INTERNAL_BUILD)
 	programMemory.debugMemorySize = MB(512);
+#else
+	programMemory.debugMemorySize = 0;
+#endif
 	programMemory.memoryBlockSize = programMemory.permanentMemorySize + 
 		programMemory.transientMemorySize +
 		programMemory.debugMemorySize;
