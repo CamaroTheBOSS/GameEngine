@@ -47,7 +47,7 @@
 #else
 	#define Assert(expression)
 #endif
-#define AssertMainThread Assert(debugGlobalMemory->GetCurrThreadId() == 0)
+#define AssertMainThread Assert(debugGlobalMemory->debug.GetCurrThreadId() == 0)
 #define InvalidDefaultCase default: { Assert(0) } break
 #define scast(type, expression) static_cast<type>(expression)
 #define f4(expression) static_cast<f32>(expression)

@@ -94,18 +94,23 @@ struct DebugEventStack {
 	OpenDebugEvent* events;
 };
 
+struct PlatformQueue;
 struct DebugState {
 	MemoryArena arena;
 	TemporaryMemory scratchBuffer;
+	RenderGroup renderGroup;
+	PlatformQueue* highPriorityQueue;
 
+	// Event Collation
 	u32 eventStacksCount;
 	DebugEventStack* eventStacks;
 	OpenDebugEvent* openEventFreeList;
 
+	// Profiler
 	u32 frameReadIndex;
 	u32 frameWriteIndex;
 	DebugFrameInfo* frames;
-
+	// Profiler selection
 	DebugRecord* selectedRecord;
 	u32 selectedRegionIndex;
 	u32 selectedFrameIndex;

@@ -6,7 +6,6 @@
 #include "engine_render.cpp"
 
 PlatformAPI* Platform;
-RenderGroup debugRenderGroup;
 DebugGlobalState debugGlobalState_ = {};
 DebugGlobalState* debugGlobalState = &debugGlobalState_;
 
@@ -984,7 +983,7 @@ bool WasPressed(Button& button) {
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TIMED_FUNCTION;
 #if defined(INTERNAL_BUILD)
-	debugGlobalMemory = &memory.debug;
+	debugGlobalMemory = &memory;
 #endif
 	Platform = &memory.platformAPI;
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
@@ -1161,7 +1160,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			groundBuffer->pos = NullPosition();
 			groundBuffer->state = GroundBufferState::NotReady;
 		}
-		debugRenderGroup = AllocateRenderGroup(tranState->arena, &tranState->assets, MB(4), false);
 		tranState->isInitialized = true;
 	}
 

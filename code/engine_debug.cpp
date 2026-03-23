@@ -3,13 +3,54 @@
 //NOTE: Intelisense helpers
 internal void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue);
 inline ProjectionProps GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 metersToPixels);
+inline RenderGroup AllocateRenderGroup(MemoryArena& arena, Assets* assets, u32 size, bool renderInBackground);
 inline LoadedFont* GetOrPrefetchFont(RenderGroup& group, FontId fid);
 inline FontId GetFontWithType(Assets& assets, FontType type);
 inline void BeginRendering(RenderGroup& group);
 inline void EndRendering(RenderGroup& group);
 inline bool IsPressed(Button& button);
 inline bool WasPressed(Button& button);
-extern RenderGroup debugRenderGroup;
+
+internal
+void ResetDebugCollation(DebugState* debugState, u32 frameWriteIndex) {
+	EndTempMemory(debugState->scratchBuffer);
+	CheckArena(debugState->arena);
+	debugState->openEventFreeList = 0;
+	debugState->eventStacksCount = 0;
+	debugState->eventStacks = 0;
+	debugState->paused = 0;
+	debugState->selectedFrameIndex = U32_MAX;
+	debugState->selectedRegionIndex = U32_MAX;
+	debugState->selectedRecord = 0;
+	debugState->frameReadIndex = (frameWriteIndex + 1) % MAX_DEBUG_FRAMES;
+	debugState->scratchBuffer = BeginTempMemory(debugState->arena);
+	debugState->frames = PushArray(debugState->arena, MAX_DEBUG_FRAMES, DebugFrameInfo);
+}
+
+inline
+DebugState* GetDebugState() {
+#if defined(INTERNAL_BUILD)
+	DebugState* debugState = ptrcast(DebugState, debugGlobalMemory->debugMemory);
+	if (!debugState->isInitialized) {
+		TransientState* tranState = ptrcast(TransientState, debugGlobalMemory->transientMemory);
+		Assert(tranState->isInitialized);
+		InitializeArena(
+			debugState->arena,
+			ptrcast(u8, debugGlobalMemory->debugMemory) + sizeof(DebugState),
+			debugGlobalMemory->debugMemorySize - sizeof(DebugState)
+		);
+		u32 frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
+		debugState->renderGroup = AllocateRenderGroup(debugState->arena, &tranState->assets, MB(4), false);
+		debugState->highPriorityQueue = tranState->highPriorityQueue;
+		debugState->scratchBuffer = BeginTempMemory(debugState->arena);
+		ResetDebugCollation(debugState, frameWriteIndex);
+		debugState->isInitialized = true;
+	}
+	return debugState;
+#else
+	return 0;
+#endif
+}
 
 inline
 u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodepoint) {
@@ -47,6 +88,10 @@ u32 HexToInt(char c) {
 
 internal
 void DebugRenderLine(LoadedFont* font, char* text, V2 pos, f32 scale, V4 color) {
+	DebugState* debugState = GetDebugState();
+	if (!debugState) {
+		return;
+	}
 	u32 prevChar = 0;
 	f32 spaceAdvance = scale * 55;
 	for (char* at = text; *at; at++) {
@@ -70,12 +115,12 @@ void DebugRenderLine(LoadedFont* font, char* text, V2 pos, f32 scale, V4 color) 
 		}
 		if (codepoint != ' ') {
 			BitmapId bid = GetFontGlyphBitmapIdFor(font, codepoint);
-			AssetMetadata* metadata = GetAssetMetadata(*debugRenderGroup.assets, bid.id);
+			AssetMetadata* metadata = GetAssetMetadata(*debugState->renderGroup.assets, bid.id);
 			f32 width = f4(metadata->_bitmapInfo.width);
 			f32 height = f4(metadata->_bitmapInfo.height);
 			pos.X += scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
 			V3 anchor = ToV3(pos, 0);
-			PushBitmap(debugRenderGroup, bid, anchor, scale * height, V2{ 0, 0 }, color);
+			PushBitmap(debugState->renderGroup, bid, anchor, scale * height, V2{ 0, 0 }, color);
 		}
 		else {
 			pos.X += scale * GetFontWidthAdvanceFor(font, prevChar, codepoint);
@@ -226,11 +271,11 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 	if (!debugState->isInitialized) {
 		return;
 	}
-	debugRenderGroup.pushBufferSize = 0;
-	debugRenderGroup.projection = GetOrtographicProjection(dstBitmap.width, dstBitmap.height, 1);
-	BeginRendering(debugRenderGroup);
+	debugState->renderGroup.pushBufferSize = 0;
+	debugState->renderGroup.projection = GetOrtographicProjection(dstBitmap.width, dstBitmap.height, 1);
+	BeginRendering(debugState->renderGroup);
 	LoadedFont* font = GetOrPrefetchFont(
-		debugRenderGroup, GetFontWithType(*debugRenderGroup.assets, Font_Debug)
+		debugState->renderGroup, GetFontWithType(*debugState->renderGroup.assets, Font_Debug)
 	);
 	if (font) {
 		Controller& controller = input.controllers[KB_CONTROLLER_IDX];
@@ -328,7 +373,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 					hotRegionIndex = regionIndex;
 					hotFrameIndex = frameIndex;
 				}
-				PushRect(debugRenderGroup, rectangle, 0, V2{ 0, 0 }, isHovered ? V4{1, 1, 1, 1} : colors[colorIndex]);
+				PushRect(debugState->renderGroup, rectangle, 0, V2{ 0, 0 }, isHovered ? V4{1, 1, 1, 1} : colors[colorIndex]);
 			}
 			frameIndexForDrawing++;
 		}
@@ -339,7 +384,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 			0
 		};
 		V2 targetFrameRateSize = { profilerWidth, 2.f };
-		PushRect(debugRenderGroup, targetFrameRateCenter, targetFrameRateSize, V2{ 0, 0 }, V4{ 0, 0, 0, 1 });
+		PushRect(debugState->renderGroup, targetFrameRateCenter, targetFrameRateSize, V2{ 0, 0 }, V4{ 0, 0, 0, 1 });
 
 		if (WasPressed(controller.B.mouseLeft)) {
 			debugState->selectedRecord = hotRecord;
@@ -350,25 +395,9 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 			debugState->selectedRecord = hotRecord;
 		}
 
-		TiledRenderGroupToBuffer(debugRenderGroup, dstBitmap, tranState->highPriorityQueue);
+		TiledRenderGroupToBuffer(debugState->renderGroup, dstBitmap, tranState->highPriorityQueue);
 	}
-	EndRendering(debugRenderGroup);
-}
-
-internal
-void ResetDebugCollation(DebugState* debugState, u32 frameWriteIndex) {
-	EndTempMemory(debugState->scratchBuffer);
-	CheckArena(debugState->arena);
-	debugState->openEventFreeList = 0;
-	debugState->eventStacksCount = 0;
-	debugState->eventStacks = 0;
-	debugState->paused = 0;
-	debugState->selectedFrameIndex = U32_MAX;
-	debugState->selectedRegionIndex = U32_MAX;
-	debugState->selectedRecord = 0;
-	debugState->frameReadIndex = (frameWriteIndex + 1) % MAX_DEBUG_FRAMES;
-	debugState->scratchBuffer = BeginTempMemory(debugState->arena);
-	debugState->frames = PushArray(debugState->arena, MAX_DEBUG_FRAMES, DebugFrameInfo);
+	EndRendering(debugState->renderGroup);
 }
 
 extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {
@@ -380,19 +409,9 @@ extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory) {
 	if (memory->debugMemorySize == 0) {
 		return 0;
 	}
-	DebugState* debugState = ptrcast(DebugState, memory->debugMemory);
+	DebugState* debugState = GetDebugState();
 	u32 frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
-	if (!debugState->isInitialized) {
-		InitializeArena(
-			debugState->arena,
-			ptrcast(u8, memory->debugMemory) + sizeof(DebugState),
-			memory->debugMemorySize - sizeof(DebugState)
-		);
-		debugState->scratchBuffer = BeginTempMemory(debugState->arena);
-		ResetDebugCollation(debugState, frameWriteIndex);
-		debugState->isInitialized = true;
-	}
-	if (debugState->paused) {
+	if (!debugState || debugState->paused) {
 		return 0;
 	}
 	DebugCollateEvents(debugState);

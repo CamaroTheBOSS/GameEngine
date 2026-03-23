@@ -123,7 +123,8 @@ struct DebugMemory {
 	_DebugGetCurrentThreadId GetCurrThreadId;
 };
 #if defined(INTERNAL_BUILD)
-extern DebugMemory* debugGlobalMemory;
+struct ProgramMemory;
+extern ProgramMemory* debugGlobalMemory;
 #endif
 
 /*----------------------------------------------------------------*/
