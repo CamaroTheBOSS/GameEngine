@@ -51,6 +51,8 @@ struct DebugProfilerRegion {
 	bool isRoot;
 	u32 parentRecordIndex;
 	u32 parentTranslationUnit;
+
+	DebugRecord* parentRecord;
 };
 
 struct DebugProfilerRegionSelection {
@@ -106,10 +108,9 @@ struct DebugState {
 	u32 frameWriteIndex;
 	DebugFrameInfo* frames;
 
-	DebugProfilerRegionSelection regionSelection;
+	DebugRecord* selectedRecord;
 
 	bool paused;
-	bool restartRequested;
 	bool isInitialized;
 };
 

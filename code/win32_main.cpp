@@ -407,6 +407,7 @@ bool Win32PushTask(PlatformQueue* queue, PlatformQueueCallback callback, void* a
 
 internal
 void Win32WaitForQueueCompletion(PlatformQueue* queue) {
+	TIMED_FUNCTION;
 	while (!Win32WorkInQueueIsDone(queue)) {
 		Win32TryPopAndExecuteTaskFromQueue(queue);
 	};
