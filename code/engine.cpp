@@ -1055,7 +1055,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			else if (mod == 2) {
 				stairs = true;
 			}
-
 			u32 roomCenterX = screenX * world.tileCountX + world.tileCountX / 2;
 			u32 roomCenterY = screenY * world.tileCountY + world.tileCountY / 2;
 			V3 roomSize = V3{ world.tileCountX * world.tileSizeInMeters.X,

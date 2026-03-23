@@ -1057,7 +1057,7 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	Assert(programMemory.transientMemorySize >= sizeof(TransientState));
 	Assert(programMemory.debugMemorySize >= sizeof(DebugState) || programMemory.debugMemorySize == 0);
 	state.dLoopRecord.stateMemoryBlock = VirtualAlloc(
-		0, programMemory.permanentMemorySize + programMemory.transientMemorySize,
+		0, programMemory.memoryBlockSize,
 		MEM_RESERVE | MEM_COMMIT,
 		PAGE_READWRITE
 	);
