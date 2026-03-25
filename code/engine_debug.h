@@ -6,9 +6,11 @@ enum class DebugVarType : u8 {
 	Float,
 
 	CompilationSwitch,
-	ProfilerSwitch,
-	ProfilerPause,
 	ProfilerUI,
+};
+
+enum DebugVarFlags {
+	DebugVarFlags_CompileTimeVar = 0x1,
 };
 
 struct DebugProfilerSettings {
@@ -18,6 +20,7 @@ struct DebugProfilerSettings {
 struct DebugVariable {
 	DebugVarType type;
 	char* name;
+	u32 flags;
 	union {
 		bool boolean;
 		f32 fl32;
