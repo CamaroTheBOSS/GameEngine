@@ -8,14 +8,27 @@ enum class DebugVarType : u8 {
 	CompilationSwitch,
 	ProfilerSwitch,
 	ProfilerPause,
+	ProfilerUI,
 };
+
+struct DebugProfilerSettings {
+	Rect2 rect;
+};
+
 struct DebugVariable {
 	DebugVarType type;
 	char* name;
 	union {
 		bool boolean;
 		f32 fl32;
+		DebugProfilerSettings profiler;
 	};
+};
+
+enum DebugInteraction {
+	DebugInteract_Click,
+	DebugInteract_Drag,
+	DebugInteract_Hover
 };
 
 // ------------------- EVENT PROFILER --------------------
@@ -56,16 +69,14 @@ struct DebugEvent {
 };
 
 struct DebugProfilerRegion {
-	f32 minT;
-	f32 maxT;
 	u32 laneId;
 	u32 recordIndex;
 	u32 translationUnit;
 
+	f32 minT;
+	f32 maxT;
 	u64 startCycles;
 	u64 endCycles;
-	u64 frameStartCycles;
-	u64 frameEndCycles;
 
 	u32 parentRegionIndex;
 	DebugRecord* parentRecord;
@@ -79,9 +90,6 @@ struct DebugProfilerRegionSelection {
 };
 
 struct DebugFrameInfo {
-	u64 startCycles;
-	u64 endCycles;
-
 	u32 regionsCount;
 	DebugProfilerRegion regions[MAX_STACK_REGIONS];
 };
@@ -94,6 +102,7 @@ struct DebugGlobalState {
 	DebugEvent debugEvents[MAX_DEBUG_FRAMES][MAX_DEBUG_EVENTS];
 	u32 debugEventsCount[MAX_DEBUG_FRAMES];
 
+	u64 frameStartCycles[MAX_DEBUG_FRAMES];
 	volatile u64 frameAndEventIndex;
 
 	u32 debugVariableCount;
@@ -152,19 +161,22 @@ struct DebugEventStack {
 #define TIMED_BLOCK_END(blockName) \
 	TIMED_BLOCK_END_(counter##blockName)
 
-#define MARKUP_FRAME(frameInfo, cyclesStart, cyclesEnd) { \
+#define MARKUP_FRAME_BEGIN \
+	debugGlobalState->frameStartCycles[debugGlobalState->frameAndEventIndex >> 32] = __rdtsc();
+#define MARKUP_FRAME_END { \
 	u32 newFrameIndex = ((debugGlobalState->frameAndEventIndex >> 32) + 1) % MAX_DEBUG_FRAMES;						\
 	u64 oldFrameAndEventIndex = AtomicExchangeU64(&debugGlobalState->frameAndEventIndex, u64(newFrameIndex) << 32); \
-	u32 oldFrameIndex = oldFrameAndEventIndex >> 32;																\
-	if (frameInfo) {frameInfo->startCycles = cyclesStart; frameInfo->endCycles = cyclesEnd;}									\
-	debugGlobalState->debugEventsCount[oldFrameAndEventIndex >> 32] = oldFrameAndEventIndex & U32_MAX; }
+	u32 oldFrameIndex = oldFrameAndEventIndex >> 32;\
+	debugGlobalState->debugEventsCount[oldFrameIndex] = oldFrameAndEventIndex & U32_MAX;}
+	
 #else
 #define TIMED_FUNCTION
 #define TIMED_BLOCK_BEGIN__(counter, fileName, name, lineNumber)
 #define TIMED_BLOCK_BEGIN(blockName)
 #define TIMED_BLOCK_END_(counter)
 #define TIMED_BLOCK_END(blockName)
-#define MARKUP_FRAME(frameInfo, cyclesStart, cyclesEnd)
+#define MARKUP_FRAME_BEGIN
+#define MARKUP_FRAME_END
 #endif
 struct ManualTimedBlock {
 	u16 counter;

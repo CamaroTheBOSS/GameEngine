@@ -1232,10 +1232,9 @@ int CALLBACK WinMain(
 	Win32ReloadGameCode(gameCode);
 	debugGlobalState = gameCode.DebugInit(programMemory);
 	debugGlobalState->debugRecordsCount[TRANSLATION_UNIT] = DebugRecordsCount_Platform;
+
 	u64 frameStartTime = Win32GetCurrentTimestamp();
-	u64 rdtscStart = __rdtsc();
 	while (globalRunning) {
-		MARKUP_FRAME_BEGIN;
 		TIMED_BLOCK_BEGIN(InputProcessing);
 		Win32ReloadGameCode(gameCode);
 
@@ -1316,8 +1315,8 @@ int CALLBACK WinMain(
 		}
 		TIMED_BLOCK_END(GatherAndRenderSound);
 
-		gameCode.DebugFinishFrame(programMemory);
-		MARKUP_FRAME_END;
+		DebugFrameInfo* frameInfo = gameCode.DebugFinishFrame(programMemory);
+		MARKUP_FRAME(frameInfo, __rdtsc());
 	}
 	return 0;
 }

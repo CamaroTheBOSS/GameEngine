@@ -584,6 +584,28 @@ Rect2 InversedInfinityRect2() {
 }
 
 inline
+Rect2 Intersection(Rect2 A, Rect2 B) {
+	Rect2 result;
+	result.min.Y = Maximum(A.min.Y, B.min.Y);
+	result.min.X = Maximum(A.min.X, B.min.X);
+	result.max.Y = Minimum(A.max.Y, B.max.Y);
+	result.max.X = Minimum(A.max.X, B.max.X);
+	return result;
+}
+
+inline
+bool IsValid(Rect2 A) {
+	return A.min.X < A.max.X && A.min.Y < A.max.Y;
+}
+
+inline
+bool AreIntersecting(Rect2 first, Rect2 second) {
+	Rect2 A = Intersection(first, second);
+	bool result = IsValid(A);
+	return result;
+}
+
+inline
 Rect2 Union(Rect2 A, Rect2 B) {
 	Rect2 result;
 	result.min.Y = Minimum(A.min.Y, B.min.Y);

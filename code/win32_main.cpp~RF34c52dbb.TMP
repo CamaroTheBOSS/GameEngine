@@ -1235,7 +1235,6 @@ int CALLBACK WinMain(
 	u64 frameStartTime = Win32GetCurrentTimestamp();
 	u64 rdtscStart = __rdtsc();
 	while (globalRunning) {
-		MARKUP_FRAME_BEGIN;
 		TIMED_BLOCK_BEGIN(InputProcessing);
 		Win32ReloadGameCode(gameCode);
 
@@ -1317,7 +1316,7 @@ int CALLBACK WinMain(
 		TIMED_BLOCK_END(GatherAndRenderSound);
 
 		gameCode.DebugFinishFrame(programMemory);
-		MARKUP_FRAME_END;
+		MARKUP_FRAME( __rdtsc());
 	}
 	return 0;
 }

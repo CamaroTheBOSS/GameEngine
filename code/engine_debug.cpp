@@ -14,6 +14,7 @@ inline void EndRendering(RenderGroup& group);
 inline bool IsPressed(Button& button);
 inline bool WasPressed(Button& button);
 #define DEBUG_CONFIG_PATH "..\\code\\engine_debug_config.h"
+#define DEBUG_COLLATION_SCALE (1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ));
 
 inline
 FontDrawContext InitializeFontDrawContext(LoadedFont* font, f32 scale, V2 topline) {
@@ -136,6 +137,9 @@ DebugState* GetDebugState() {
 	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
 	DebugState* debugState = ptrcast(DebugState, debugGlobalMemory->debugMemory);
 	if (!debugState->isInitialized) {
+		debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
+		debugGlobalState->debugRecordsCount[1] = debugRecordsCount_Optimized;
+
 		TransientState* tranState = ptrcast(TransientState, debugGlobalMemory->transientMemory);
 		Assert(tranState->isInitialized);
 		InitializeArena(
@@ -157,6 +161,8 @@ DebugState* GetDebugState() {
 		AddDebugVariable(debugState, "Update and Compile", DebugVarType::CompilationSwitch);
 		debugState->profilerSwitch = AddDebugVariable(debugState, "Expand profiler", DebugVarType::ProfilerSwitch, true);
 		debugState->profilerPause = AddDebugVariable(debugState, "Pause profiler", DebugVarType::ProfilerPause, false);
+		DebugVariable* profilerUI = AddDebugVariable(debugState, "ProfilerUI", DebugVarType::ProfilerUI);
+		profilerUI->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
 
 		debugState->isInitialized = true;
 	}
@@ -323,16 +329,16 @@ void DebugCollateEvents(DebugState* debugState) {
 	debugState->openEventFreeList = 0;
 
 	debugState->frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
-	f32 scale = 1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ);
 	for (; 
 		debugState->frameReadIndex != debugState->frameWriteIndex;
 		debugState->frameReadIndex = (debugState->frameReadIndex + 1) % MAX_DEBUG_FRAMES
 		) {
 		DebugFrameInfo* frameInfo = debugState->frames + debugState->frameReadIndex;
 		frameInfo->regionsCount = 0;
-
+		f32 scale = DEBUG_COLLATION_SCALE;
 		DebugEvent* eventsInFrame = debugGlobalState->debugEvents[debugState->frameReadIndex];
 		u32 eventsInFrameCount = debugGlobalState->debugEventsCount[debugState->frameReadIndex];
+		u64 startCycles = debugGlobalState->frameStartCycles[debugState->frameReadIndex];
 		for (u32 eventIndex = 0;
 			eventIndex < eventsInFrameCount;
 			eventIndex++
@@ -363,10 +369,10 @@ void DebugCollateEvents(DebugState* debugState) {
 						openEvent->translationUnit == event->translationUnit &&
 						openEvent->threadId == event->threadId)
 					{
-						f32 minT = f4(openEvent->cycles - frameInfo->startCycles) * scale;
-						f32 maxT = f4(event->cycles - frameInfo->startCycles) * scale;
+						f32 minT = f4(openEvent->cycles - startCycles) * scale;
+						f32 maxT = f4(event->cycles - startCycles) * scale;
 						f32 thresholdT = 0.01f;
-						if (maxT - minT > thresholdT) {
+						if ((maxT - minT) > thresholdT) {
 							Assert(frameInfo->regionsCount < ArrayCount(frameInfo->regions));
 							u16 regionIndex = u2(frameInfo->regionsCount++);
 							DebugProfilerRegion* region = frameInfo->regions + regionIndex;
@@ -375,8 +381,6 @@ void DebugCollateEvents(DebugState* debugState) {
 							if (event->debugRecordIndex == 2 && event->translationUnit == 2) {
 								int breakhere = 5;
 							}
-							region->minT = minT;
-							region->maxT = maxT;
 							region->recordIndex = event->debugRecordIndex;
 							region->translationUnit = event->translationUnit;
 							region->laneId = stack->laneId;
@@ -386,10 +390,10 @@ void DebugCollateEvents(DebugState* debugState) {
 								Assert(parentBlock->childRegionCount < ArrayCount(parentBlock->childRegionIndexes));
 								parentBlock->childRegionIndexes[parentBlock->childRegionCount++] = regionIndex;
 							}
+							region->minT = minT;
+							region->maxT = maxT;
 							region->startCycles = openEvent->cycles;
 							region->endCycles = event->cycles;
-							region->frameStartCycles = frameInfo->startCycles;
-							region->frameEndCycles = frameInfo->endCycles;
 							region->parentRegionIndex = U32_MAX;
 							for (u32 index = 0; index < block->childRegionCount; index++) {
 								DebugProfilerRegion* childRegion = frameInfo->regions + block->childRegionIndexes[index];
@@ -410,36 +414,6 @@ void DebugCollateEvents(DebugState* debugState) {
 	EndTempMemory(stackMemory);
 }
 
-void DebugMainMenu() {
-	DebugState* debugState = GetDebugState();
-	if (!debugState) {
-		return;
-	}
-	struct MenuItem {
-		const char* name;
-		u32 state;
-	};
-	MenuItem menuItems[] = {
-		{ "Show profiler", 0 },
-		{ "Show hitboxes", 0 },
-		{ "Show chunk borders", 0 },
-	};
-	f32 menuPosX = -450;
-	f32 menuPosY = 250;
-	for (u32 itemIndex = 0; itemIndex < ArrayCount(menuItems); itemIndex++) {
-		MenuItem* item = menuItems + itemIndex;
-		V2 center = {
-			menuPosX ,
-			menuPosY - itemIndex * 20.f
-		};
-		Rect2 checkbox = GetRectFromCenterHalfDim(center, V2{5, 5});
-		V4 color = item->state ? V4{ 0, 1, 0, 1 } : V4{ 1, 0, 0, 1 };
-		PushRect(debugState->renderGroup, checkbox, 0, V2{ 0, 0 }, color);
-		center += V2{ 5.f, -5.f };
-		DebugRenderLine(debugState, item->name, center, 0.15f, color);
-	}
-}
-
 void WriteDebugConfig(DebugState* state) {
 	char buffer[4096];
 	char* at = buffer;
@@ -458,7 +432,131 @@ void WriteDebugConfig(DebugState* state) {
 	debugGlobalMemory->debug.WriteFile(DEBUG_CONFIG_PATH, buffer, at - buffer);
 }
 
-void DebugVariablesMenu(DebugState* state, V2 mousePos, Controller& controller) {
+void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos, Controller& controller) {
+	DebugRecord* hotRecord = 0;
+	u32 hotRegionIndex = U32_MAX;
+	u32 hotFrameIndex = U32_MAX;
+
+	f32 profilerPosY = boundaries.min.Y;
+	f32 profilerPosX = boundaries.min.X;
+	f32 profilerHeight = GetDim(boundaries).Y;
+	f32 threadLaneWidth = 8.f;
+	f32 threadLaneSpace = 2.f;
+	f32 threadLaneTotalWidth = threadLaneWidth + threadLaneSpace;
+	f32 frameLaneSpace = 10.f;
+	V4 colors[] = {
+		V4{1, 0, 0, 1},
+		V4{0, 1, 0, 1},
+		V4{0, 0, 1, 1},
+		V4{0, 1, 1, 1},
+		V4{1, 0, 1, 1},
+		V4{1, 1, 0, 1},
+		V4{1, 0.5f, 0.5f, 1},
+	};
+	u32 frameIndexForDrawing = 0;
+	f32 frameWidth = f4(state->eventStacksCount) * threadLaneTotalWidth + frameLaneSpace;
+	f32 collationScale = DEBUG_COLLATION_SCALE;
+	PushRect(state->renderGroup, boundaries, 0, V2{ 0, 0 }, V4{ 0.03f, 0.03f, 0.03f, 1 });
+	u32 firstFrameIndex = state->frameWriteIndex + 1;
+	for (u32 frameIndex = firstFrameIndex;;) {
+		frameIndex = (frameIndex + 1) % MAX_DEBUG_FRAMES;
+		if (frameIndex == state->frameWriteIndex) {
+			break;
+		}
+		bool breakAfterThisFrame = false;
+		DebugFrameInfo* frameInfo = state->frames + frameIndex;
+		for (u32 regionIndex = 0; regionIndex < frameInfo->regionsCount; regionIndex++) {
+			DebugProfilerRegion* region = frameInfo->regions + regionIndex;
+			if (state->selectedRecord != region->parentRecord) {
+				continue;
+			}
+			if (state->selectedFrameIndex != U32_MAX &&
+				(state->selectedRegionIndex != region->parentRegionIndex ||
+					state->selectedFrameIndex != frameIndex)) {
+				continue;
+			}
+			f32 minT = region->minT;
+			f32 maxT = region->maxT;
+			V3 spanCenter = {
+				profilerPosX + frameIndexForDrawing * frameWidth + (f4(region->laneId) + 0.5f) * threadLaneTotalWidth,
+				profilerPosY + 0.5f * (maxT + minT) * profilerHeight,
+				0
+			};
+			V2 spanSize = {
+				threadLaneWidth,
+				(maxT - minT) * profilerHeight
+			};
+			Rect2 rectangle = GetRectFromCenterDim(spanCenter.XY, spanSize);
+			u32 colorIndex = (13 * region->translationUnit + region->recordIndex) % ArrayCount(colors);
+			bool isHovered = IsInRectangle(rectangle, mousePos);
+			if (isHovered) {
+				DebugRecord* record = debugGlobalState->debugRecords[region->translationUnit] + region->recordIndex;
+				if (record->blockName) {
+					char buffer[256];
+					sprintf_s(buffer, "%s | %s:%d",
+						record->blockName,
+						record->file,
+						record->line
+					);
+					V4 color = V4{ 1, 1, 1, 1 };
+					f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
+					V2 textPos = mousePos + V2{ 0, lineAdvance };
+					DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
+					textPos += V2{ 0, lineAdvance };
+					sprintf_s(buffer, "t<%4f,%4f>, ec(%d)",
+						minT,
+						maxT,
+						u4(region->endCycles - region->startCycles)
+					);
+					DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
+				}
+				hotRecord = record;
+				hotRegionIndex = regionIndex;
+				hotFrameIndex = frameIndex;
+			}
+#if 1
+			rectangle.max.X = Clip(rectangle.max.X, boundaries.min.X, boundaries.max.X);
+			if (IsValid(rectangle)) {
+				if (frameIndexForDrawing >= 10) {
+					int breakhere = 0;
+				}
+				PushRect(state->renderGroup, rectangle, 0, V2{ 0, 0 }, isHovered ? V4{ 1, 1, 1, 1 } : colors[colorIndex]);
+			}
+			else {
+				if (rectangle.min.X > 1000.f || rectangle.min.X < -1000.f) {
+					int breakhere = 5;
+				}
+				breakAfterThisFrame = true;
+			}
+#else
+			PushRect(state->renderGroup, rectangle, 0, V2{ 0, 0 }, isHovered ? V4{ 1, 1, 1, 1 } : colors[colorIndex]);
+#endif
+		}
+		frameIndexForDrawing++;
+		if (breakAfterThisFrame) {
+			break;
+		}
+	}
+	f32 profilerWidth = f4(frameIndexForDrawing + 1) * frameWidth;
+	V3 targetFrameRateCenter = {
+		profilerPosX + 0.5f * profilerWidth,
+		profilerPosY + profilerHeight,
+		0
+	};
+	V2 targetFrameRateSize = { profilerWidth, 2.f };
+	PushRect(state->renderGroup, targetFrameRateCenter, targetFrameRateSize, V2{ 0, 0 }, V4{ 0, 0, 0, 1 });
+
+	if (WasPressed(controller.B.mouseLeft)) {
+		state->selectedRecord = hotRecord;
+	}
+	if (WasPressed(controller.B.mouseMiddle)) {
+		state->selectedRegionIndex = hotRegionIndex;
+		state->selectedFrameIndex = hotFrameIndex;
+		state->selectedRecord = hotRecord;
+	}
+}
+
+void DebugRenderVariablesMenu(DebugState* state, V2 mousePos, Controller& controller) {
 	V2 topline = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 	DebugVariable* hotVariable = 0;
 	for (u32 varIndex = 0; varIndex < state->variableCount; varIndex++) {
@@ -471,6 +569,9 @@ void DebugVariablesMenu(DebugState* state, V2 mousePos, Controller& controller) 
 		} break;
 		case DebugVarType::Float: {
 			sprintf_s(buffer, end - buffer, "%s: %f", var->name, var->fl32);
+		} break;
+		case DebugVarType::ProfilerUI: {
+			DebugRenderProfilerUI(state, var->profiler.rect, mousePos, controller);
 		} break;
 		default: {
 			sprintf_s(buffer, end - buffer, "%s", var->name);
@@ -517,126 +618,10 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 	Controller& controller = input.controllers[KB_CONTROLLER_IDX];
 	V2 mousePos = { controller.mouse.X - 0.5f, controller.mouse.Y - 0.5f };
 	mousePos = Hadamard(mousePos, V2i(dstBitmap.width, dstBitmap.height));
-	//if (WasPressed(controller.B.mouseRight)) {
-	//	state->paused = !state->paused;
-	//}
-	DebugVariablesMenu(state, mousePos, controller);
-
-	DebugRecord* hotRecord = 0;
-	u32 hotRegionIndex = U32_MAX;
-	u32 hotFrameIndex = U32_MAX;
-	f32 fontScale = 0.15f;
-	V4 fontColor = V4{ 0.8f, 0.8f, 0.8f, 1 };
-	debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
-	debugGlobalState->debugRecordsCount[1] = debugRecordsCount_Optimized;
-
-	// Collate debug events
-	f32 profilerPosY = -0.47f * f4(dstBitmap.height);
-	f32 profilerPosX = -0.5f * f4(dstBitmap.width);
-	f32 profilerHeight = state->profilerSwitch->boolean ? 200.f : 30.f;
-	f32 threadLaneWidth = 8.f;
-	f32 threadLaneSpace = 2.f;
-	f32 threadLaneTotalWidth = threadLaneWidth + threadLaneSpace;
-	f32 frameLaneSpace = 10.f;
-	V4 colors[] = {
-		V4{1, 0, 0, 1},
-		V4{0, 1, 0, 1},
-		V4{0, 0, 1, 1},
-		V4{0, 1, 1, 1},
-		V4{1, 0, 1, 1},
-		V4{1, 1, 0, 1},
-		V4{0, 0, 0, 1},
-	};
-	u32 frameIndexForDrawing = 0;
-	f32 frameWidth = f4(state->eventStacksCount) * threadLaneTotalWidth + frameLaneSpace;
-	for (u32 frameIndex = state->frameWriteIndex;;) {
-		frameIndex = (frameIndex + 1) % MAX_DEBUG_FRAMES;
-		if (frameIndex == state->frameWriteIndex) {
-			break;
-		}
-		DebugFrameInfo* frameInfo = state->frames + frameIndex;
-		for (u32 regionIndex = 0; regionIndex < frameInfo->regionsCount; regionIndex++) {
-			DebugProfilerRegion* region = frameInfo->regions + regionIndex;
-			if (state->selectedRecord != region->parentRecord) {
-				continue;
-			}
-			if (state->selectedFrameIndex != U32_MAX &&
-				(state->selectedRegionIndex != region->parentRegionIndex ||
-					state->selectedFrameIndex != frameIndex)) {
-				continue;
-			}
-
-			V3 spanCenter = {
-				profilerPosX + frameIndexForDrawing * frameWidth + (f4(region->laneId) + 0.5f) * threadLaneTotalWidth,
-				profilerPosY + 0.5f * f4(region->maxT + region->minT) * profilerHeight,
-				0
-			};
-			V2 spanSize = {
-				threadLaneWidth,
-				f4(region->maxT - region->minT) * profilerHeight
-			};
-			Rect2 rectangle = GetRectFromCenterDim(spanCenter.XY, spanSize);
-			u32 colorIndex = (13 * region->translationUnit + region->recordIndex) % ArrayCount(colors);
-			bool isHovered = IsInRectangle(rectangle, mousePos);
-			if (isHovered) {
-				DebugRecord* record = debugGlobalState->debugRecords[region->translationUnit] + region->recordIndex;
-				if (record->blockName) {
-					char buffer[256];
-					sprintf_s(buffer, "%s | %s:%d", 
-						record->blockName,
-						record->file,
-						record->line
-					);
-					V2 textPos = mousePos + V2{ 0, 10.f };
-					DebugRenderLine(state, buffer, textPos, fontScale, fontColor);
-					textPos = V2{ -400, 250.f };
-					sprintf_s(buffer, "t<%4f,%4f>, f<%llu, %llu> (%d)",
-						region->minT,
-						region->maxT,
-						region->frameStartCycles,
-						region->frameEndCycles,
-						u4(region->frameEndCycles - region->frameStartCycles)
-							
-					);
-					DebugRenderLine(state, buffer, textPos, fontScale, fontColor);
-					textPos = V2{ -400, 230.f };
-					sprintf_s(buffer, "c<%llu, %llu> (%d)",
-						region->startCycles,
-						region->endCycles,
-						u4(region->endCycles - region->startCycles)
-					);
-					DebugRenderLine(state, buffer, textPos, fontScale, fontColor);
-				}
-				hotRecord = record;
-				hotRegionIndex = regionIndex;
-				hotFrameIndex = frameIndex;
-			}
-			PushRect(state->renderGroup, rectangle, 0, V2{ 0, 0 }, isHovered ? V4{1, 1, 1, 1} : colors[colorIndex]);
-		}
-		frameIndexForDrawing++;
-	}
-	f32 profilerWidth = f4(frameIndexForDrawing + 1) * frameWidth;
-	V3 targetFrameRateCenter = {
-		profilerPosX + 0.5f * profilerWidth,
-		profilerPosY + profilerHeight,
-		0
-	};
-	V2 targetFrameRateSize = { profilerWidth, 2.f };
-	PushRect(state->renderGroup, targetFrameRateCenter, targetFrameRateSize, V2{ 0, 0 }, V4{ 0, 0, 0, 1 });
-
+	DebugRenderVariablesMenu(state, mousePos, controller);
 	if (state->compilationHandle.state == CmdState_Running) {
 		DebugRenderLine(state, "Compiling", state->fontContext, V4{1, 1, 1, 1});
 	}
-
-	if (WasPressed(controller.B.mouseLeft)) {
-		state->selectedRecord = hotRecord;
-	}
-	if (WasPressed(controller.B.mouseMiddle)) {
-		state->selectedRegionIndex = hotRegionIndex;
-		state->selectedFrameIndex = hotFrameIndex;
-		state->selectedRecord = hotRecord;
-	}
-
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
 }
 
