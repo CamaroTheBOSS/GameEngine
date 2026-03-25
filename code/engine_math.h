@@ -502,8 +502,6 @@ Rect2i Union(Rect2i A, Rect2i B) {
 	return result;
 }
 
-
-
 struct Rect2 {
 	V2 min;
 	V2 max;
@@ -533,6 +531,11 @@ V2 GetCenter(Rect2 rect) {
 inline
 Rect2 GetRectFromMinMax(V2 min, V2 max) {
 	return Rect2{ min, max };
+}
+
+inline
+Rect2 GetRectFromMinDim(V2 min, V2 dim) {
+	return Rect2{ min, min + dim };
 }
 
 inline
@@ -571,6 +574,25 @@ Rect2 GetRectFromCenterDim(V2 center, V2 dims) {
 	};
 	return rect;
 }
+
+inline
+Rect2 InversedInfinityRect2() {
+	Rect2 result;
+	result.min = V2{ F32_MAX, F32_MAX };
+	result.max = V2{ -F32_MAX, -F32_MAX };
+	return result;
+}
+
+inline
+Rect2 Union(Rect2 A, Rect2 B) {
+	Rect2 result;
+	result.min.Y = Minimum(A.min.Y, B.min.Y);
+	result.min.X = Minimum(A.min.X, B.min.X);
+	result.max.Y = Maximum(A.max.Y, B.max.Y);
+	result.max.X = Maximum(A.max.X, B.max.X);
+	return result;
+}
+
 
 inline
 bool IsInRectangle(Rect2 rect, V2 point) {

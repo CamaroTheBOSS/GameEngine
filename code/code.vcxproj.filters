@@ -85,5 +85,11 @@
     <ClInclude Include="engine_debug.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="engine_platform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="engine_debug_config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

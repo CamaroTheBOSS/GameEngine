@@ -153,6 +153,8 @@
     <ClInclude Include="engine_assets.h" />
     <ClInclude Include="engine_common.h" />
     <ClInclude Include="engine_debug.h" />
+    <ClInclude Include="engine_debug_config.h" />
+    <ClInclude Include="engine_platform.h" />
     <ClInclude Include="engine_rand.h" />
     <ClInclude Include="engine_render.h" />
     <ClInclude Include="engine_simulation.h" />

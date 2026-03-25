@@ -1,4 +1,4 @@
-#include "engine.h"
+#include "engine_platform.h"
 
 #include <windows.h>
 #include <Xinput.h>
@@ -161,8 +161,11 @@ bool Win32LoadGameCode(Win32GameCode& gameCode) {
 	return success;
 }
 
+internal void Win32WaitForQueueCompletion(PlatformQueue* queue);
 internal
 void Win32UnloadGameCode(Win32GameCode& gameCode) {
+	Win32WaitForQueueCompletion(&globalHighPriorityQueue);
+	Win32WaitForQueueCompletion(&globalLowPriorityQueue);
 	if (gameCode.dll) {
 		Assert(FreeLibrary(gameCode.dll));
 		gameCode.dll = nullptr;
@@ -538,6 +541,44 @@ void Win32FileRead(PlatformFileHandle* handle, u32 offset, u32 size, void* dst) 
 		file->errCode = GetLastError();
 		return;
 	}
+}
+
+internal
+PlatformCommandHandle Win32SystemExecuteCommand(char* cwd, char* command) {
+	STARTUPINFOA startupInfo = {};
+	startupInfo.cb = sizeof(startupInfo);
+	PROCESS_INFORMATION processInfo;
+	PlatformCommandHandle result = {};
+	if (!CreateProcessA(0, command, 0, 0, FALSE, CREATE_NO_WINDOW, 0, cwd, &startupInfo, &processInfo)) {
+		result.state = CmdState_Failed;
+		return {};
+	}
+	result.processHandle = reinterpret_cast<uptr>(processInfo.hProcess);
+	result.threadHandle = reinterpret_cast<uptr>(processInfo.hThread);
+	result.state = CmdState_Running;
+	return result;
+}
+
+internal
+PlatformCommandState Win32SystemGetCommandState(PlatformCommandHandle& command) {
+	HANDLE hProcess = reinterpret_cast<HANDLE>(command.processHandle);
+	HANDLE hThread = reinterpret_cast<HANDLE>(command.threadHandle);
+	DWORD state = WaitForSingleObject(hProcess, 0);
+	if (state == WAIT_TIMEOUT) {
+		command.state = CmdState_Running;
+	}
+	else if (state == WAIT_OBJECT_0) {
+		DWORD exitCode = 1;
+		if (GetExitCodeProcess(hProcess, &exitCode) && exitCode == 0) {
+			command.state = CmdState_Completed;
+		}
+		CloseHandle(hProcess);
+		CloseHandle(hThread);
+	}
+	else {
+		command.state = CmdState_Failed;
+	}
+	return command.state;
 }
 
 internal
@@ -1053,9 +1094,6 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 		programMemory.permanentMemorySize);
 	programMemory.debugMemory = ptrcast(void, ptrcast(u8, programMemory.transientMemory) +
 		programMemory.transientMemorySize);
-	Assert(programMemory.permanentMemorySize >= sizeof(ProgramState));
-	Assert(programMemory.transientMemorySize >= sizeof(TransientState));
-	Assert(programMemory.debugMemorySize >= sizeof(DebugState) || programMemory.debugMemorySize == 0);
 	state.dLoopRecord.stateMemoryBlock = VirtualAlloc(
 		0, programMemory.memoryBlockSize,
 		MEM_RESERVE | MEM_COMMIT,
@@ -1071,6 +1109,8 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.platformAPI.FileRead = Win32FileRead;
 	programMemory.platformAPI.MemoryAllocate = Win32AllocateMemory;
 	programMemory.platformAPI.MemoryFree = Win32FreeMemory;
+	programMemory.platformAPI.SystemExecuteCommand = Win32SystemExecuteCommand;
+	programMemory.platformAPI.SystemGetCommandState = Win32SystemGetCommandState;
 
 	programMemory.highPriorityQueue = &globalHighPriorityQueue;
 	programMemory.lowPriorityQueue = &globalLowPriorityQueue;
@@ -1110,12 +1150,12 @@ int CALLBACK WinMain(
 ) {
 	InitializeQueue(globalHighPriorityQueue, 8);
 	InitializeQueue(globalLowPriorityQueue, 2);
-#if 1
-	u32 globalBitmapWidth = 960;
-	u32 globalBitmapHeight = 540;
-#else
+#if 0
 	u32 globalBitmapWidth = 1920;
 	u32 globalBitmapHeight = 1080;
+#else
+	u32 globalBitmapWidth = 960;
+	u32 globalBitmapHeight = 540;
 #endif
 	Win32LoadXInput();
 

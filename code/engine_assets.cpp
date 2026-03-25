@@ -308,7 +308,6 @@ struct LoadAssetTaskArgs {
 
 internal
 void LoadAssetBackgroundTask(void* data) {
-	// TODO: Can I do that without opening/closing file all the time?
 	LoadAssetTaskArgs* args = ptrcast(LoadAssetTaskArgs, data);
 	Platform->FileRead(args->source, args->offset, args->size, args->buffer);
 	if (!Platform->FileErrors(args->source)) {

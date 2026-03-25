@@ -989,6 +989,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	World& world = state->world;
 	if (!state->isInitialized) {
+		Assert(memory.permanentMemorySize >= sizeof(ProgramState));
 		InitializeWorld(world);
 		InitializeArena(
 			state->mainArena,
@@ -1136,6 +1137,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 
 	TransientState* tranState = ptrcast(TransientState, memory.transientMemory);
 	if (!tranState->isInitialized) {
+		Assert(memory.transientMemorySize >= sizeof(TransientState));
 		InitializeArena(
 			tranState->arena,
 			ptrcast(u8, memory.transientMemory) + sizeof(TransientState),
@@ -1168,6 +1170,13 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			groundBuffer->pos = NullPosition();
 		}
 	}
+	LoadedBitmap screenBitmap = {};
+	screenBitmap.height = bitmap.height;
+	screenBitmap.width = bitmap.width;
+	screenBitmap.data = ptrcast(u32, bitmap.data);
+	screenBitmap.pitch = bitmap.pitch;
+	DebugBegin(screenBitmap);
+
 	TIMED_BLOCK_BEGIN(BeginSimAndInputProc);
 	SetCamera(state);
 	TemporaryMemory simMemory = BeginTempMemory(tranState->arena);
@@ -1273,12 +1282,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 	TIMED_BLOCK_END(BeginSimAndInputProc);
 	TIMED_BLOCK_BEGIN(GroundChunks);
-	LoadedBitmap screenBitmap = {};
-	screenBitmap.height = bitmap.height;
-	screenBitmap.width = bitmap.width;
-	screenBitmap.data = ptrcast(u32, bitmap.data);
-	screenBitmap.pitch = bitmap.pitch;
-
 	// TODO: Think about size of the main render group
 	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
 	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, &tranState->assets, MB(4));
@@ -1286,7 +1289,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	renderGroup.projection = GetStandardProjection(bitmap.width, bitmap.height);
 	f32 originalCameraDistance = renderGroup.projection.camera.distanceToTarget;
 	//NOTE: Change this to change debug view
-	//renderGroup.projection.camera.distanceToTarget = 30.f;
+#if DEBUGUI_CAMERA_ZOOMOUT
+	renderGroup.projection.camera.distanceToTarget = DEBUGUI_CAMERA_ZOOMOUT_VALUE;
+#endif
 
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });

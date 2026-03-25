@@ -2,7 +2,6 @@
 #include "engine_common.h"
 #include "engine_rand.h"
 
-#define BITMAP_BYTES_PER_PIXEL 4
 struct LoadedBitmap {
 	void* bufferStart;
 	u32* data;

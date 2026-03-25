@@ -1,5 +1,5 @@
 #pragma once
-#include <cstdint>
+#include <stdint.h>
 #include <utility>
 #include <math.h>
 
@@ -91,6 +91,7 @@ typedef long long i64;
 typedef float f32;
 typedef double f64;
 
+#include "engine_debug_config.h"
 #include "engine_intrinsics.h"
 #include "engine_math.h"
 

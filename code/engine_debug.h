@@ -1,5 +1,35 @@
 #include "engine_common.h"
 
+// ------------------- DEBUG VARIABLES --------------------
+enum DebugVarType {
+	DebugVarType_Bool,
+	DebugVarType_Float
+};
+enum class DebugVarName {
+	CameraZoomout,
+	CameraDistanceToTarget,
+
+	DebugVarCount
+};
+struct DebugVariable {
+	DebugVarType type;
+	union {
+		bool BOOLEAN;
+		f32 F32;
+	};
+};
+
+#if 0
+#if INTERNAL_BUILD
+#define DEBUGUI_VARIABLES 1
+#define GetDebugUIVariable(name) DebugState* state = GetDebugState();
+#else
+#define DEBUGUI_VARIABLES 0
+#define GetDebugUIVariable(name)
+#endif
+#endif
+
+// ------------------- EVENT PROFILER --------------------
 #if !defined(TRANSLATION_UNIT)
 #define TRANSLATION_UNIT 0
 #endif
@@ -67,6 +97,7 @@ struct DebugFrameInfo {
 	DebugProfilerRegion regions[MAX_STACK_REGIONS];
 };
 
+struct DebugVariable;
 struct DebugGlobalState {
 	DebugRecord debugRecords[MAX_TRANSLATION_UNIT][MAX_DEBUG_RECORDS];
 	u32 debugRecordsCount[MAX_TRANSLATION_UNIT];
@@ -75,6 +106,9 @@ struct DebugGlobalState {
 	u32 debugEventsCount[MAX_DEBUG_FRAMES];
 
 	volatile u64 frameAndEventIndex;
+
+	u32 debugVariableCount;
+	DebugVariable* debugVariables;
 };
 
 extern u32 debugRecordsCount_Main;
@@ -92,31 +126,6 @@ struct DebugEventStack {
 	u32 threadId;
 	u32 laneId;
 	OpenDebugEvent* events;
-};
-
-struct PlatformQueue;
-struct DebugState {
-	MemoryArena arena;
-	TemporaryMemory scratchBuffer;
-	RenderGroup renderGroup;
-	PlatformQueue* highPriorityQueue;
-
-	// Event Collation
-	u32 eventStacksCount;
-	DebugEventStack* eventStacks;
-	OpenDebugEvent* openEventFreeList;
-
-	// Profiler
-	u32 frameReadIndex;
-	u32 frameWriteIndex;
-	DebugFrameInfo* frames;
-	// Profiler selection
-	DebugRecord* selectedRecord;
-	u32 selectedRegionIndex;
-	u32 selectedFrameIndex;
-
-	bool paused;
-	bool isInitialized;
 };
 
 #define RecordDebugEvent(counter, eventtype, hitcount) {\
@@ -185,14 +194,17 @@ struct TimedBlock {
 	}
 };
 
+struct LoadedFont;
 struct FontDrawContext {
 	f32 scale;
 	V2 leftTopStart;
 	V2 leftTopCurrent;
 	V4 color;
+	LoadedFont* font;
 };
 
 struct ProgramMemory;
 struct LoadedBitmap;
 struct InputData;
 void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputData& input);
+inline void DebugBegin(LoadedBitmap& screenBitmap);
