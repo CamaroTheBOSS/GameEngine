@@ -120,6 +120,7 @@ struct DebugState {
 	DebugVariable* interactingWith;
 	DebugInteraction hotInteraction;
 	DebugInteraction nextHotInteraction;
+	V2 mousePosAtInteractStart;
 
 	bool isInitialized;
 };

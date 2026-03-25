@@ -197,7 +197,6 @@ void DebugBegin(LoadedBitmap& screenBitmap) {
 	state->hotRegionIndex = U32_MAX;
 	state->hotVariable = 0;
 	state->nextHotVariable = 0;
-	state->hotInteraction = DebugInteract_None;
 	state->nextHotInteraction = DebugInteract_None;
 #endif
 }
@@ -572,7 +571,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 		}
 		V4 color = V4{ 1, 1, 1, 1 };
 		Rect2 bb = GetTextBoundingBox(state, buffer, state->fontContext, color);
-		if (IsInRectangle(bb, mousePos)) {
+		if (IsInRectangle(bb, mousePos)  && state->hotInteraction == DebugInteract_None) {
 			color = V4{ 0, 0, 1, 1 };
 			state->hotVariable = var;
 		}
@@ -580,35 +579,94 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	}
 }
 
-void DebugInteract(DebugState* state, Controller& controller) {
-	if (state->hotVariable && WasPressed(controller.B.mouseLeft)) {
-		switch (state->hotVariable->type) {
+void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
+	if (!state->interactingWith && state->hotInteraction == DebugInteract_None) {
+		state->interactingWith = state->hotVariable;
+		state->hotInteraction = DebugInteract_Hover;
+		state->mousePosAtInteractStart = mousePos;
+		if (WasPressed(controller.B.mouseLeft)) {
+			state->hotInteraction = DebugInteract_Click;
+		}
+		else if (IsPressed(controller.B.mouseLeft)) {
+			state->hotInteraction = DebugInteract_Drag;
+		}
+	}
+
+	if (state->interactingWith) {
+		switch (state->interactingWith->type) {
 		case DebugVarType::ProfilerPause:
 		case DebugVarType::ProfilerSwitch:
 		case DebugVarType::Bool: {
-			state->hotVariable->boolean = !state->hotVariable->boolean;
+			if (state->hotInteraction == DebugInteract_Click) {
+				state->interactingWith->boolean = !state->interactingWith->boolean;
+			}
 		} break;
 		case DebugVarType::Float: {
-			state->hotVariable->fl32 += 1.f;
+			V2 dMouse = mousePos - state->mousePosAtInteractStart;
+			if (state->hotInteraction == DebugInteract_Drag) {
+				state->interactingWith->fl32 += 0.001f * dMouse.Y;
+			}
 		} break;
 		case DebugVarType::CompilationSwitch: {
-			WriteDebugConfig(state);
-			if (state->compilationHandle.state != CmdState_Running) {
-				char cwd[] = "..\\code";
-				char cmd[] = "cmd.exe /c build.bat --game_only";
-				state->compilationHandle = Platform->SystemExecuteCommand(cwd, cmd);
+			if (state->hotInteraction == DebugInteract_Click) {
+				WriteDebugConfig(state);
+				if (state->compilationHandle.state != CmdState_Running) {
+					char cwd[] = "..\\code";
+					char cmd[] = "cmd.exe /c build.bat --game_only";
+					state->compilationHandle = Platform->SystemExecuteCommand(cwd, cmd);
+				}
 			}
+		} break;
+		case DebugVarType::ProfilerUI: {
+			
 		} break;
 		}
 	}
-	else {
-		if (WasPressed(controller.B.mouseLeft)) {
-			state->selectedRecord = state->hotRecord;
-		}
-		if (WasPressed(controller.B.mouseMiddle)) {
-			state->selectedRegionIndex = state->hotRegionIndex;
-			state->selectedFrameIndex = state->hotFrameIndex;
-			state->selectedRecord = state->hotRecord;
+	if (WasPressed(controller.B.mouseLeft)) {
+		state->selectedRecord = state->hotRecord;
+	}
+	if (WasPressed(controller.B.mouseMiddle)) {
+		state->selectedRegionIndex = state->hotRegionIndex;
+		state->selectedFrameIndex = state->hotFrameIndex;
+		state->selectedRecord = state->hotRecord;
+	}
+
+	char buffer[256];
+	const char* interaction = "Unknown";
+	switch (state->hotInteraction) {
+	case DebugInteract_None: {
+		interaction = "None";
+	} break;
+	case DebugInteract_Hover: {
+		interaction = "Hover";
+	} break;
+	case DebugInteract_Click: {
+		interaction = "Click";
+	} break;
+	case DebugInteract_Drag: {
+		interaction = "Drag";
+	} break;
+	}
+	sprintf_s(buffer, 256, "%s with %s", interaction, state->interactingWith ? state->interactingWith->name : "none");
+	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+
+	if (state->hotInteraction) {
+		switch (state->hotInteraction) {
+		case DebugInteract_Click: {
+			state->hotInteraction = DebugInteract_None;
+			state->interactingWith = 0;
+		} break;
+		case DebugInteract_Hover: {
+			// TODO:
+			state->hotInteraction = DebugInteract_None;
+			state->interactingWith = 0;
+		} break;
+		case DebugInteract_Drag: {
+			if (!IsPressed(controller.B.mouseLeft)) {
+				state->hotInteraction = DebugInteract_None;
+				state->interactingWith = 0;
+			}
+		} break;
 		}
 	}
 }
@@ -628,7 +686,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 	if (state->compilationHandle.state == CmdState_Running) {
 		DebugRenderLine(state, "Compiling", state->fontContext, V4{1, 1, 1, 1});
 	}
-	DebugInteract(state, controller);
+	DebugInteract(state, mousePos, controller);
 	
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
 }
