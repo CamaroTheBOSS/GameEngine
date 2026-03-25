@@ -1118,6 +1118,13 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	return programMemory;
 }
 
+u64 ConcatenateString(char* first, u64 firstSize, char* second, u64 secondSize, char* dst, u64 dstSize) {
+	u64 length = CopyString(first, firstSize, dst, dstSize);
+	dst += length;
+	length += CopyString(second, secondSize, dst, dstSize - length);
+	return length;
+}
+
 int CALLBACK WinMain(
 	HINSTANCE instance,
 	HINSTANCE prevInstance,
@@ -1126,7 +1133,7 @@ int CALLBACK WinMain(
 ) {
 	InitializeQueue(globalHighPriorityQueue, 8);
 	InitializeQueue(globalLowPriorityQueue, 2);
-#if DEBUGUI_RenderFullHD
+#if 0
 	u32 globalBitmapWidth = 1920;
 	u32 globalBitmapHeight = 1080;
 #else

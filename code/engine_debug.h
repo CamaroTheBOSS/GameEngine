@@ -1,33 +1,22 @@
 #include "engine_common.h"
 
 // ------------------- DEBUG VARIABLES --------------------
-enum DebugVarType {
-	DebugVarType_Bool,
-	DebugVarType_Float
-};
-enum class DebugVarName {
-	CameraZoomout,
-	CameraDistanceToTarget,
+enum class DebugVarType : u8 {
+	Bool,
+	Float,
 
-	DebugVarCount
+	CompilationSwitch,
+	ProfilerSwitch,
+	ProfilerPause,
 };
 struct DebugVariable {
 	DebugVarType type;
+	char* name;
 	union {
-		bool BOOLEAN;
-		f32 F32;
+		bool boolean;
+		f32 fl32;
 	};
 };
-
-#if 0
-#if INTERNAL_BUILD
-#define DEBUGUI_VARIABLES 1
-#define GetDebugUIVariable(name) DebugState* state = GetDebugState();
-#else
-#define DEBUGUI_VARIABLES 0
-#define GetDebugUIVariable(name)
-#endif
-#endif
 
 // ------------------- EVENT PROFILER --------------------
 #if !defined(TRANSLATION_UNIT)
@@ -199,7 +188,6 @@ struct FontDrawContext {
 	f32 scale;
 	V2 leftTopStart;
 	V2 leftTopCurrent;
-	V4 color;
 	LoadedFont* font;
 };
 

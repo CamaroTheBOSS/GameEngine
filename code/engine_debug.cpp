@@ -13,13 +13,13 @@ inline void BeginRendering(RenderGroup& group);
 inline void EndRendering(RenderGroup& group);
 inline bool IsPressed(Button& button);
 inline bool WasPressed(Button& button);
+#define DEBUG_CONFIG_PATH "..\\code\\engine_debug_config.h"
 
 inline
 FontDrawContext InitializeFontDrawContext(LoadedFont* font, f32 scale, V2 topline) {
 	FontDrawContext context = {};
 	context.font = font;
 	context.scale = scale;
-	context.color = V4{ 1, 1, 1, 1 };
 	context.leftTopStart = context.leftTopCurrent = topline - V2{ 0, scale * context.font->metrics.ascent };
 	return context;
 }
@@ -31,18 +31,100 @@ FontDrawContext InitializeStandardFontDrawContext(DebugState* state, V2 topline)
 
 internal
 void ResetDebugCollation(DebugState* debugState, u32 frameWriteIndex) {
-	EndTempMemory(debugState->scratchBuffer);
-	CheckArena(debugState->arena);
+	EndTempMemory(debugState->collationScratchBuffer);
+	CheckArena(debugState->collationArena);
 	debugState->openEventFreeList = 0;
 	debugState->eventStacksCount = 0;
 	debugState->eventStacks = 0;
-	debugState->paused = 0;
 	debugState->selectedFrameIndex = U32_MAX;
 	debugState->selectedRegionIndex = U32_MAX;
 	debugState->selectedRecord = 0;
 	debugState->frameReadIndex = (frameWriteIndex + 1) % MAX_DEBUG_FRAMES;
-	debugState->scratchBuffer = BeginTempMemory(debugState->arena);
-	debugState->frames = PushArray(debugState->arena, MAX_DEBUG_FRAMES, DebugFrameInfo);
+	debugState->collationScratchBuffer = BeginTempMemory(debugState->collationArena);
+	debugState->frames = PushArray(debugState->collationArena, MAX_DEBUG_FRAMES, DebugFrameInfo);
+}
+
+internal
+void ReadDebugConfig(DebugState* state) {
+#if 0
+	PlatformFileHandle* handle = Platform->FileOpen(DEBUG_CONFIG_PATH);
+	TemporaryMemory fileDataMemory = BeginTempMemory(state->mainArena);
+	char* fileData = PushArray(state->mainArena, handle->size + 1, char);
+	Platform->FileRead(handle, 0, handle->size, fileData);
+	fileData[handle->size] = 0;
+#endif
+
+#if 0
+	// Find substring
+	//TODO: UB?
+	char* define = ptrcast(char, "#define ");
+	char* result = 0;
+	for (;;) {
+		char* pattern = define;
+		u32 count = 0;
+		while (*fileData && *fileData++ == *pattern++) {
+			count++;
+			if (!*pattern) {
+				result = fileData - count;
+				break;
+			}
+		}
+		if (result || !*fileData) {
+			break;
+		}
+	}
+#endif
+#if 0
+	//NOTE: Reading assumes that variables are IN ORDER
+	u32 variableIndex = 0;
+	u32 spaceCount = 0;
+	while (*fileData) {
+		char* start = 0;
+		char* end = 0;
+		while (*fileData || spaceCount == 2) {
+			if (*fileData++ == ' ') {
+				spaceCount++;
+			}
+		}
+		while (*fileData) {
+			if (*fileData == '\n') {
+				end = fileData;
+				break;
+			}
+			fileData++;
+		};
+		
+		variableIndex++;
+	}
+#endif
+
+#if 0
+	EndTempMemory(fileDataMemory);
+#endif
+}
+
+inline
+DebugVariable* AddDebugVariable(DebugState* state, const char* name, DebugVarType type) {
+	Assert(state->variableCount < ArrayCount(state->variables));
+	DebugVariable* variable = state->variables + state->variableCount++;
+	u32 length = StringLength(name) + 1;
+	variable->name = PushString(state->mainArena, name, length);
+	variable->type = type;
+	return variable;
+}
+
+inline
+DebugVariable* AddDebugVariable(DebugState* state, const char* name, DebugVarType type, bool value) {
+	DebugVariable* variable = AddDebugVariable(state, name, type);
+	variable->boolean = value;
+	return variable;
+}
+
+inline
+DebugVariable* AddDebugVariable(DebugState* state, const char* name, DebugVarType type, float value) {
+	DebugVariable* variable = AddDebugVariable(state, name, type);
+	variable->fl32 = value;
+	return variable;
 }
 
 inline
@@ -57,15 +139,25 @@ DebugState* GetDebugState() {
 		TransientState* tranState = ptrcast(TransientState, debugGlobalMemory->transientMemory);
 		Assert(tranState->isInitialized);
 		InitializeArena(
-			debugState->arena,
+			debugState->mainArena,
 			ptrcast(u8, debugGlobalMemory->debugMemory) + sizeof(DebugState),
 			debugGlobalMemory->debugMemorySize - sizeof(DebugState)
 		);
+		SubArena(debugState->collationArena, debugState->mainArena, MB(16));
 		u32 frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
-		debugState->renderGroup = AllocateRenderGroup(debugState->arena, &tranState->assets, MB(4), false);
+		debugState->renderGroup = AllocateRenderGroup(debugState->mainArena, &tranState->assets, MB(4), false);
 		debugState->highPriorityQueue = tranState->highPriorityQueue;
-		debugState->scratchBuffer = BeginTempMemory(debugState->arena);
+		debugState->collationScratchBuffer = BeginTempMemory(debugState->collationArena);
 		ResetDebugCollation(debugState, frameWriteIndex);
+
+		debugState->variableCount = 0;
+		AddDebugVariable(debugState, "CameraZoomout", DebugVarType::Bool, false);
+		AddDebugVariable(debugState, "CameraZoomoutValue", DebugVarType::Float, 20.f);
+		AddDebugVariable(debugState, "RenderFullHD", DebugVarType::Bool, false);
+		AddDebugVariable(debugState, "Update and Compile", DebugVarType::CompilationSwitch);
+		debugState->profilerSwitch = AddDebugVariable(debugState, "Expand profiler", DebugVarType::ProfilerSwitch, true);
+		debugState->profilerPause = AddDebugVariable(debugState, "Pause profiler", DebugVarType::ProfilerPause, false);
+
 		debugState->isInitialized = true;
 	}
 	return debugState;
@@ -81,6 +173,9 @@ void DebugBegin(LoadedBitmap& screenBitmap) {
 	if (!state) {
 		return;
 	}
+	if (debugGlobalMemory->executableReloaded) {
+
+	}
 	state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
 	state->renderGroup.pushBufferSize = 0;
 	state->renderGroup.projection = GetOrtographicProjection(screenBitmap.width, screenBitmap.height, 1);
@@ -88,6 +183,9 @@ void DebugBegin(LoadedBitmap& screenBitmap) {
 	state->font = GetOrPrefetchFont(
 		state->renderGroup, GetFontWithType(*state->renderGroup.assets, Font_Debug)
 	);
+	if (state->font) {
+		state->fontContext = InitializeStandardFontDrawContext(state, V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y });
+	}
 #endif
 }
 
@@ -175,15 +273,15 @@ void DebugRenderLine(DebugState* state, const char* text, V2 pos, f32 scale, V4 
 }
 
 inline
-void DebugRenderLine(DebugState* state, const char* text, FontDrawContext& context, bool render = true, Rect2* boundingBox = 0) {
-	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, context.color, render, boundingBox);
+void DebugRenderLine(DebugState* state, const char* text, FontDrawContext& context, V4 color, bool render = true, Rect2* boundingBox = 0) {
+	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, color, render, boundingBox);
 	context.leftTopCurrent.E[1] -= context.scale * GetFontLineAdvance(context.font);
 }
 
 inline
-Rect2 GetTextBoundingBox(DebugState* state, const char* text, FontDrawContext& context) {
+Rect2 GetTextBoundingBox(DebugState* state, const char* text, FontDrawContext& context, V4 color) {
 	Rect2 boundingBox = {};
-	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, context.color, false, &boundingBox);
+	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, color, false, &boundingBox);
 	return boundingBox;
 }
 
@@ -200,7 +298,7 @@ DebugEventStack* GetDebugStackForThread(DebugState* state, u32 threadId) {
 	DebugEventStack* stack = state->eventStacks + state->eventStacksCount++;
 	stack->threadId = threadId;
 	stack->laneId = state->eventStacksCount - 1;
-	stack->events = PushStructSize(state->arena, OpenDebugEvent);
+	stack->events = PushStructSize(state->collationArena, OpenDebugEvent);
 	*stack->events = {};
 	return stack;
 }
@@ -219,8 +317,8 @@ DebugRecord* GetDebugRecordFor(DebugEvent* event) {
 
 internal
 void DebugCollateEvents(DebugState* debugState) {
-	TemporaryMemory stackMemory = BeginTempMemory(debugState->arena);
-	debugState->eventStacks = PushArray(debugState->arena, MAX_DEBUG_THREADS, DebugEventStack);
+	TemporaryMemory stackMemory = BeginTempMemory(debugState->collationArena);
+	debugState->eventStacks = PushArray(debugState->collationArena, MAX_DEBUG_THREADS, DebugEventStack);
 	debugState->eventStacksCount = 0;
 	debugState->openEventFreeList = 0;
 
@@ -247,7 +345,7 @@ void DebugCollateEvents(DebugState* debugState) {
 					debugState->openEventFreeList = newOpenEvent->next;
 				}
 				else {
-					newOpenEvent = PushStructSize(debugState->arena, OpenDebugEvent);
+					newOpenEvent = PushStructSize(debugState->collationArena, OpenDebugEvent);
 				}
 				Assert(stack->threadId == event->threadId);
 				newOpenEvent->next = stack->events;
@@ -343,84 +441,67 @@ void DebugMainMenu() {
 }
 
 void WriteDebugConfig(DebugState* state) {
-	const char* menuItems[] = {
-		"DEBUGUI_CAMERA_ZOOMOUT",
-		"DEBUGUI_CAMERA_ZOOMOUT_VALUE",
-		"DEBUGUI_FULLHD",
-	};
-
 	char buffer[4096];
 	char* at = buffer;
 	char* end = buffer + sizeof(buffer);
-	for (u32 itemIndex = 0; itemIndex < ArrayCount(menuItems); itemIndex++) {
-		const char* item = menuItems[itemIndex];
-		if (itemIndex == 0) {
-			at += sprintf_s(at, end - at, "#define %s %d\n", item, state->debugZoomoutCamera);
-		}
-		else if (itemIndex == 1) {
-			f32 val = state->debugCameraDistanceToTarget ? 50.f : 20.f;
-			at += sprintf_s(at, end - at, "#define %s %ff\n", item, val);
-		}
-		else if (itemIndex == 2) {
-			at += sprintf_s(at, end - at, "#define %s %d\n", item, state->debugFullHD);
+	for (u32 varIndex = 0; varIndex < state->variableCount; varIndex++) {
+		DebugVariable* var = state->variables + varIndex;
+		switch (var->type) {
+		case DebugVarType::Bool: {
+			at += sprintf_s(at, end - at, "#define DEBUGUI_%s %d\n", var->name, var->boolean);
+		} break;
+		case DebugVarType::Float: {
+			at += sprintf_s(at, end - at, "#define DEBUGUI_%s %ff\n", var->name, var->fl32);
+		} break;
 		}
 	}
-	debugGlobalMemory->debug.WriteFile("..\\code\\engine_debug_config.h", buffer, at - buffer);
+	debugGlobalMemory->debug.WriteFile(DEBUG_CONFIG_PATH, buffer, at - buffer);
 }
 
 void DebugVariablesMenu(DebugState* state, V2 mousePos, Controller& controller) {
-	const char* menuItems[] = {
-		"DEBUGUI_CAMERA_ZOOMOUT",
-		"DEBUGUI_CAMERA_ZOOMOUT_VALUE",
-		"DEBUGUI_FULLHD",
-		"Update and compile"
-	};
 	V2 topline = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
-	FontDrawContext context = InitializeStandardFontDrawContext(state, topline);
-	i32 hotItemIndex = -1;
-	for (u32 itemIndex = 0; itemIndex < ArrayCount(menuItems); itemIndex++) {
-		const char* item = menuItems[itemIndex];
-		char buffer[256];
-		if (itemIndex == 0) {
-			sprintf_s(buffer, "%s: %d", item, state->debugZoomoutCamera);
+	DebugVariable* hotVariable = 0;
+	for (u32 varIndex = 0; varIndex < state->variableCount; varIndex++) {
+		DebugVariable* var = state->variables + varIndex;
+		char buffer[256] = {};
+		char* end = buffer + sizeof(buffer);
+		switch (var->type) {
+		case DebugVarType::Bool: {
+			sprintf_s(buffer, end - buffer, "%s: %d", var->name, var->boolean);
+		} break;
+		case DebugVarType::Float: {
+			sprintf_s(buffer, end - buffer, "%s: %f", var->name, var->fl32);
+		} break;
+		default: {
+			sprintf_s(buffer, end - buffer, "%s", var->name);
+		} break;
 		}
-		else if (itemIndex == 1) {
-			sprintf_s(buffer, "%s: %d", item, state->debugCameraDistanceToTarget);
-		}
-		else if (itemIndex == 2) {
-			sprintf_s(buffer, "%s: %d", item, state->debugFullHD);
-		}
-		else {
-			sprintf_s(buffer, "%s", item);
-		}
-		
-		Rect2 bb = GetTextBoundingBox(state, buffer, context);
+		V4 color = V4{ 1, 1, 1, 1 };
+		Rect2 bb = GetTextBoundingBox(state, buffer, state->fontContext, color);
 		if (IsInRectangle(bb, mousePos)) {
-			context.color = V4{ 0, 0, 1, 1 };
-			hotItemIndex = itemIndex;
+			color = V4{ 0, 0, 1, 1 };
+			hotVariable = var;
 		}
-		else {
-			context.color = V4{ 1, 1, 1, 1 };
-		}
-		DebugRenderLine(state, buffer, context);
+		DebugRenderLine(state, buffer, state->fontContext, color);
 	}
-	if (WasPressed(controller.B.mouseLeft)) {
-		if (hotItemIndex == 0) {
-			state->debugZoomoutCamera = !state->debugZoomoutCamera;
-		}
-		else if (hotItemIndex == 1) {
-			state->debugCameraDistanceToTarget = !state->debugCameraDistanceToTarget;
-		}
-		else if (hotItemIndex == 2) {
-			state->debugFullHD = !state->debugFullHD;
-		}
-		else if (hotItemIndex == 3) {
+	if (hotVariable && WasPressed(controller.B.mouseLeft)) {
+		switch (hotVariable->type) {
+		case DebugVarType::ProfilerPause:
+		case DebugVarType::ProfilerSwitch:
+		case DebugVarType::Bool: {
+			hotVariable->boolean = !hotVariable->boolean;
+		} break;
+		case DebugVarType::Float: {
+			hotVariable->fl32 += 1.f;
+		} break;
+		case DebugVarType::CompilationSwitch: {
 			WriteDebugConfig(state);
 			if (state->compilationHandle.state != CmdState_Running) {
 				char cwd[] = "..\\code";
 				char cmd[] = "cmd.exe /c build.bat --game_only";
 				state->compilationHandle = Platform->SystemExecuteCommand(cwd, cmd);
 			}
+		} break;
 		}
 	}
 	
@@ -436,9 +517,9 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 	Controller& controller = input.controllers[KB_CONTROLLER_IDX];
 	V2 mousePos = { controller.mouse.X - 0.5f, controller.mouse.Y - 0.5f };
 	mousePos = Hadamard(mousePos, V2i(dstBitmap.width, dstBitmap.height));
-	if (WasPressed(controller.B.mouseRight)) {
-		state->paused = !state->paused;
-	}
+	//if (WasPressed(controller.B.mouseRight)) {
+	//	state->paused = !state->paused;
+	//}
 	DebugVariablesMenu(state, mousePos, controller);
 
 	DebugRecord* hotRecord = 0;
@@ -452,7 +533,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 	// Collate debug events
 	f32 profilerPosY = -0.47f * f4(dstBitmap.height);
 	f32 profilerPosX = -0.5f * f4(dstBitmap.width);
-	f32 profilerHeight = 200.f;
+	f32 profilerHeight = state->profilerSwitch->boolean ? 200.f : 30.f;
 	f32 threadLaneWidth = 8.f;
 	f32 threadLaneSpace = 2.f;
 	f32 threadLaneTotalWidth = threadLaneWidth + threadLaneSpace;
@@ -544,7 +625,7 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 	PushRect(state->renderGroup, targetFrameRateCenter, targetFrameRateSize, V2{ 0, 0 }, V4{ 0, 0, 0, 1 });
 
 	if (state->compilationHandle.state == CmdState_Running) {
-		DebugRenderLine(state, "Compiling", V2{ 0, 0 }, 0.15f, V4{1, 1, 1, 1});
+		DebugRenderLine(state, "Compiling", state->fontContext, V4{1, 1, 1, 1});
 	}
 
 	if (WasPressed(controller.B.mouseLeft)) {
@@ -573,7 +654,7 @@ extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory) {
 	if (state->compilationHandle.state == CmdState_Running) {
 		Platform->SystemGetCommandState(state->compilationHandle);
 	}
-	if (state->paused) {
+	if (state->profilerPause->boolean) {
 		return 0;
 	}
 	DebugCollateEvents(state);

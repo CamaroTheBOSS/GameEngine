@@ -84,8 +84,9 @@ struct TransientState {
 };
 
 struct DebugState {
-	MemoryArena arena;
-	TemporaryMemory scratchBuffer;
+	MemoryArena mainArena;
+	MemoryArena collationArena;
+	TemporaryMemory collationScratchBuffer;
 	RenderGroup renderGroup;
 	PlatformQueue* highPriorityQueue;
 
@@ -98,20 +99,19 @@ struct DebugState {
 	u32 frameReadIndex;
 	u32 frameWriteIndex;
 	DebugFrameInfo* frames;
-	// Profiler selection
 	DebugRecord* selectedRecord;
 	u32 selectedRegionIndex;
 	u32 selectedFrameIndex;
-	bool paused;
+	DebugVariable* profilerSwitch;
+	DebugVariable* profilerPause;
 
+	FontDrawContext fontContext;
 	PlatformCommandHandle compilationHandle;
 	Rect2 overlayBoundaries;
 	LoadedFont* font;
-
-	// Variables
-	bool debugZoomoutCamera;
-	bool debugCameraDistanceToTarget;
-	bool debugFullHD;
+	
+	u32 variableCount;
+	DebugVariable variables[128];
 
 	bool isInitialized;
 };

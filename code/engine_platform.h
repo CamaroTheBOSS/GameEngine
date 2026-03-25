@@ -62,7 +62,6 @@ struct Controller {
 struct InputData {
 	Controller controllers[MAX_CONTROLLERS];
 	f32 dtFrame;
-	bool executableReloaded;
 };
 
 /* Functionalities served by the platform layer for program layer */
@@ -79,7 +78,9 @@ typedef void* (*_DebugAllocate)(u64 size);
 typedef u32(*_DebugGetCurrentThreadId)();
 
 // File API
-struct PlatformFileHandle {};
+struct PlatformFileHandle {
+	u64 size;
+};
 struct PlatformFileGroup {
 	PlatformFileHandle** files;
 	u32 count;
@@ -167,6 +168,7 @@ struct ProgramMemory {
 	void* transientMemory;
 	u64 debugMemorySize;
 	void* debugMemory;
+	bool executableReloaded;
 
 	PlatformQueue* highPriorityQueue;
 	PlatformQueue* lowPriorityQueue;

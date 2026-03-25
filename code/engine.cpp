@@ -1164,7 +1164,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		tranState->isInitialized = true;
 	}
 
-	if (input.executableReloaded) {
+	if (memory.executableReloaded) {
 		for (u32 groundBufferIndex = 0; groundBufferIndex < ArrayCount(tranState->groundBuffers); groundBufferIndex++) {
 			GroundBuffer* groundBuffer = tranState->groundBuffers + groundBufferIndex;
 			groundBuffer->pos = NullPosition();
@@ -1289,8 +1289,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	renderGroup.projection = GetStandardProjection(bitmap.width, bitmap.height);
 	f32 originalCameraDistance = renderGroup.projection.camera.distanceToTarget;
 	//NOTE: Change this to change debug view
-#if DEBUGUI_CAMERA_ZOOMOUT
-	renderGroup.projection.camera.distanceToTarget = DEBUGUI_CAMERA_ZOOMOUT_VALUE;
+#if DEBUGUI_CameraZoomout
+	renderGroup.projection.camera.distanceToTarget = DEBUGUI_CameraZoomoutValue;
 #endif
 
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);

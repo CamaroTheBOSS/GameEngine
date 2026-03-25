@@ -182,6 +182,24 @@ void ZeroSize_(u8* ptr, u64 size) {
 }
 
 inline
+u8* CopySize(const void* srcv, void* dstv, u32 size) {
+	const u8* src = ptrcast(const u8, srcv);
+	u8* dst = ptrcast(u8, dstv);
+	u8* result = dst;
+	while (size--) {
+		*dst++ = *src++;
+	}
+	return result;
+}
+
+inline
+u8* SafeCopySize(const u8* src, u32 srcSize, u8* dst, u32 dstSize) {
+	u32 size = Minimum(srcSize, dstSize);
+	u8* result = CopySize(src, dst, size);
+	return result;
+}
+
+inline
 void CheckArena(MemoryArena& arena) {
 	Assert(arena.tempCount == 0);
 }
@@ -190,3 +208,33 @@ void CheckArena(MemoryArena& arena) {
 #define PushStructSize(arena, type, ...) ptrcast(type, PushSize_(arena, sizeof(type), ##__VA_ARGS__))
 #define PushSize(arena, size, ...) PushSize_(arena, size, ##__VA_ARGS__)
 #define PushArray(arena, length, type, ...) ptrcast(type, PushSize_(arena, (length) * sizeof(type), ##__VA_ARGS__))
+#define PushString(arena, string, size, ...) ptrcast(char, CopySize(ptrcast(const u8,string), PushSize_(arena, (size) * sizeof(char), ##__VA_ARGS__), size))
+
+// TODO: Move it to String common file
+inline
+u32 StringLength(const char* str) {
+	u32 result = 0;
+	while (*str++ != '\0') {
+		result++;
+	}
+	return result;
+}
+
+inline
+u64 CopyString(const char* src, u64 srcSize, char* dst, u64 dstSize) {
+	u32 copied = 0;
+	while (*src != '\0' && copied < dstSize - 1 && copied < srcSize) {
+		*dst++ = *src++;
+		copied++;
+	}
+	*dst = '\0';
+	return copied;
+}
+
+inline
+u64 ConcatenateString(char* first, u64 firstSize, char* second, u64 secondSize, char* dst, u64 dstSize) {
+	u64 length = CopyString(first, firstSize, dst, dstSize);
+	dst += length;
+	length += CopyString(second, secondSize, dst, dstSize - length);
+	return length;
+}

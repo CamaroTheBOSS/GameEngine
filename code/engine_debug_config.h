@@ -1,3 +1,3 @@
-#define DEBUGUI_CAMERA_ZOOMOUT 0
-#define DEBUGUI_CAMERA_ZOOMOUT_VALUE 20.000000f
-#define DEBUGUI_FULLHD 0
+#define DEBUGUI_CameraZoomout 1
+#define DEBUGUI_CameraZoomoutValue 24.000000f
+#define DEBUGUI_RenderFullHD 0

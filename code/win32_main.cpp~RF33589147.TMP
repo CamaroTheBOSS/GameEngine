@@ -1118,6 +1118,31 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	return programMemory;
 }
 
+u64 StringLength(char* str) {
+	u64 result = 0;
+	while (*str != '\0') {
+		result++;
+	}
+	return result;
+}
+
+u64 CopyString(char* src, u64 srcSize, char* dst, u64 dstSize) {
+	u32 copied = 0;
+	while (*src != '\0' && copied < dstSize - 1 && copied < srcSize) {
+		*dst++ = *src++;
+		copied++;
+	}
+	*dst = '\0';
+	return copied;
+}
+
+u64 ConcatenateString(char* first, u64 firstSize, char* second, u64 secondSize, char* dst, u64 dstSize) {
+	u64 length = CopyString(first, firstSize, dst, dstSize);
+	dst += length;
+	length += CopyString(second, secondSize, dst, dstSize - length);
+	return length;
+}
+
 int CALLBACK WinMain(
 	HINSTANCE instance,
 	HINSTANCE prevInstance,
@@ -1126,7 +1151,7 @@ int CALLBACK WinMain(
 ) {
 	InitializeQueue(globalHighPriorityQueue, 8);
 	InitializeQueue(globalLowPriorityQueue, 2);
-#if DEBUGUI_RenderFullHD
+#if 0
 	u32 globalBitmapWidth = 1920;
 	u32 globalBitmapHeight = 1080;
 #else
@@ -1252,7 +1277,7 @@ int CALLBACK WinMain(
 			Win32DebugReplayInput(globalWin32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
 		}
 		inputData.dtFrame = targetFrameRefreshSeconds;
-		programMemory.executableReloaded = gameCode.reloaded;
+		inputData.executableReloaded = gameCode.reloaded;
 		TIMED_BLOCK_END(InputProcessing);
 		TIMED_BLOCK_BEGIN(GameMainLoop);
 		// PART: Game main loop
