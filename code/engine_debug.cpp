@@ -159,6 +159,7 @@ DebugState* GetDebugState() {
 		AddDebugVariable(debugState, "CameraZoomout", DebugVarType::Bool, false, DebugVarFlags_CompileTimeVar);
 		AddDebugVariable(debugState, "CameraZoomoutValue", DebugVarType::Float, 20.f, DebugVarFlags_CompileTimeVar);
 		AddDebugVariable(debugState, "RenderFullHD", DebugVarType::Bool, false, DebugVarFlags_CompileTimeVar);
+		AddDebugVariable(debugState, "ShowDebugInteractions", DebugVarType::Bool, true, DebugVarFlags_CompileTimeVar);
 		AddDebugVariable(debugState, "Update and Compile", DebugVarType::CompilationSwitch);
 		debugState->profilerSwitch = AddDebugVariable(debugState, "Expand profiler", DebugVarType::Bool, true);
 		debugState->profilerPause = AddDebugVariable(debugState, "Pause profiler", DebugVarType::Bool, false);
@@ -662,6 +663,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->selectedRecord = state->hotRecord;
 	}
 
+#if DEBUGUI_ShowDebugInteractions
 	char buffer[256];
 	const char* interaction = "Unknown";
 	switch (state->hotInteraction) {
@@ -680,6 +682,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	}
 	sprintf_s(buffer, 256, "%s with %s", interaction, state->interactingWith ? state->interactingWith->name : "none");
 	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+#endif
 
 	if (state->hotInteraction) {
 		switch (state->hotInteraction) {
