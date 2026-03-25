@@ -26,6 +26,8 @@ struct DebugVariable {
 };
 
 enum DebugInteraction {
+	DebugInteract_None,
+
 	DebugInteract_Click,
 	DebugInteract_Drag,
 	DebugInteract_Hover

@@ -192,6 +192,13 @@ void DebugBegin(LoadedBitmap& screenBitmap) {
 	if (state->font) {
 		state->fontContext = InitializeStandardFontDrawContext(state, V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y });
 	}
+	state->hotRecord = 0;
+	state->hotFrameIndex = U32_MAX;
+	state->hotRegionIndex = U32_MAX;
+	state->hotVariable = 0;
+	state->nextHotVariable = 0;
+	state->hotInteraction = DebugInteract_None;
+	state->nextHotInteraction = DebugInteract_None;
 #endif
 }
 
@@ -432,11 +439,7 @@ void WriteDebugConfig(DebugState* state) {
 	debugGlobalMemory->debug.WriteFile(DEBUG_CONFIG_PATH, buffer, at - buffer);
 }
 
-void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos, Controller& controller) {
-	DebugRecord* hotRecord = 0;
-	u32 hotRegionIndex = U32_MAX;
-	u32 hotFrameIndex = U32_MAX;
-
+void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 	f32 profilerPosY = boundaries.min.Y;
 	f32 profilerPosX = boundaries.min.X;
 	f32 profilerHeight = GetDim(boundaries).Y;
@@ -510,9 +513,9 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos, Con
 					);
 					DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
 				}
-				hotRecord = record;
-				hotRegionIndex = regionIndex;
-				hotFrameIndex = frameIndex;
+				state->hotRecord = record;
+				state->hotRegionIndex = regionIndex;
+				state->hotFrameIndex = frameIndex;
 			}
 #if 1
 			rectangle.max.X = Clip(rectangle.max.X, boundaries.min.X, boundaries.max.X);
@@ -545,20 +548,10 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos, Con
 	};
 	V2 targetFrameRateSize = { profilerWidth, 2.f };
 	PushRect(state->renderGroup, targetFrameRateCenter, targetFrameRateSize, V2{ 0, 0 }, V4{ 0, 0, 0, 1 });
-
-	if (WasPressed(controller.B.mouseLeft)) {
-		state->selectedRecord = hotRecord;
-	}
-	if (WasPressed(controller.B.mouseMiddle)) {
-		state->selectedRegionIndex = hotRegionIndex;
-		state->selectedFrameIndex = hotFrameIndex;
-		state->selectedRecord = hotRecord;
-	}
 }
 
-void DebugRenderVariablesMenu(DebugState* state, V2 mousePos, Controller& controller) {
+void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	V2 topline = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
-	DebugVariable* hotVariable = 0;
 	for (u32 varIndex = 0; varIndex < state->variableCount; varIndex++) {
 		DebugVariable* var = state->variables + varIndex;
 		char buffer[256] = {};
@@ -571,7 +564,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos, Controller& contro
 			sprintf_s(buffer, end - buffer, "%s: %f", var->name, var->fl32);
 		} break;
 		case DebugVarType::ProfilerUI: {
-			DebugRenderProfilerUI(state, var->profiler.rect, mousePos, controller);
+			DebugRenderProfilerUI(state, var->profiler.rect, mousePos);
 		} break;
 		default: {
 			sprintf_s(buffer, end - buffer, "%s", var->name);
@@ -581,19 +574,22 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos, Controller& contro
 		Rect2 bb = GetTextBoundingBox(state, buffer, state->fontContext, color);
 		if (IsInRectangle(bb, mousePos)) {
 			color = V4{ 0, 0, 1, 1 };
-			hotVariable = var;
+			state->hotVariable = var;
 		}
 		DebugRenderLine(state, buffer, state->fontContext, color);
 	}
-	if (hotVariable && WasPressed(controller.B.mouseLeft)) {
-		switch (hotVariable->type) {
+}
+
+void DebugInteract(DebugState* state, Controller& controller) {
+	if (state->hotVariable && WasPressed(controller.B.mouseLeft)) {
+		switch (state->hotVariable->type) {
 		case DebugVarType::ProfilerPause:
 		case DebugVarType::ProfilerSwitch:
 		case DebugVarType::Bool: {
-			hotVariable->boolean = !hotVariable->boolean;
+			state->hotVariable->boolean = !state->hotVariable->boolean;
 		} break;
 		case DebugVarType::Float: {
-			hotVariable->fl32 += 1.f;
+			state->hotVariable->fl32 += 1.f;
 		} break;
 		case DebugVarType::CompilationSwitch: {
 			WriteDebugConfig(state);
@@ -605,9 +601,18 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos, Controller& contro
 		} break;
 		}
 	}
-	
-	
+	else {
+		if (WasPressed(controller.B.mouseLeft)) {
+			state->selectedRecord = state->hotRecord;
+		}
+		if (WasPressed(controller.B.mouseMiddle)) {
+			state->selectedRegionIndex = state->hotRegionIndex;
+			state->selectedFrameIndex = state->hotFrameIndex;
+			state->selectedRecord = state->hotRecord;
+		}
+	}
 }
+	
 
 void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputData& input) {
 	TIMED_FUNCTION;
@@ -618,10 +623,13 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 	Controller& controller = input.controllers[KB_CONTROLLER_IDX];
 	V2 mousePos = { controller.mouse.X - 0.5f, controller.mouse.Y - 0.5f };
 	mousePos = Hadamard(mousePos, V2i(dstBitmap.width, dstBitmap.height));
-	DebugRenderVariablesMenu(state, mousePos, controller);
+
+	DebugRenderVariablesMenu(state, mousePos);
 	if (state->compilationHandle.state == CmdState_Running) {
 		DebugRenderLine(state, "Compiling", state->fontContext, V4{1, 1, 1, 1});
 	}
+	DebugInteract(state, controller);
+	
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
 }
 

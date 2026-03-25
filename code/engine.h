@@ -99,6 +99,9 @@ struct DebugState {
 	u32 frameReadIndex;
 	u32 frameWriteIndex;
 	DebugFrameInfo* frames;
+	DebugRecord* hotRecord;
+	u32 hotRegionIndex;
+	u32 hotFrameIndex;
 	DebugRecord* selectedRecord;
 	u32 selectedRegionIndex;
 	u32 selectedFrameIndex;
@@ -112,6 +115,11 @@ struct DebugState {
 	
 	u32 variableCount;
 	DebugVariable variables[128];
+	DebugVariable* hotVariable;
+	DebugVariable* nextHotVariable;
+	DebugVariable* interactingWith;
+	DebugInteraction hotInteraction;
+	DebugInteraction nextHotInteraction;
 
 	bool isInitialized;
 };

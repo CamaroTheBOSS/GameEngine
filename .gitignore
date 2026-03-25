@@ -1,5 +1,5 @@
 build/*
 x64
-.vs
+.vs/*
 *.user
 enc_temp_folder/
