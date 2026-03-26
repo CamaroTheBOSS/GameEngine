@@ -105,28 +105,59 @@ void ReadDebugConfig(DebugState* state) {
 }
 
 inline
-DebugVariable* AddDebugVariable(DebugState* state, const char* name, DebugVarType type, u32 flags = 0) {
+DebugVariable* _AddDebugVariable(DebugState* state, const char* name, DebugVarType type) {
 	Assert(state->variableCount < ArrayCount(state->variables));
 	DebugVariable* variable = state->variables + state->variableCount++;
 	u32 length = StringLength(name) + 1;
 	variable->name = PushString(state->mainArena, name, length);
 	variable->type = type;
-	variable->flags = flags;
 	return variable;
 }
 
 inline
-DebugVariable* AddDebugVariable(DebugState* state, const char* name, DebugVarType type, bool value, u32 flags = 0) {
-	DebugVariable* variable = AddDebugVariable(state, name, type, flags);
-	variable->boolean = value;
-	return variable;
+DebugVariableRef* _AddReferencedDebugVariable(DebugState* state, const char* name, DebugVarType type) {
+	DebugVariable* var = _AddDebugVariable(state, name, type);
+	DebugVariableRef* ref = PushStructSize(state->mainArena, DebugVariableRef);
+	ref->next = 0;
+	ref->var = var;
+	return ref;
 }
 
 inline
-DebugVariable* AddDebugVariable(DebugState* state, const char* name, DebugVarType type, float value, u32 flags = 0) {
-	DebugVariable* variable = AddDebugVariable(state, name, type, flags);
-	variable->fl32 = value;
-	return variable;
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, const char* name, DebugVarType type, bool value) {
+	Assert(type == DebugVarType::Bool || type == DebugVarType::CompileTimeBool);
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, name, type);
+	ref->var->boolean = value;
+	return ref;
+}
+
+inline
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, const char* name, DebugVarType type, float value) {
+	Assert(type == DebugVarType::Float || type == DebugVarType::CompileTimeFloat);
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, name, type);
+	ref->var->fl32 = value;
+	return ref;
+}
+
+inline
+DebugVariableRef* BeginDebugVariableGroup(DebugState* state, DebugVariableContext& context, const char* name) {
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, name, DebugVarType::Group);
+	DebugVariableGroup* group = &ref->var->group;
+	group->expanded = false;
+	group->firstChild = 0;
+	group->parent = context.parent;
+	if (context.parent) {
+		ref->next = context.parent->firstChild;
+		context.parent->firstChild = ref;
+	}
+	context.parent = group;
+	return ref;
+}
+
+inline
+void EndDebugVariableGroup(DebugVariableContext& context) {
+	Assert(context.parent || !"Tried to enclose group when none were opened");
+	context.parent = context.parent->parent;
 }
 
 inline
@@ -156,15 +187,22 @@ DebugState* GetDebugState() {
 		ResetDebugCollation(debugState, frameWriteIndex);
 
 		debugState->variableCount = 0;
-		AddDebugVariable(debugState, "CameraZoomout", DebugVarType::Bool, false, DebugVarFlags_CompileTimeVar);
-		AddDebugVariable(debugState, "CameraZoomoutValue", DebugVarType::Float, 20.f, DebugVarFlags_CompileTimeVar);
-		AddDebugVariable(debugState, "RenderFullHD", DebugVarType::Bool, false, DebugVarFlags_CompileTimeVar);
-		AddDebugVariable(debugState, "ShowDebugInteractions", DebugVarType::Bool, true, DebugVarFlags_CompileTimeVar);
-		AddDebugVariable(debugState, "Update and Compile", DebugVarType::CompilationSwitch);
-		debugState->profilerSwitch = AddDebugVariable(debugState, "Expand profiler", DebugVarType::Bool, true);
-		debugState->profilerPause = AddDebugVariable(debugState, "Pause profiler", DebugVarType::Bool, false);
-		DebugVariable* profilerUI = AddDebugVariable(debugState, "ProfilerUI", DebugVarType::ProfilerUI);
-		profilerUI->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
+
+		DebugVariableContext context = {};
+		BeginDebugVariableGroup(debugState, context, "Debugging");
+		BeginDebugVariableGroup(debugState, context, "Compile time switches");
+		AddReferencedDebugVariable(debugState, "CameraZoomout", DebugVarType::CompileTimeBool, false);
+		AddReferencedDebugVariable(debugState, "CameraZoomoutValue", DebugVarType::CompileTimeFloat, 20.f);
+		AddReferencedDebugVariable(debugState, "ShowDebugInteractions", DebugVarType::CompileTimeBool, true);
+		AddReferencedDebugVariable(debugState, "RenderFullHD", DebugVarType::CompileTimeBool, false);
+		EndDebugVariableGroup(context);
+		_AddReferencedDebugVariable(debugState, "Update and Compile", DebugVarType::CompilationSwitch);
+		BeginDebugVariableGroup(debugState, context, "Profiler");
+		debugState->profilerPause = AddReferencedDebugVariable(debugState, "Pause profiler", DebugVarType::Bool, false);
+		DebugVariableRef* profilerUI = _AddReferencedDebugVariable(debugState, "ProfilerUI", DebugVarType::ProfilerUI);
+		profilerUI->var->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
+		EndDebugVariableGroup(context);
+		EndDebugVariableGroup(context);
 
 		debugState->isInitialized = true;
 	}
@@ -427,31 +465,29 @@ enum DebugVarToTextFlags {
 	DebugVarToText_AddFloatSuffix = 0x2,
 	DebugVarToText_AddNewLine = 0x4,
 	DebugVarToText_AddColon = 0x8,
-	DebugVarToText_CompileTimeVarsOnly = 0x10,
 };
 
 u64 DebugVariableToText(DebugVariable* var, char* buffer, u32 size, u32 flags) {
 	char* at = buffer;
 	char* end = buffer + size;
-	if (flags & DebugVarToText_CompileTimeVarsOnly &&
-		!(var->flags & DebugVarFlags_CompileTimeVar)) {
-		return at - buffer;
-	}
 	if (flags & DebugVarToText_ConfigPrefix) {
 		at += sprintf_s(at, end - at, "#define DEBUGUI_");
 	}
 	const char* colon = (flags & DebugVarToText_AddColon) ? ":" : "";
 
 	switch (var->type) {
+	case DebugVarType::CompileTimeBool:
 	case DebugVarType::Bool: {
 		at += sprintf_s(at, end - at, "%s%s %d", var->name, colon, var->boolean);
 	} break;
+	case DebugVarType::CompileTimeFloat:
 	case DebugVarType::Float: {
 		at += sprintf_s(at, end - at, "%s%s %f", var->name, colon, var->fl32);
 		if (flags & DebugVarToText_AddFloatSuffix && (end - at) > 0) {
 			*at++ = 'f';
 		}
 	} break;
+	case DebugVarType::Group:
 	case DebugVarType::CompilationSwitch: {
 		at += sprintf_s(at, end - at, "%s%s", var->name, colon);
 	} break;
@@ -468,11 +504,13 @@ void WriteDebugConfig(DebugState* state) {
 	char* end = buffer + sizeof(buffer);
 	for (u32 varIndex = 0; varIndex < state->variableCount; varIndex++) {
 		DebugVariable* var = state->variables + varIndex;
+		if (var->type >= DebugVarType::CompileTimeCount) {
+			continue;
+		}
 		at += DebugVariableToText(var, at, u4(end - at),
 			DebugVarToText_ConfigPrefix |
 			DebugVarToText_AddFloatSuffix |
-			DebugVarToText_AddNewLine |
-			DebugVarToText_CompileTimeVarsOnly
+			DebugVarToText_AddNewLine
 		);
 	}
 	debugGlobalMemory->debug.WriteFile(DEBUG_CONFIG_PATH, buffer, at - buffer);
@@ -579,37 +617,40 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 			break;
 		}
 	}
-	f32 profilerWidth = f4(frameIndexForDrawing + 1) * frameWidth;
-	V3 targetFrameRateCenter = {
-		profilerPosX + 0.5f * profilerWidth,
-		profilerPosY + profilerHeight,
-		0
-	};
-	V2 targetFrameRateSize = { profilerWidth, 2.f };
-	PushRect(state->renderGroup, targetFrameRateCenter, targetFrameRateSize, V2{ 0, 0 }, V4{ 0, 0, 0, 1 });
 }
 
 void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	V2 topline = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 	for (u32 varIndex = 0; varIndex < state->variableCount; varIndex++) {
+		V4 itemColor = V4{ 1, 1, 1, 1 };
+		V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
+		
 		DebugVariable* var = state->variables + varIndex;
 		char buffer[256] = {};
 		char* end = buffer + sizeof(buffer);
 		if (var->type == DebugVarType::ProfilerUI) {
 			DebugRenderProfilerUI(state, var->profiler.rect, mousePos);
+			Rect2 anchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
+			bool isHot = IsInRectangle(anchor, mousePos) && state->hotInteraction == DebugInteract_None;
+			if (isHot) {
+				itemColor = hotItemColor;
+				state->hotVariable = var;
+			}
+			PushRect(state->renderGroup, anchor, 0, V2{ 0, 0 }, itemColor);
 		}
 		else {
 			DebugVariableToText(var, buffer, ArrayCount(buffer),
 				DebugVarToText_AddColon
 			);
+			Rect2 bb = GetTextBoundingBox(state, buffer, state->fontContext, itemColor);
+			bool isHot = IsInRectangle(bb, mousePos) && state->hotInteraction == DebugInteract_None;
+			if (isHot) {
+				itemColor = hotItemColor;
+				state->hotVariable = var;
+			}
+			DebugRenderLine(state, buffer, state->fontContext, itemColor);
 		}
-		V4 color = V4{ 1, 1, 1, 1 };
-		Rect2 bb = GetTextBoundingBox(state, buffer, state->fontContext, color);
-		if (IsInRectangle(bb, mousePos)  && state->hotInteraction == DebugInteract_None) {
-			color = V4{ 0, 0, 1, 1 };
-			state->hotVariable = var;
-		}
-		DebugRenderLine(state, buffer, state->fontContext, color);
+		
 	}
 }
 
@@ -628,11 +669,13 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 
 	if (state->interactingWith) {
 		switch (state->interactingWith->type) {
+		case DebugVarType::CompileTimeBool:
 		case DebugVarType::Bool: {
 			if (state->hotInteraction == DebugInteract_Click) {
 				state->interactingWith->boolean = !state->interactingWith->boolean;
 			}
 		} break;
+		case DebugVarType::CompileTimeFloat:
 		case DebugVarType::Float: {
 			V2 dMouse = mousePos - state->mousePosAtInteractStart;
 			if (state->hotInteraction == DebugInteract_Drag) {
@@ -650,7 +693,11 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		case DebugVarType::ProfilerUI: {
-			
+			if (state->hotInteraction == DebugInteract_Drag) {
+				f32 newMaxX = Maximum(mousePos.X, state->interactingWith->profiler.rect.min.X + 10.f);
+				f32 newMaxY = Maximum(mousePos.Y, state->interactingWith->profiler.rect.min.Y + 10.f);
+				state->interactingWith->profiler.rect.max = V2{ newMaxX, newMaxY };
+			}
 		} break;
 		}
 	}
@@ -739,7 +786,7 @@ extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory) {
 	if (state->compilationHandle.state == CmdState_Running) {
 		Platform->SystemGetCommandState(state->compilationHandle);
 	}
-	if (state->profilerPause->boolean) {
+	if (state->profilerPause->var->boolean) {
 		return 0;
 	}
 	DebugCollateEvents(state);

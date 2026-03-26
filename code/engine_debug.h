@@ -2,30 +2,46 @@
 
 // ------------------- DEBUG VARIABLES --------------------
 enum class DebugVarType : u8 {
+	CompileTimeBool,
+	CompileTimeFloat,
+	CompileTimeCount,
+
 	Bool,
 	Float,
-
+	Group,
 	CompilationSwitch,
 	ProfilerUI,
-};
-
-enum DebugVarFlags {
-	DebugVarFlags_CompileTimeVar = 0x1,
 };
 
 struct DebugProfilerSettings {
 	Rect2 rect;
 };
 
+struct DebugVariableRef;
+struct DebugVariableGroup {
+	bool expanded;
+	DebugVariableGroup* parent;
+	DebugVariableRef* firstChild;
+};
+
 struct DebugVariable {
 	DebugVarType type;
 	char* name;
-	u32 flags;
 	union {
 		bool boolean;
 		f32 fl32;
 		DebugProfilerSettings profiler;
+		DebugVariableGroup group;
 	};
+};
+
+struct DebugVariableRef {
+	DebugVariable* var;
+	DebugVariableRef* next;
+};
+
+struct DebugVariableContext {
+	DebugVariableGroup* parent;
 };
 
 enum DebugInteraction {

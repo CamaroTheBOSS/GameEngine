@@ -105,8 +105,7 @@ struct DebugState {
 	DebugRecord* selectedRecord;
 	u32 selectedRegionIndex;
 	u32 selectedFrameIndex;
-	DebugVariable* profilerSwitch;
-	DebugVariable* profilerPause;
+	DebugVariableRef* profilerPause;
 
 	FontDrawContext fontContext;
 	PlatformCommandHandle compilationHandle;
