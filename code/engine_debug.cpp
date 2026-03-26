@@ -115,42 +115,44 @@ DebugVariable* _AddDebugVariable(DebugState* state, const char* name, DebugVarTy
 }
 
 inline
-DebugVariableRef* _AddReferencedDebugVariable(DebugState* state, const char* name, DebugVarType type) {
+DebugVariableRef* _AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, DebugVarType type) {
 	DebugVariable* var = _AddDebugVariable(state, name, type);
 	DebugVariableRef* ref = PushStructSize(state->mainArena, DebugVariableRef);
 	ref->next = 0;
 	ref->var = var;
+	ref->parent = context.parent;
+	if (context.parent) {
+		Assert(context.parent->var->type == DebugVarType::Group);
+		DebugVariableGroup* group = &context.parent->var->group;
+		ref->next = group->firstChild;
+		group->firstChild = ref;
+	}
 	return ref;
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, const char* name, DebugVarType type, bool value) {
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, DebugVarType type, bool value) {
 	Assert(type == DebugVarType::Bool || type == DebugVarType::CompileTimeBool);
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, name, type);
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, type);
 	ref->var->boolean = value;
 	return ref;
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, const char* name, DebugVarType type, float value) {
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, DebugVarType type, float value) {
 	Assert(type == DebugVarType::Float || type == DebugVarType::CompileTimeFloat);
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, name, type);
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, type);
 	ref->var->fl32 = value;
 	return ref;
 }
 
 inline
 DebugVariableRef* BeginDebugVariableGroup(DebugState* state, DebugVariableContext& context, const char* name) {
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, name, DebugVarType::Group);
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Group);
 	DebugVariableGroup* group = &ref->var->group;
 	group->expanded = false;
 	group->firstChild = 0;
-	group->parent = context.parent;
-	if (context.parent) {
-		ref->next = context.parent->firstChild;
-		context.parent->firstChild = ref;
-	}
-	context.parent = group;
+	context.parent = ref;
 	return ref;
 }
 
@@ -187,21 +189,23 @@ DebugState* GetDebugState() {
 		ResetDebugCollation(debugState, frameWriteIndex);
 
 		debugState->variableCount = 0;
-
+		debugState->compilationHandle.state = CmdState_Completed;
+		
 		DebugVariableContext context = {};
-		BeginDebugVariableGroup(debugState, context, "Debugging");
-		BeginDebugVariableGroup(debugState, context, "Compile time switches");
-		AddReferencedDebugVariable(debugState, "CameraZoomout", DebugVarType::CompileTimeBool, false);
-		AddReferencedDebugVariable(debugState, "CameraZoomoutValue", DebugVarType::CompileTimeFloat, 20.f);
-		AddReferencedDebugVariable(debugState, "ShowDebugInteractions", DebugVarType::CompileTimeBool, true);
-		AddReferencedDebugVariable(debugState, "RenderFullHD", DebugVarType::CompileTimeBool, false);
-		EndDebugVariableGroup(context);
-		_AddReferencedDebugVariable(debugState, "Update and Compile", DebugVarType::CompilationSwitch);
-		BeginDebugVariableGroup(debugState, context, "Profiler");
-		debugState->profilerPause = AddReferencedDebugVariable(debugState, "Pause profiler", DebugVarType::Bool, false);
-		DebugVariableRef* profilerUI = _AddReferencedDebugVariable(debugState, "ProfilerUI", DebugVarType::ProfilerUI);
-		profilerUI->var->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
-		EndDebugVariableGroup(context);
+		debugState->UITree = BeginDebugVariableGroup(debugState, context, "Debugging");
+			BeginDebugVariableGroup(debugState, context, "Compile time switches");
+				AddReferencedDebugVariable(debugState, context, "CameraZoomout", DebugVarType::CompileTimeBool, false);
+				AddReferencedDebugVariable(debugState, context, "CameraZoomoutValue", DebugVarType::CompileTimeFloat, 20.f);
+				AddReferencedDebugVariable(debugState, context, "ShowDebugInteractions", DebugVarType::CompileTimeBool, true);
+				AddReferencedDebugVariable(debugState, context, "ShowEventsCount", DebugVarType::CompileTimeBool, true);
+				AddReferencedDebugVariable(debugState, context, "RenderFullHD", DebugVarType::CompileTimeBool, false);
+			EndDebugVariableGroup(context);
+			_AddReferencedDebugVariable(debugState, context, "Update and Compile", DebugVarType::CompilationSwitch);
+			BeginDebugVariableGroup(debugState, context, "Profiler");
+				debugState->profilerPause = AddReferencedDebugVariable(debugState, context, "Pause profiler", DebugVarType::Bool, false);
+				DebugVariableRef* profilerUI = _AddReferencedDebugVariable(debugState, context, "ProfilerUI", DebugVarType::ProfilerUI);
+				profilerUI->var->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
+			EndDebugVariableGroup(context);
 		EndDebugVariableGroup(context);
 
 		debugState->isInitialized = true;
@@ -621,6 +625,54 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 
 void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	V2 topline = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
+#if 1
+	DebugVariableRef* parent = 0;
+	DebugVariableRef* node = state->UITree;
+	while (node) {
+		V4 itemColor = V4{ 1, 1, 1, 1 };
+		V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
+
+		DebugVariable* var = node->var;
+		char buffer[256] = {};
+		char* end = buffer + sizeof(buffer);
+		if (var->type == DebugVarType::ProfilerUI) {
+			DebugRenderProfilerUI(state, var->profiler.rect, mousePos);
+			Rect2 anchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
+			bool isHot = IsInRectangle(anchor, mousePos) && state->hotInteraction == DebugInteract_None;
+			if (isHot) {
+				itemColor = hotItemColor;
+				state->hotVariable = var;
+			}
+			PushRect(state->renderGroup, anchor, 0, V2{ 0, 0 }, itemColor);
+		}
+		else {
+			DebugVariableToText(var, buffer, ArrayCount(buffer),
+				DebugVarToText_AddColon
+			);
+			Rect2 bb = GetTextBoundingBox(state, buffer, state->fontContext, itemColor);
+			bool isHot = IsInRectangle(bb, mousePos) && state->hotInteraction == DebugInteract_None;
+			if (isHot) {
+				itemColor = hotItemColor;
+				state->hotVariable = var;
+			}
+			DebugRenderLine(state, buffer, state->fontContext, itemColor);
+		}
+
+		if (var->type == DebugVarType::Group && var->group.expanded) {
+			parent = node;
+			node = var->group.firstChild;
+		}
+		else if (node) {
+			node = node->next;
+		}
+		if (!node && parent) {
+			node = parent->next;
+			if (node) {
+				parent = node->parent;
+			}
+		}
+	}
+#else
 	for (u32 varIndex = 0; varIndex < state->variableCount; varIndex++) {
 		V4 itemColor = V4{ 1, 1, 1, 1 };
 		V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
@@ -652,9 +704,11 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 		}
 		
 	}
+#endif
 }
 
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
+	// Begin interaction
 	if (!state->interactingWith && state->hotInteraction == DebugInteract_None) {
 		state->interactingWith = state->hotVariable;
 		state->hotInteraction = DebugInteract_Hover;
@@ -667,12 +721,18 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		}
 	}
 
+	// Actual interaction functions
 	if (state->interactingWith) {
 		switch (state->interactingWith->type) {
 		case DebugVarType::CompileTimeBool:
 		case DebugVarType::Bool: {
 			if (state->hotInteraction == DebugInteract_Click) {
 				state->interactingWith->boolean = !state->interactingWith->boolean;
+			}
+		} break;
+		case DebugVarType::Group: {
+			if (state->hotInteraction == DebugInteract_Click) {
+				state->interactingWith->group.expanded = !state->interactingWith->group.expanded;
 			}
 		} break;
 		case DebugVarType::CompileTimeFloat:
@@ -710,27 +770,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->selectedRecord = state->hotRecord;
 	}
 
-#if DEBUGUI_ShowDebugInteractions
-	char buffer[256];
-	const char* interaction = "Unknown";
-	switch (state->hotInteraction) {
-	case DebugInteract_None: {
-		interaction = "None";
-	} break;
-	case DebugInteract_Hover: {
-		interaction = "Hover";
-	} break;
-	case DebugInteract_Click: {
-		interaction = "Click";
-	} break;
-	case DebugInteract_Drag: {
-		interaction = "Drag";
-	} break;
-	}
-	sprintf_s(buffer, 256, "%s with %s", interaction, state->interactingWith ? state->interactingWith->name : "none");
-	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-#endif
-
+	// End interactions
 	if (state->hotInteraction) {
 		switch (state->hotInteraction) {
 		case DebugInteract_Click: {
@@ -738,7 +778,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			state->interactingWith = 0;
 		} break;
 		case DebugInteract_Hover: {
-			// TODO:
 			state->hotInteraction = DebugInteract_None;
 			state->interactingWith = 0;
 		} break;
@@ -767,7 +806,43 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 	if (state->compilationHandle.state == CmdState_Running) {
 		DebugRenderLine(state, "Compiling", state->fontContext, V4{1, 1, 1, 1});
 	}
+	else if (state->compilationHandle.state == CmdState_Failed) {
+		DebugRenderLine(state, "Failed Compilation", state->fontContext, V4{ 1, 1, 1, 1 });
+	}
 	DebugInteract(state, mousePos, controller);
+#if DEBUGUI_ShowDebugInteractions
+	{
+		char buffer[256];
+		const char* interaction = "Unknown";
+		switch (state->hotInteraction) {
+		case DebugInteract_None: {
+			interaction = "None";
+		} break;
+		case DebugInteract_Hover: {
+			interaction = "Hover";
+		} break;
+		case DebugInteract_Click: {
+			interaction = "Click";
+		} break;
+		case DebugInteract_Drag: {
+			interaction = "Drag";
+		} break;
+		}
+		sprintf_s(buffer, sizeof(buffer), "%s with %s", interaction, state->interactingWith ? state->interactingWith->name : "none");
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		sprintf_s(buffer, sizeof(buffer), "LM: WasPressed: %d", WasPressed(controller.B.mouseLeft));
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		sprintf_s(buffer, sizeof(buffer), "LM: IsPressed: %d", IsPressed(controller.B.mouseLeft));
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+	}
+#endif
+#if DEBUGUI_ShowEventsCount
+	{
+		char buffer[256];
+		sprintf_s(buffer, 256, "events in frame 0: %d", debugGlobalState->debugEventsCount[0]);
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+	}
+#endif
 	
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
 }

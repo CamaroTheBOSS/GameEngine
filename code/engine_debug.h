@@ -20,7 +20,6 @@ struct DebugProfilerSettings {
 struct DebugVariableRef;
 struct DebugVariableGroup {
 	bool expanded;
-	DebugVariableGroup* parent;
 	DebugVariableRef* firstChild;
 };
 
@@ -38,10 +37,11 @@ struct DebugVariable {
 struct DebugVariableRef {
 	DebugVariable* var;
 	DebugVariableRef* next;
+	DebugVariableRef* parent;
 };
 
 struct DebugVariableContext {
-	DebugVariableGroup* parent;
+	DebugVariableRef* parent;
 };
 
 enum DebugInteraction {
@@ -56,7 +56,7 @@ enum DebugInteraction {
 #if !defined(TRANSLATION_UNIT)
 #define TRANSLATION_UNIT 0
 #endif
-#define MAX_DEBUG_EVENTS 462143
+#define MAX_DEBUG_EVENTS 962153
 #define MAX_DEBUG_FRAMES 40
 #define MAX_DEBUG_RECORDS 65535
 #define MAX_TRANSLATION_UNIT 3
