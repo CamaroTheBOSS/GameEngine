@@ -861,6 +861,12 @@ LRESULT CALLBACK Win32MainWindowCallback(
 	return result;
 }
 
+inline 
+void Win32ButtonUpdate(Button& button, bool wasDown, bool isDown) {
+	button.isDown = isDown ? button.isDown + 1 : 0;
+	button.wasDown = wasDown;
+}
+
 internal 
 void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller& controller) {
 	MSG msg = {};
@@ -869,51 +875,43 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 		case WM_QUIT: {
 			globalRunning = false;
 		} break;
-		case WM_LBUTTONDOWN:
-			controller.B.mouseLeft.isDown = true;
-			controller.B.mouseLeft.wasDown = false;
-			break;
-		case WM_LBUTTONUP:
-			controller.B.mouseLeft.isDown = false;
-			controller.B.mouseLeft.wasDown = true;
-			break;
+		case WM_LBUTTONDOWN: {
+			Win32ButtonUpdate(controller.B.mouseLeft, false, true);
+		} break;
+		case WM_LBUTTONUP: {
+			Win32ButtonUpdate(controller.B.mouseLeft, true, false);
+		} break;
 		case WM_RBUTTONDOWN:
-			controller.B.mouseRight.isDown = true;
-			controller.B.mouseRight.wasDown = false;
+			Win32ButtonUpdate(controller.B.mouseRight, false, true);
 			break;
 		case WM_RBUTTONUP:
-			controller.B.mouseRight.isDown = false;
-			controller.B.mouseRight.wasDown = true;
+			Win32ButtonUpdate(controller.B.mouseRight, true, false);
 			break;
 		case WM_XBUTTONDOWN: {
 			u32 vkCode = u4(msg.wParam);
 			if (vkCode == VK_XBUTTON1) {
-				controller.B.mouse1B.isDown = true;
-				controller.B.mouse1B.wasDown = false;
+				Win32ButtonUpdate(controller.B.mouse1B, false, true);
 			}
 			else if (vkCode == VK_XBUTTON2) {
-				controller.B.mouse2B.isDown = true;
-				controller.B.mouse2B.wasDown = false;
+				Win32ButtonUpdate(controller.B.mouse2B, false, true);
 			}
 		} break;
 		case WM_XBUTTONUP: {
 			u32 vkCode = u4(msg.wParam);
 			if (vkCode == VK_XBUTTON1) {
-				controller.B.mouse1B.isDown = false;
-				controller.B.mouse1B.wasDown = true;
+				Win32ButtonUpdate(controller.B.mouse1B, true, false);
 			}
 			else if (vkCode == VK_XBUTTON2) {
-				controller.B.mouse2B.isDown = false;
-				controller.B.mouse2B.wasDown = true;
+				Win32ButtonUpdate(controller.B.mouse2B, true, false);
 			}
 		} break;
 		case WM_MBUTTONDOWN: {
+			Win32ButtonUpdate(controller.B.mouseMiddle, false, true);
 			controller.B.mouseMiddle.isDown = true;
 			controller.B.mouseMiddle.wasDown = false;
 		} break;
 		case WM_MBUTTONUP: {
-			controller.B.mouseMiddle.isDown = false;
-			controller.B.mouseMiddle.wasDown = true;
+			Win32ButtonUpdate(controller.B.mouseMiddle, true, false);
 		} break;
 		case WM_SYSKEYDOWN:
 		case WM_SYSKEYUP:
@@ -923,45 +921,36 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 			bool wasDown = msg.lParam & (scast(LPARAM, 1) << 30);
 			bool isDown = !(msg.lParam & (scast(LPARAM, 1) << 31));
 			bool altIsDown = (msg.lParam & (scast(LPARAM, 1) << 29));
+			// TODO: Readonly hashmap instaed of if else!
 			if (vkCode == 'W') {
-				controller.B.kW.isDown = isDown;
-				controller.B.kW.wasDown = wasDown;
+				Win32ButtonUpdate(controller.B.kW, wasDown, isDown);
 			}
 			else if (vkCode == 'A') {
-				controller.B.kA.isDown = isDown;
-				controller.B.kA.wasDown = wasDown;
+				Win32ButtonUpdate(controller.B.kA, wasDown, isDown);
 			}
 			else if (vkCode == 'S') {
-				controller.B.kS.isDown = isDown;
-				controller.B.kS.wasDown = wasDown;
+				Win32ButtonUpdate(controller.B.kS, wasDown, isDown);
 			}
 			else if (vkCode == 'D') {
-				controller.B.kD.isDown = isDown;
-				controller.B.kD.wasDown = wasDown;
+				Win32ButtonUpdate(controller.B.kD, wasDown, isDown);
 			}
 			else if (vkCode == VK_UP) {
-				controller.B.kArrowUp.isDown = isDown;
-				controller.B.kArrowUp.wasDown = wasDown;
+				Win32ButtonUpdate(controller.B.kArrowUp, wasDown, isDown);
 			}
 			else if (vkCode == VK_LEFT) {
-				controller.B.kArrowLeft.isDown = isDown;
-				controller.B.kArrowLeft.wasDown = wasDown;
+				Win32ButtonUpdate(controller.B.kArrowLeft, wasDown, isDown);
 			}
 			else if (vkCode == VK_DOWN) {
-				controller.B.kArrowDown.isDown = isDown;
-				controller.B.kArrowDown.wasDown = wasDown;
+				Win32ButtonUpdate(controller.B.kArrowDown, wasDown, isDown);
 			}
 			else if (vkCode == VK_RIGHT) {
-				controller.B.kArrowRight.isDown = isDown;
-				controller.B.kArrowRight.wasDown = wasDown;
+				Win32ButtonUpdate(controller.B.kArrowRight, wasDown, isDown);
 			}
 			else if (vkCode == VK_SPACE) {
-				controller.B.kSpace.isDown = isDown;
-				controller.B.kSpace.wasDown = wasDown;
+				Win32ButtonUpdate(controller.B.kSpace, wasDown, isDown);
 			}
 			else if (vkCode == VK_ESCAPE) {
-				controller.B.kEsc.isDown = isDown;
-				controller.B.kEsc.wasDown = wasDown;
+				Win32ButtonUpdate(controller.B.kEsc, wasDown, isDown);
 			}
 			else if (vkCode == 'L') {
 				if (!wasDown) {
@@ -1034,7 +1023,7 @@ void Win32GatherGamepadInput(Controller& controller, DWORD cIndex) {
 inline
 void ResetInput(Controller& controller) {
 	for (u32 bIndex = 0; bIndex < ArrayCount(controller.E); bIndex++) {
-		controller.E[bIndex].wasDown = true;
+		controller.E[bIndex].wasDown = controller.E[bIndex].isDown > 0;
 	}
 }
 
@@ -1251,6 +1240,14 @@ int CALLBACK WinMain(
 		else if (globalWin32State.dLoopRecord.replaying) {
 			Win32DebugReplayInput(globalWin32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
 		}
+#if DEBUGUI_PRINT_PLATFORM_INPUT_TO_CONSOLE
+		char buffer[256];
+		sprintf_s(buffer, 256, "w%d i%d\n",
+			inputData.controllers[KB_CONTROLLER_IDX].B.kA.wasDown,
+			inputData.controllers[KB_CONTROLLER_IDX].B.kA.isDown
+		);
+		OutputDebugStringA(buffer);
+#endif
 		inputData.dtFrame = targetFrameRefreshSeconds;
 		programMemory.executableReloaded = gameCode.reloaded;
 		TIMED_BLOCK_END(InputProcessing);

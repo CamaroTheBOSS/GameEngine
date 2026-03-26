@@ -972,12 +972,17 @@ void ChangePitch(PlayingSound* sound, f32 pitch) {
 
 inline
 bool IsPressed(Button& button) {
-	return button.isDown;
+	return button.isDown > 0;
 }
 
 inline
 bool WasPressed(Button& button) {
-	return !button.wasDown && button.isDown;
+	return !button.wasDown && button.isDown > 0;
+}
+
+inline
+bool WasReleased(Button& button) {
+	return button.wasDown && button.isDown == 0;
 }
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {

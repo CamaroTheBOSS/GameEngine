@@ -47,7 +47,8 @@ struct DebugVariableContext {
 enum DebugInteraction {
 	DebugInteract_None,
 
-	DebugInteract_Click,
+	DebugInteract_PressedClick,
+	DebugInteract_ReleasedClick,
 	DebugInteract_Drag,
 	DebugInteract_Hover
 };

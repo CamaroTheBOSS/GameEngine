@@ -119,9 +119,11 @@ struct DebugState {
 	DebugVariable* hotVariable;
 	DebugVariable* nextHotVariable;
 	DebugVariable* interactingWith;
+	DebugVariable* nextInteractingWith;
 	DebugInteraction hotInteraction;
 	DebugInteraction nextHotInteraction;
 	V2 mousePosAtInteractStart;
+	V2 nextMousePosAtInteractStart;
 
 	bool isInitialized;
 };

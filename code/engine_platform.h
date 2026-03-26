@@ -24,7 +24,9 @@ struct SoundData {
 #define KB_CONTROLLER_IDX (MAX_CONTROLLERS - 4)
 
 struct Button {
-	bool isDown;
+	// NOTE: isDown says how many frames button is down,
+	//		 wasDown says whether button wasDown in previous frame
+	u32 isDown;
 	bool wasDown;
 };
 

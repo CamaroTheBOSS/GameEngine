@@ -13,6 +13,7 @@ inline void BeginRendering(RenderGroup& group);
 inline void EndRendering(RenderGroup& group);
 inline bool IsPressed(Button& button);
 inline bool WasPressed(Button& button);
+inline bool WasReleased(Button& button);
 #define DEBUG_CONFIG_PATH "..\\code\\engine_debug_config.h"
 #define DEBUG_COLLATION_SCALE (1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ));
 
@@ -239,7 +240,6 @@ void DebugBegin(LoadedBitmap& screenBitmap) {
 	state->hotRecord = 0;
 	state->hotFrameIndex = U32_MAX;
 	state->hotRegionIndex = U32_MAX;
-	state->hotVariable = 0;
 	state->nextHotVariable = 0;
 	state->nextHotInteraction = DebugInteract_None;
 #endif
@@ -638,10 +638,10 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 		if (var->type == DebugVarType::ProfilerUI) {
 			DebugRenderProfilerUI(state, var->profiler.rect, mousePos);
 			Rect2 anchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
-			bool isHot = IsInRectangle(anchor, mousePos) && state->hotInteraction == DebugInteract_None;
+			bool isHot = IsInRectangle(anchor, mousePos) && state->nextHotInteraction == DebugInteract_None;
 			if (isHot) {
 				itemColor = hotItemColor;
-				state->hotVariable = var;
+				state->nextHotVariable = var;
 			}
 			PushRect(state->renderGroup, anchor, 0, V2{ 0, 0 }, itemColor);
 		}
@@ -650,10 +650,10 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				DebugVarToText_AddColon
 			);
 			Rect2 bb = GetTextBoundingBox(state, buffer, state->fontContext, itemColor);
-			bool isHot = IsInRectangle(bb, mousePos) && state->hotInteraction == DebugInteract_None;
+			bool isHot = IsInRectangle(bb, mousePos) && state->nextHotInteraction == DebugInteract_None;
 			if (isHot) {
 				itemColor = hotItemColor;
-				state->hotVariable = var;
+				state->nextHotVariable = var;
 			}
 			DebugRenderLine(state, buffer, state->fontContext, itemColor);
 		}
@@ -683,10 +683,10 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 		if (var->type == DebugVarType::ProfilerUI) {
 			DebugRenderProfilerUI(state, var->profiler.rect, mousePos);
 			Rect2 anchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
-			bool isHot = IsInRectangle(anchor, mousePos) && state->hotInteraction == DebugInteract_None;
+			bool isHot = IsInRectangle(anchor, mousePos) && state->nextHotInteraction == DebugInteract_None;
 			if (isHot) {
 				itemColor = hotItemColor;
-				state->hotVariable = var;
+				state->nextHotVariable = var;
 			}
 			PushRect(state->renderGroup, anchor, 0, V2{ 0, 0 }, itemColor);
 		}
@@ -695,10 +695,10 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				DebugVarToText_AddColon
 			);
 			Rect2 bb = GetTextBoundingBox(state, buffer, state->fontContext, itemColor);
-			bool isHot = IsInRectangle(bb, mousePos) && state->hotInteraction == DebugInteract_None;
+			bool isHot = IsInRectangle(bb, mousePos) && state->nextHotInteraction == DebugInteract_None;
 			if (isHot) {
 				itemColor = hotItemColor;
-				state->hotVariable = var;
+				state->nextHotVariable = var;
 			}
 			DebugRenderLine(state, buffer, state->fontContext, itemColor);
 		}
@@ -709,29 +709,34 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	// Begin interaction
-	if (!state->interactingWith && state->hotInteraction == DebugInteract_None) {
-		state->interactingWith = state->hotVariable;
-		state->hotInteraction = DebugInteract_Hover;
-		state->mousePosAtInteractStart = mousePos;
-		if (WasPressed(controller.B.mouseLeft)) {
-			state->hotInteraction = DebugInteract_Click;
-		}
-		else if (IsPressed(controller.B.mouseLeft)) {
-			state->hotInteraction = DebugInteract_Drag;
-		}
+	state->nextInteractingWith = state->nextHotVariable;
+	state->nextHotInteraction = DebugInteract_Hover;
+	state->nextMousePosAtInteractStart = mousePos;
+	if (WasPressed(controller.B.mouseLeft)) {
+		state->nextHotInteraction = DebugInteract_PressedClick;
 	}
-
+	else if (WasReleased(controller.B.mouseLeft)) {
+		state->nextHotInteraction = DebugInteract_ReleasedClick;
+	}
+	else if (IsPressed(controller.B.mouseLeft)) {
+		state->nextHotInteraction = DebugInteract_Drag;
+	}
+	if (!state->interactingWith) {
+		state->interactingWith = state->nextInteractingWith;
+		state->hotInteraction = state->nextHotInteraction;
+		state->mousePosAtInteractStart = state->nextMousePosAtInteractStart;
+	}
 	// Actual interaction functions
 	if (state->interactingWith) {
 		switch (state->interactingWith->type) {
 		case DebugVarType::CompileTimeBool:
 		case DebugVarType::Bool: {
-			if (state->hotInteraction == DebugInteract_Click) {
+			if (state->hotInteraction == DebugInteract_ReleasedClick) {
 				state->interactingWith->boolean = !state->interactingWith->boolean;
 			}
 		} break;
 		case DebugVarType::Group: {
-			if (state->hotInteraction == DebugInteract_Click) {
+			if (state->hotInteraction == DebugInteract_ReleasedClick) {
 				state->interactingWith->group.expanded = !state->interactingWith->group.expanded;
 			}
 		} break;
@@ -743,7 +748,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		case DebugVarType::CompilationSwitch: {
-			if (state->hotInteraction == DebugInteract_Click) {
+			if (state->hotInteraction == DebugInteract_ReleasedClick) {
 				WriteDebugConfig(state);
 				if (state->compilationHandle.state != CmdState_Running) {
 					char cwd[] = "..\\code";
@@ -770,23 +775,51 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->selectedRecord = state->hotRecord;
 	}
 
+#if DEBUGUI_ShowDebugInteractions
+	{
+		char buffer[256];
+		const char* interaction = "Unknown";
+		switch (state->hotInteraction) {
+		case DebugInteract_None: {
+			interaction = "None";
+		} break;
+		case DebugInteract_Hover: {
+			interaction = "Hover";
+		} break;
+		case DebugInteract_PressedClick: {
+			interaction = "Click";
+		} break;
+		case DebugInteract_ReleasedClick: {
+			interaction = "Click";
+		} break;
+		case DebugInteract_Drag: {
+			interaction = "Drag";
+		} break;
+		}
+		sprintf_s(buffer, sizeof(buffer), "%s with %s", interaction, state->interactingWith ? state->interactingWith->name : "none");
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		sprintf_s(buffer, sizeof(buffer), "LM: WasPressed: %d", WasPressed(controller.B.mouseLeft));
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		sprintf_s(buffer, sizeof(buffer), "LM: IsPressed: %d", IsPressed(controller.B.mouseLeft));
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		sprintf_s(buffer, sizeof(buffer), "LM: WasReleased: %d", WasReleased(controller.B.mouseLeft));
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+	}
+#endif
+
 	// End interactions
 	if (state->hotInteraction) {
 		switch (state->hotInteraction) {
-		case DebugInteract_Click: {
-			state->hotInteraction = DebugInteract_None;
-			state->interactingWith = 0;
-		} break;
-		case DebugInteract_Hover: {
-			state->hotInteraction = DebugInteract_None;
-			state->interactingWith = 0;
-		} break;
 		case DebugInteract_Drag: {
 			if (!IsPressed(controller.B.mouseLeft)) {
-				state->hotInteraction = DebugInteract_None;
-				state->interactingWith = 0;
+				state->hotInteraction = state->nextHotInteraction;
+				state->interactingWith = state->nextInteractingWith;
 			}
 		} break;
+		default: {
+			state->hotInteraction = state->nextHotInteraction;
+			state->interactingWith = state->nextInteractingWith;
+		}
 		}
 	}
 }
@@ -810,32 +843,6 @@ void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputDat
 		DebugRenderLine(state, "Failed Compilation", state->fontContext, V4{ 1, 1, 1, 1 });
 	}
 	DebugInteract(state, mousePos, controller);
-#if DEBUGUI_ShowDebugInteractions
-	{
-		char buffer[256];
-		const char* interaction = "Unknown";
-		switch (state->hotInteraction) {
-		case DebugInteract_None: {
-			interaction = "None";
-		} break;
-		case DebugInteract_Hover: {
-			interaction = "Hover";
-		} break;
-		case DebugInteract_Click: {
-			interaction = "Click";
-		} break;
-		case DebugInteract_Drag: {
-			interaction = "Drag";
-		} break;
-		}
-		sprintf_s(buffer, sizeof(buffer), "%s with %s", interaction, state->interactingWith ? state->interactingWith->name : "none");
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-		sprintf_s(buffer, sizeof(buffer), "LM: WasPressed: %d", WasPressed(controller.B.mouseLeft));
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-		sprintf_s(buffer, sizeof(buffer), "LM: IsPressed: %d", IsPressed(controller.B.mouseLeft));
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-	}
-#endif
 #if DEBUGUI_ShowEventsCount
 	{
 		char buffer[256];
