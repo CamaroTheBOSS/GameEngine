@@ -48,10 +48,12 @@ enum DebugInteractionType {
 	DebugInteract_None,
 	DebugInteract_Noop,
 
-	DebugInteract_PressedClick,
-	DebugInteract_ReleasedClick,
-	DebugInteract_Drag,
-	DebugInteract_Hover
+	DebugInteract_Toggle,
+	DebugInteract_Expand,
+	DebugInteract_Resize,
+	DebugInteract_Move,
+	DebugInteract_DragIncrease,
+	DebugInteract_Compile,
 };
 
 struct DebugInteraction {

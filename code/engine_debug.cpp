@@ -708,65 +708,78 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	// Begin interaction
-	state->nextInteraction.var = state->nextInteraction.hot;
-	state->nextInteraction.type = DebugInteract_Hover;
-	state->nextInteraction.startMousePos = mousePos;
-	if (WasPressed(controller.B.mouseLeft)) {
-		state->nextInteraction.type = DebugInteract_PressedClick;
+	if (state->nextInteraction.hot) {
+		state->nextInteraction.startMousePos = mousePos;
+		switch (state->nextInteraction.hot->type) {
+		case DebugVarType::CompileTimeBool:
+		case DebugVarType::Bool: {
+			if (WasReleased(controller.B.mouseLeft)) {
+				state->nextInteraction.type = DebugInteract_Toggle;
+			}
+		} break;
+		case DebugVarType::Group: {
+			if (WasReleased(controller.B.mouseLeft)) {
+				state->nextInteraction.type = DebugInteract_Expand;
+			}
+		} break;
+		case DebugVarType::CompileTimeFloat:
+		case DebugVarType::Float: {
+			if (WasPressed(controller.B.mouseLeft)) {
+				state->nextInteraction.type = DebugInteract_DragIncrease;
+			}
+		} break;
+		case DebugVarType::CompilationSwitch: {
+			if (WasReleased(controller.B.mouseLeft)) {
+				state->nextInteraction.type = DebugInteract_Compile;
+			}
+		} break;
+		case DebugVarType::ProfilerUI: {
+			if (WasPressed(controller.B.mouseLeft)) {
+				state->nextInteraction.type = DebugInteract_Resize;
+			}
+		} break;
+		}
 	}
-	else if (WasReleased(controller.B.mouseLeft)) {
-		state->nextInteraction.type = DebugInteract_ReleasedClick;
-	}
-	else if (IsPressed(controller.B.mouseLeft)) {
-		state->nextInteraction.type = DebugInteract_Drag;
-		if (!state->nextInteraction.var) {
+	else {
+		if (IsPressed(controller.B.mouseLeft) || IsPressed(controller.B.mouseRight)) {
 			state->nextInteraction.type = DebugInteract_Noop;
 		}
 	}
+	if (state->nextInteraction.type != DebugInteract_None) {
+		state->nextInteraction.var = state->nextInteraction.hot;
+	}
 	if (!state->interaction.var && state->interaction.type != DebugInteract_Noop) {
 		state->interaction = state->nextInteraction;
+		state->nextInteraction = {};
 	}
 	
 	
 	// Actual interaction functions
 	if (state->interaction.var) {
 		DebugVariable* var = state->interaction.var;
-		DebugInteractionType interaction = state->interaction.type;
-		switch (var->type) {
-		case DebugVarType::CompileTimeBool:
-		case DebugVarType::Bool: {
-			if (interaction == DebugInteract_ReleasedClick) {
-				var->boolean = !var->boolean;
+		V2 dMouse = mousePos - state->interaction.startMousePos;
+		switch (state->interaction.type) {
+		case DebugInteract_Toggle: {
+			var->boolean = !var->boolean;
+		} break;
+		case DebugInteract_Expand: {
+			var->group.expanded = !var->group.expanded;
+		} break;
+		case DebugInteract_DragIncrease: {
+			var->fl32 += 0.001f * dMouse.Y;
+		} break;
+		case DebugInteract_Compile: {
+			WriteDebugConfig(state);
+			if (state->compilationHandle.state != CmdState_Running) {
+				char cwd[] = "..\\code";
+				char cmd[] = "cmd.exe /c build.bat --game_only";
+				state->compilationHandle = Platform->SystemExecuteCommand(cwd, cmd);
 			}
 		} break;
-		case DebugVarType::Group: {
-			if (interaction == DebugInteract_ReleasedClick) {
-				var->group.expanded = !var->group.expanded;
-			}
-		} break;
-		case DebugVarType::CompileTimeFloat:
-		case DebugVarType::Float: {
-			V2 dMouse = mousePos - state->interaction.startMousePos;
-			if (interaction == DebugInteract_Drag) {
-				var->fl32 += 0.001f * dMouse.Y;
-			}
-		} break;
-		case DebugVarType::CompilationSwitch: {
-			if (interaction == DebugInteract_ReleasedClick) {
-				WriteDebugConfig(state);
-				if (state->compilationHandle.state != CmdState_Running) {
-					char cwd[] = "..\\code";
-					char cmd[] = "cmd.exe /c build.bat --game_only";
-					state->compilationHandle = Platform->SystemExecuteCommand(cwd, cmd);
-				}
-			}
-		} break;
-		case DebugVarType::ProfilerUI: {
-			if (interaction == DebugInteract_Drag) {
-				f32 newMaxX = Maximum(mousePos.X, var->profiler.rect.min.X + 10.f);
-				f32 newMaxY = Maximum(mousePos.Y, var->profiler.rect.min.Y + 10.f);
-				var->profiler.rect.max = V2{ newMaxX, newMaxY };
-			}
+		case DebugInteract_Resize: {
+			f32 newMaxX = Maximum(mousePos.X, var->profiler.rect.min.X + 10.f);
+			f32 newMaxY = Maximum(mousePos.Y, var->profiler.rect.min.Y + 10.f);
+			var->profiler.rect.max = V2{ newMaxX, newMaxY };
 		} break;
 		}
 	}
@@ -790,17 +803,23 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		case DebugInteract_Noop: {
 			interaction = "Noop";
 		} break;
-		case DebugInteract_Hover: {
-			interaction = "Hover";
+		case DebugInteract_Toggle: {
+			interaction = "Toggle";
 		} break;
-		case DebugInteract_PressedClick: {
-			interaction = "Click";
+		case DebugInteract_Expand: {
+			interaction = "Expand";
 		} break;
-		case DebugInteract_ReleasedClick: {
-			interaction = "Click";
+		case DebugInteract_DragIncrease: {
+			interaction = "DragIncrease";
 		} break;
-		case DebugInteract_Drag: {
-			interaction = "Drag";
+		case DebugInteract_Compile: {
+			interaction = "Compile";
+		} break;
+		case DebugInteract_Resize: {
+			interaction = "Resize";
+		} break;
+		case DebugInteract_Move: {
+			interaction = "Move";
 		} break;
 		}
 		sprintf_s(buffer, sizeof(buffer), "%s with %s", interaction, state->interaction.var ? state->interaction.var->name : "none");
@@ -816,14 +835,14 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 
 	// End interactions
 		switch (state->interaction.type) {
-		case DebugInteract_Drag: {
+		case DebugInteract_Resize:
+		case DebugInteract_DragIncrease: {
 			if (!IsPressed(controller.B.mouseLeft)) {
 				state->interaction = state->nextInteraction;
 			}
 		} break;
-		case DebugInteract_None: break;
 		case DebugInteract_Noop: {
-			if (WasReleased(controller.B.mouseLeft)) {
+			if (!IsPressed(controller.B.mouseLeft) && !IsPressed(controller.B.mouseRight)) {
 				state->interaction = {};
 			}
 		} break;
