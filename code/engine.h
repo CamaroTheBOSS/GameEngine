@@ -116,14 +116,8 @@ struct DebugState {
 	
 	u32 variableCount;
 	DebugVariable variables[128];
-	DebugVariable* hotVariable;
-	DebugVariable* nextHotVariable;
-	DebugVariable* interactingWith;
-	DebugVariable* nextInteractingWith;
-	DebugInteraction hotInteraction;
-	DebugInteraction nextHotInteraction;
-	V2 mousePosAtInteractStart;
-	V2 nextMousePosAtInteractStart;
+	DebugInteraction interaction;
+	DebugInteraction nextInteraction;
 
 	bool isInitialized;
 };

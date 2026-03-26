@@ -44,13 +44,21 @@ struct DebugVariableContext {
 	DebugVariableRef* parent;
 };
 
-enum DebugInteraction {
+enum DebugInteractionType {
 	DebugInteract_None,
+	DebugInteract_Noop,
 
 	DebugInteract_PressedClick,
 	DebugInteract_ReleasedClick,
 	DebugInteract_Drag,
 	DebugInteract_Hover
+};
+
+struct DebugInteraction {
+	DebugInteractionType type;
+	DebugVariable* var;
+	DebugVariable* hot;
+	V2 startMousePos;
 };
 
 // ------------------- EVENT PROFILER --------------------
@@ -116,7 +124,6 @@ struct DebugFrameInfo {
 	DebugProfilerRegion regions[MAX_STACK_REGIONS];
 };
 
-struct DebugVariable;
 struct DebugGlobalState {
 	DebugRecord debugRecords[MAX_TRANSLATION_UNIT][MAX_DEBUG_RECORDS];
 	u32 debugRecordsCount[MAX_TRANSLATION_UNIT];
@@ -126,9 +133,6 @@ struct DebugGlobalState {
 
 	u64 frameStartCycles[MAX_DEBUG_FRAMES];
 	volatile u64 frameAndEventIndex;
-
-	u32 debugVariableCount;
-	DebugVariable* debugVariables;
 };
 
 extern u32 debugRecordsCount_Main;
