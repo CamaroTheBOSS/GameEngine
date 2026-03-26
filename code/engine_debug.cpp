@@ -710,7 +710,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	// Begin interaction
 	if (state->nextInteraction.hot) {
 		state->nextInteraction.startMousePos = mousePos;
-		switch (state->nextInteraction.hot->type) {
+		switch (state->nextInteraction.hot->type) {	
 		case DebugVarType::CompileTimeBool:
 		case DebugVarType::Bool: {
 			if (WasReleased(controller.B.mouseLeft)) {
@@ -738,6 +738,9 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				state->nextInteraction.type = DebugInteract_Resize;
 			}
 		} break;
+		}
+		if (IsPressed(controller.B.kShift)) {
+			state->nextInteraction.type = DebugInteract_Tear;
 		}
 	}
 	else {
@@ -780,6 +783,15 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			f32 newMaxX = Maximum(mousePos.X, var->profiler.rect.min.X + 10.f);
 			f32 newMaxY = Maximum(mousePos.Y, var->profiler.rect.min.Y + 10.f);
 			var->profiler.rect.max = V2{ newMaxX, newMaxY };
+		} break;
+		case DebugInteract_Tear: {
+			//DebugVariableContext context = {};
+			//DebugVariableRef* tree = state->UITree;
+			//state->UITree = BeginDebugVariableGroup(state, context, "NewUserGroup");
+			//state->UITree->next = tree;
+			//state->UITree->var->group.firstChild = PushStructSize(state->mainArena, DebufVariableRef);
+			//EndDebugVariableGroup(context);
+			DebugRenderLine(state, "Tearing!", state->fontContext, V4{ 1, 1, 1, 1 });
 		} break;
 		}
 	}

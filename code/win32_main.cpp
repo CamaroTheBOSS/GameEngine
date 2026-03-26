@@ -922,6 +922,7 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 			bool isDown = !(msg.lParam & (scast(LPARAM, 1) << 31));
 			bool altIsDown = (msg.lParam & (scast(LPARAM, 1) << 29));
 			// TODO: Readonly hashmap instaed of if else!
+			Win32ButtonUpdate(controller.B.kAlt, altIsDown, altIsDown);
 			if (vkCode == 'W') {
 				Win32ButtonUpdate(controller.B.kW, wasDown, isDown);
 			}
@@ -951,6 +952,9 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 			}
 			else if (vkCode == VK_ESCAPE) {
 				Win32ButtonUpdate(controller.B.kEsc, wasDown, isDown);
+			}
+			else if (vkCode == VK_SHIFT) {
+				Win32ButtonUpdate(controller.B.kShift, wasDown, isDown);
 			}
 			else if (vkCode == 'L') {
 				if (!wasDown) {

@@ -54,6 +54,7 @@ enum DebugInteractionType {
 	DebugInteract_Move,
 	DebugInteract_DragIncrease,
 	DebugInteract_Compile,
+	DebugInteract_Tear,
 };
 
 struct DebugInteraction {

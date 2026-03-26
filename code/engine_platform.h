@@ -46,6 +46,8 @@ struct Controller {
 			Button kArrowRight;
 			Button kSpace;
 			Button kEsc;
+			Button kShift;
+			Button kAlt;
 			Button mouseLeft;
 			Button mouseRight;
 			Button mouseMiddle;
@@ -53,7 +55,7 @@ struct Controller {
 			Button mouse2B;
 		};
 		Buttons B;
-		Button E[15];
+		Button E[17];
 		static_assert(sizeof(B) == sizeof(E));
 	};
 	// Mouse data (<0-1> value relative to window size where 0 is left or top, and 1 is right or bottom)
