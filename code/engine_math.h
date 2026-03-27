@@ -508,6 +508,24 @@ struct Rect2 {
 };
 
 inline
+Rect2 AddRadius(Rect2 A, f32 R) {
+	f32 halfR = 0.5f * R;
+	A.min.X -= halfR;
+	A.min.Y -= halfR;
+	A.max.X += halfR;
+	A.max.Y += halfR;
+	return A;
+}
+
+inline
+Rect2 AddRadius(Rect2 A, V2 R) {
+	V2 halfR = 0.5f * R;
+	A.min -= halfR;
+	A.max += halfR;
+	return A;
+}
+
+inline
 V2 GetDim(Rect2 rect) {
 	V2 result = rect.max - rect.min;
 	return result;

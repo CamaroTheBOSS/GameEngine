@@ -18,17 +18,116 @@ inline bool WasReleased(Button& button);
 #define DEBUG_COLLATION_SCALE (1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ));
 
 inline
-FontDrawContext InitializeFontDrawContext(LoadedFont* font, f32 scale, V2 topline) {
+u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodepoint) {
+	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
+	u32 firstKerningIndex = font->codepointToLogicalIndex[firstCodepoint];
+	u32 secondKerningIndex = font->codepointToLogicalIndex[secondCodepoint];
+	Assert((firstKerningIndex != 0 || firstCodepoint == 0) && secondKerningIndex != 0);
+	return font->kerningTable[firstKerningIndex * font->onePastMaxLogicalIndex + secondKerningIndex];
+}
+
+inline
+BitmapId GetFontGlyphBitmapIdFor(LoadedFont* font, u32 codepoint) {
+	Assert(codepoint < font->onePastMaxCodepoint);
+	u32 index = font->logicalIndexBaseForGlyphs + font->codepointToLogicalIndex[codepoint];
+	Assert(index != 0);
+	return { index };
+}
+
+inline
+u32 GetFontLineAdvance(LoadedFont* font) {
+	return font->metrics.ascent + font->metrics.descent + font->metrics.externalLeading;
+}
+
+inline
+u32 HexToInt(char c) {
+	if (c >= 'A' && c <= 'F') {
+		return c - 'A' + 10;
+	}
+	else if (c >= '0' && c <= '9') {
+		return c - '0';
+	}
+	Assert(!"Wrong hex character");
+	return 0;
+}
+
+internal
+void DebugRenderLine(DebugState* state, const char* text, V2 pos, f32 scale, V4 color, bool render = true, Rect2* boundingBox = 0) {
+	Rect2 resultBoundingBox = InversedInfinityRect2();
+	u32 prevChar = 0;
+	f32 spaceAdvance = scale * 55;
+	for (const char* at = text; *at; at++) {
+		u32 codepoint = 0;
+		if (*at == '\\' &&
+			at[1] == '0' &&
+			at[2] == 'x') {
+			// TODO: It may cause buffer overflow if input data is incorrect
+			u32 ox1 = HexToInt(at[3]);
+			u32 ox2 = HexToInt(at[4]);
+			u32 ox3 = HexToInt(at[5]);
+			u32 ox4 = HexToInt(at[6]);
+			codepoint = (ox1 << 12) +
+				(ox2 << 8) +
+				(ox3 << 4) +
+				(ox4 << 0);
+			at += 6;
+		}
+		else {
+			codepoint = *at;
+		}
+		if (codepoint != ' ') {
+			BitmapId bid = GetFontGlyphBitmapIdFor(state->font, codepoint);
+			AssetMetadata* metadata = GetAssetMetadata(*state->renderGroup.assets, bid.id);
+			f32 width = f4(metadata->_bitmapInfo.width);
+			f32 height = f4(metadata->_bitmapInfo.height);
+			pos.X += scale * GetFontWidthAdvanceFor(state->font, prevChar, codepoint);
+			V3 anchor = ToV3(pos, 0);
+			if (render) {
+				PushBitmap(state->renderGroup, bid, anchor, scale * height, V2{ 0, 0 }, color);
+			}
+			if (boundingBox) {
+				Rect2 glyphRect = GetRectFromMinDim(pos, scale * V2{ width, height });
+				resultBoundingBox = Union(resultBoundingBox, glyphRect);
+			}
+		}
+		else {
+			pos.X += scale * GetFontWidthAdvanceFor(state->font, prevChar, codepoint);
+		}
+		prevChar = codepoint;
+	}
+	if (boundingBox) {
+		*boundingBox = resultBoundingBox;
+	}
+}
+
+inline
+void DebugRenderLine(DebugState* state, const char* text, FontDrawContext& context, V4 color, bool render = true, Rect2* boundingBox = 0) {
+	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, color, render, boundingBox);
+	context.leftTopCurrent.E[1] -= context.lineAdvance;
+}
+
+inline
+Rect2 GetTextBoundingBox(DebugState* state, const char* text, FontDrawContext& context, V4 color) {
+	Rect2 boundingBox = {};
+	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, color, false, &boundingBox);
+	return boundingBox;
+}
+
+inline
+FontDrawContext InitializeFontDrawContext(LoadedFont* font, f32 scale, f32 lineAdvance, V2 topline) {
 	FontDrawContext context = {};
 	context.font = font;
 	context.scale = scale;
 	context.leftTopStart = context.leftTopCurrent = topline - V2{ 0, scale * context.font->metrics.ascent };
+	context.lineAdvance = lineAdvance;
 	return context;
 }
 
 inline
 FontDrawContext InitializeStandardFontDrawContext(DebugState* state, V2 topline) {
-	return InitializeFontDrawContext(state->font, 0.15f, topline);
+	f32 scale = 0.15f;
+	f32 lineAdvance = scale * GetFontLineAdvance(state->font);
+	return InitializeFontDrawContext(state->font, scale, lineAdvance, topline);
 }
 
 internal
@@ -123,10 +222,19 @@ DebugVariableRef* _AddReferencedDebugVariable(DebugState* state, DebugVariableCo
 	ref->var = var;
 	ref->parent = context.parent;
 	if (context.parent) {
-		Assert(context.parent->var->type == DebugVarType::Group);
-		DebugVariableGroup* group = &context.parent->var->group;
-		ref->next = group->firstChild;
-		group->firstChild = ref;
+		if (context.parent->var->type == DebugVarType::Group) {
+			DebugVariableGroup* group = &context.parent->var->group;
+			ref->next = group->firstChild;
+			group->firstChild = ref;
+		}
+		else if (context.parent->var->type == DebugVarType::Tree) {
+			DebugVariableTree* tree = &context.parent->var->tree;
+			ref->next = tree->firstChild;
+			tree->firstChild = ref;
+		}
+		else {
+			Assert(!"Invalid Context!");
+		}	
 	}
 	return ref;
 }
@@ -150,15 +258,24 @@ DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableCon
 inline
 DebugVariableRef* BeginDebugVariableGroup(DebugState* state, DebugVariableContext& context, const char* name) {
 	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Group);
-	DebugVariableGroup* group = &ref->var->group;
-	group->expanded = false;
-	group->firstChild = 0;
+	ref->var->group = {};
+	Assert(context.parent->var->type == DebugVarType::Tree || context.parent->var->type == DebugVarType::Group);
 	context.parent = ref;
 	return ref;
 }
 
 inline
-void EndDebugVariableGroup(DebugVariableContext& context) {
+DebugVariableContext BeginDebugVariableTree(DebugState* state, const char* name, V2 pos) {
+	DebugVariableContext context = {};
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Tree);
+	ref->var->tree = {};
+	ref->var->tree.pos = pos;
+	context.parent = ref;
+	return context;
+}
+
+inline
+void EndDebugVariableGroupOrTree(DebugVariableContext& context) {
 	Assert(context.parent || !"Tried to enclose group when none were opened");
 	context.parent = context.parent->parent;
 }
@@ -170,48 +287,11 @@ DebugState* GetDebugState() {
 		return 0;
 	}
 	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
-	DebugState* debugState = ptrcast(DebugState, debugGlobalMemory->debugMemory);
-	if (!debugState->isInitialized) {
-		debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
-		debugGlobalState->debugRecordsCount[1] = debugRecordsCount_Optimized;
-
-		TransientState* tranState = ptrcast(TransientState, debugGlobalMemory->transientMemory);
-		Assert(tranState->isInitialized);
-		InitializeArena(
-			debugState->mainArena,
-			ptrcast(u8, debugGlobalMemory->debugMemory) + sizeof(DebugState),
-			debugGlobalMemory->debugMemorySize - sizeof(DebugState)
-		);
-		SubArena(debugState->collationArena, debugState->mainArena, MB(16));
-		u32 frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
-		debugState->renderGroup = AllocateRenderGroup(debugState->mainArena, &tranState->assets, MB(4), false);
-		debugState->highPriorityQueue = tranState->highPriorityQueue;
-		debugState->collationScratchBuffer = BeginTempMemory(debugState->collationArena);
-		ResetDebugCollation(debugState, frameWriteIndex);
-
-		debugState->variableCount = 0;
-		debugState->compilationHandle.state = CmdState_Completed;
-		
-		DebugVariableContext context = {};
-		debugState->UITree = BeginDebugVariableGroup(debugState, context, "Debugging");
-			BeginDebugVariableGroup(debugState, context, "Compile time switches");
-				AddReferencedDebugVariable(debugState, context, "CameraZoomout", DebugVarType::CompileTimeBool, false);
-				AddReferencedDebugVariable(debugState, context, "CameraZoomoutValue", DebugVarType::CompileTimeFloat, 20.f);
-				AddReferencedDebugVariable(debugState, context, "ShowDebugInteractions", DebugVarType::CompileTimeBool, true);
-				AddReferencedDebugVariable(debugState, context, "ShowEventsCount", DebugVarType::CompileTimeBool, true);
-				AddReferencedDebugVariable(debugState, context, "RenderFullHD", DebugVarType::CompileTimeBool, false);
-			EndDebugVariableGroup(context);
-			_AddReferencedDebugVariable(debugState, context, "Update and Compile", DebugVarType::CompilationSwitch);
-			BeginDebugVariableGroup(debugState, context, "Profiler");
-				debugState->profilerPause = AddReferencedDebugVariable(debugState, context, "Pause profiler", DebugVarType::Bool, false);
-				DebugVariableRef* profilerUI = _AddReferencedDebugVariable(debugState, context, "ProfilerUI", DebugVarType::ProfilerUI);
-				profilerUI->var->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
-			EndDebugVariableGroup(context);
-		EndDebugVariableGroup(context);
-
-		debugState->isInitialized = true;
+	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
+	if (!state->isInitialized) {
+		return 0;
 	}
-	return debugState;
+	return state;
 #else
 	return 0;
 #endif
@@ -220,13 +300,55 @@ DebugState* GetDebugState() {
 inline 
 void DebugBegin(LoadedBitmap& screenBitmap) {
 #if INTERNAL_BUILD
-	DebugState* state = GetDebugState();
-	if (!state) {
+	if (debugGlobalMemory->debugMemorySize == 0) {
 		return;
 	}
-	if (debugGlobalMemory->executableReloaded) {
+	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
+	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
+	if (!state->isInitialized) {
+		debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
+		debugGlobalState->debugRecordsCount[1] = debugRecordsCount_Optimized;
 
+		TransientState* tranState = ptrcast(TransientState, debugGlobalMemory->transientMemory);
+		Assert(tranState->isInitialized);
+		InitializeArena(
+			state->mainArena,
+			ptrcast(u8, debugGlobalMemory->debugMemory) + sizeof(DebugState),
+			debugGlobalMemory->debugMemorySize - sizeof(DebugState)
+		);
+		SubArena(state->collationArena, state->mainArena, MB(16));
+		u32 frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
+		state->renderGroup = AllocateRenderGroup(state->mainArena, &tranState->assets, MB(4), false);
+		state->highPriorityQueue = tranState->highPriorityQueue;
+		state->collationScratchBuffer = BeginTempMemory(state->collationArena);
+		ResetDebugCollation(state, frameWriteIndex);
+
+		state->variableCount = 0;
+		state->compilationHandle.state = CmdState_Completed;
+		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
+		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
+		DebugVariableContext context = BeginDebugVariableTree(state, "Default", leftTopCorner);
+		state->UITree = context.parent;
+		BeginDebugVariableGroup(state, context, "Debugging");
+		BeginDebugVariableGroup(state, context, "Compile time switches");
+		AddReferencedDebugVariable(state, context, "CameraZoomout", DebugVarType::CompileTimeBool, false);
+		AddReferencedDebugVariable(state, context, "CameraZoomoutValue", DebugVarType::CompileTimeFloat, 20.f);
+		AddReferencedDebugVariable(state, context, "ShowDebugInteractions", DebugVarType::CompileTimeBool, true);
+		AddReferencedDebugVariable(state, context, "ShowEventsCount", DebugVarType::CompileTimeBool, true);
+		AddReferencedDebugVariable(state, context, "RenderFullHD", DebugVarType::CompileTimeBool, false);
+		EndDebugVariableGroupOrTree(context);
+		_AddReferencedDebugVariable(state, context, "Update and Compile", DebugVarType::CompilationSwitch);
+		BeginDebugVariableGroup(state, context, "Profiler");
+		state->profilerPause = AddReferencedDebugVariable(state, context, "Pause profiler", DebugVarType::Bool, false);
+		DebugVariableRef* profilerUI = _AddReferencedDebugVariable(state, context, "ProfilerUI", DebugVarType::ProfilerUI);
+		profilerUI->var->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
+		EndDebugVariableGroupOrTree(context);
+		EndDebugVariableGroupOrTree(context);
+		EndDebugVariableGroupOrTree(context);
+
+		state->isInitialized = true;
 	}
+
 	state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
 	state->renderGroup.pushBufferSize = 0;
 	state->renderGroup.projection = GetOrtographicProjection(screenBitmap.width, screenBitmap.height, 1);
@@ -234,110 +356,17 @@ void DebugBegin(LoadedBitmap& screenBitmap) {
 	state->font = GetOrPrefetchFont(
 		state->renderGroup, GetFontWithType(*state->renderGroup.assets, Font_Debug)
 	);
+
 	if (state->font) {
-		state->fontContext = InitializeStandardFontDrawContext(state, V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y });
+		f32 scale = 0.15f;
+		f32 lineAdvance = scale * GetFontLineAdvance(state->font);
+		state->fontContext = InitializeFontDrawContext(state->font, 0.15f, -lineAdvance, state->overlayBoundaries.min + V2{ 0, lineAdvance });
 	}
 	state->hotRecord = 0;
 	state->hotFrameIndex = U32_MAX;
 	state->hotRegionIndex = U32_MAX;
 	state->nextInteraction = {};
 #endif
-}
-
-inline
-u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodepoint) {
-	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
-	u32 firstKerningIndex = font->codepointToLogicalIndex[firstCodepoint];
-	u32 secondKerningIndex = font->codepointToLogicalIndex[secondCodepoint];
-	Assert((firstKerningIndex != 0 || firstCodepoint == 0) && secondKerningIndex != 0);
-	return font->kerningTable[firstKerningIndex * font->onePastMaxLogicalIndex + secondKerningIndex];
-}
-
-inline
-BitmapId GetFontGlyphBitmapIdFor(LoadedFont* font, u32 codepoint) {
-	Assert(codepoint < font->onePastMaxCodepoint);
-	u32 index = font->logicalIndexBaseForGlyphs + font->codepointToLogicalIndex[codepoint];
-	Assert(index != 0);
-	return { index };
-}
-
-inline
-u32 GetFontLineAdvance(LoadedFont* font) {
-	return font->metrics.ascent + font->metrics.descent + font->metrics.externalLeading;
-}
-
-inline
-u32 HexToInt(char c) {
-	if (c >= 'A' && c <= 'F') {
-		return c - 'A' + 10;
-	}
-	else if (c >= '0' && c <= '9') {
-		return c - '0';
-	}
-	Assert(!"Wrong hex character");
-	return 0;
-}
-
-internal
-void DebugRenderLine(DebugState* state, const char* text, V2 pos, f32 scale, V4 color, bool render = true, Rect2* boundingBox = 0) {
-	Rect2 resultBoundingBox = InversedInfinityRect2();
-	u32 prevChar = 0;
-	f32 spaceAdvance = scale * 55;
-	for (const char* at = text; *at; at++) {
-		u32 codepoint = 0;
-		if (*at == '\\' &&
-			at[1] == '0' &&
-			at[2] == 'x') {
-			// TODO: It may cause buffer overflow if input data is incorrect
-			u32 ox1 = HexToInt(at[3]);
-			u32 ox2 = HexToInt(at[4]);
-			u32 ox3 = HexToInt(at[5]);
-			u32 ox4 = HexToInt(at[6]);
-			codepoint = (ox1 << 12) +
-				(ox2 << 8) +
-				(ox3 << 4) +
-				(ox4 << 0);
-			at += 6;
-		}
-		else {
-			codepoint = *at;
-		}
-		if (codepoint != ' ') {
-			BitmapId bid = GetFontGlyphBitmapIdFor(state->font, codepoint);
-			AssetMetadata* metadata = GetAssetMetadata(*state->renderGroup.assets, bid.id);
-			f32 width = f4(metadata->_bitmapInfo.width);
-			f32 height = f4(metadata->_bitmapInfo.height);
-			pos.X += scale * GetFontWidthAdvanceFor(state->font, prevChar, codepoint);
-			V3 anchor = ToV3(pos, 0);
-			if (render) {
-				PushBitmap(state->renderGroup, bid, anchor, scale * height, V2{ 0, 0 }, color);
-			}
-			if (boundingBox) {
-				Rect2 glyphRect = GetRectFromMinDim(pos, scale * V2{ width, height });
-				resultBoundingBox = Union(resultBoundingBox, glyphRect);
-			}
-		}
-		else {
-			pos.X += scale * GetFontWidthAdvanceFor(state->font, prevChar, codepoint);
-		}
-		prevChar = codepoint;
-	}
-	if (boundingBox) {
-		*boundingBox = resultBoundingBox;
-	}
-}
-
-inline
-void DebugRenderLine(DebugState* state, const char* text, FontDrawContext& context, V4 color, bool render = true, Rect2* boundingBox = 0) {
-	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, color, render, boundingBox);
-	context.leftTopCurrent.E[1] -= context.scale * GetFontLineAdvance(context.font);
-}
-
-inline
-Rect2 GetTextBoundingBox(DebugState* state, const char* text, FontDrawContext& context, V4 color) {
-	Rect2 boundingBox = {};
-	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, color, false, &boundingBox);
-	return boundingBox;
 }
 
 internal
@@ -623,94 +652,73 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 }
 
 void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
-	V2 topline = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
-#if 1
-	DebugVariableRef* parent = 0;
-	DebugVariableRef* node = state->UITree;
-	while (node) {
-		V4 itemColor = V4{ 1, 1, 1, 1 };
-		V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
+	for (DebugVariableRef* tree = state->UITree; tree; tree = tree->next) {
+		Assert(tree->var->type == DebugVarType::Tree);
+		FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->var->tree.pos);
+		DebugVariableRef* parent = 0;
+		DebugVariableRef* node = tree->var->tree.firstChild;
+		u32 depth = 0;
+		while (node) {
+			V4 itemColor = V4{ 1, 1, 1, 1 };
+			V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
 
-		DebugVariable* var = node->var;
-		char buffer[256] = {};
-		char* end = buffer + sizeof(buffer);
-		if (var->type == DebugVarType::ProfilerUI) {
-			DebugRenderProfilerUI(state, var->profiler.rect, mousePos);
-			Rect2 anchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
-			bool isHot = IsInRectangle(anchor, mousePos) && state->nextInteraction.type == DebugInteract_None;
-			if (isHot) {
-				itemColor = hotItemColor;
-				state->nextInteraction.hot = var;
+			DebugVariable* var = node->var;
+			char buffer[256] = {};
+			char* end = buffer + sizeof(buffer);
+			if (var->type == DebugVarType::ProfilerUI) {
+				DebugRenderProfilerUI(state, var->profiler.rect, mousePos);
+				Rect2 anchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
+				bool isHot = IsInRectangle(anchor, mousePos) && state->nextInteraction.type == DebugInteract_None;
+				if (isHot) {
+					itemColor = hotItemColor;
+					state->nextInteraction.hot = node;
+				}
+				PushRect(state->renderGroup, anchor, 0, V2{ 0, 0 }, itemColor);
 			}
-			PushRect(state->renderGroup, anchor, 0, V2{ 0, 0 }, itemColor);
-		}
-		else {
-			DebugVariableToText(var, buffer, ArrayCount(buffer),
-				DebugVarToText_AddColon
-			);
-			Rect2 bb = GetTextBoundingBox(state, buffer, state->fontContext, itemColor);
-			bool isHot = IsInRectangle(bb, mousePos) && state->nextInteraction.type == DebugInteract_None;
-			if (isHot) {
-				itemColor = hotItemColor;
-				state->nextInteraction.hot = var;
+			else {
+				char* at = buffer;
+				for (u32 idx = 0; idx < depth; idx++) {
+					*at++ = ' ';
+					*at++ = ' ';
+				}
+				DebugVariableToText(var, at, u4(end - at), DebugVarToText_AddColon);
+				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
+				bool isHot = IsInRectangle(bb, mousePos) && state->nextInteraction.type == DebugInteract_None;
+				if (isHot) {
+					itemColor = hotItemColor;
+					state->nextInteraction.hot = node;
+				}
+				
+				PushRect(state->renderGroup, AddRadius(bb, V2{4.f, 4.f}), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
+				DebugRenderLine(state, buffer, fontContext, itemColor);
 			}
-			DebugRenderLine(state, buffer, state->fontContext, itemColor);
-		}
-
-		if (var->type == DebugVarType::Group && var->group.expanded) {
-			parent = node;
-			node = var->group.firstChild;
-		}
-		else if (node) {
-			node = node->next;
-		}
-		if (!node && parent) {
-			node = parent->next;
-			if (node) {
-				parent = node->parent;
+			if (var->type == DebugVarType::Group && var->group.expanded) {
+				parent = node;
+				node = var->group.firstChild;
+				depth += 1;
+			}
+			else if (node) {
+				node = node->next;
+			}
+			if (!node && parent) {
+				node = parent->next;
+				if (node) {
+					parent = node->parent;
+					depth -= 1;
+				}
+			}
+			if (!parent) {
+				break;
 			}
 		}
 	}
-#else
-	for (u32 varIndex = 0; varIndex < state->variableCount; varIndex++) {
-		V4 itemColor = V4{ 1, 1, 1, 1 };
-		V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
-		
-		DebugVariable* var = state->variables + varIndex;
-		char buffer[256] = {};
-		char* end = buffer + sizeof(buffer);
-		if (var->type == DebugVarType::ProfilerUI) {
-			DebugRenderProfilerUI(state, var->profiler.rect, mousePos);
-			Rect2 anchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
-			bool isHot = IsInRectangle(anchor, mousePos) && state->nextHotInteraction == DebugInteract_None;
-			if (isHot) {
-				itemColor = hotItemColor;
-				state->nextHotVariable = var;
-			}
-			PushRect(state->renderGroup, anchor, 0, V2{ 0, 0 }, itemColor);
-		}
-		else {
-			DebugVariableToText(var, buffer, ArrayCount(buffer),
-				DebugVarToText_AddColon
-			);
-			Rect2 bb = GetTextBoundingBox(state, buffer, state->fontContext, itemColor);
-			bool isHot = IsInRectangle(bb, mousePos) && state->nextHotInteraction == DebugInteract_None;
-			if (isHot) {
-				itemColor = hotItemColor;
-				state->nextHotVariable = var;
-			}
-			DebugRenderLine(state, buffer, state->fontContext, itemColor);
-		}
-		
-	}
-#endif
 }
 
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
-	// Begin interaction
+	// Set hot interaction
 	if (state->nextInteraction.hot) {
 		state->nextInteraction.startMousePos = mousePos;
-		switch (state->nextInteraction.hot->type) {	
+		switch (state->nextInteraction.hot->var->type) {	
 		case DebugVarType::CompileTimeBool:
 		case DebugVarType::Bool: {
 			if (WasReleased(controller.B.mouseLeft)) {
@@ -739,7 +747,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		}
-		if (IsPressed(controller.B.kShift)) {
+		if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
 			state->nextInteraction.type = DebugInteract_Tear;
 		}
 	}
@@ -749,17 +757,49 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		}
 	}
 	if (state->nextInteraction.type != DebugInteract_None) {
-		state->nextInteraction.var = state->nextInteraction.hot;
+		state->nextInteraction.ref = state->nextInteraction.hot;
 	}
-	if (!state->interaction.var && state->interaction.type != DebugInteract_Noop) {
+
+	// Begin interaction
+	if (!state->interaction.ref && state->interaction.type != DebugInteract_Noop) {
 		state->interaction = state->nextInteraction;
 		state->nextInteraction = {};
+
+		if (state->interaction.type == DebugInteract_Tear) {
+			DebugVariableRef* tearPoint = state->interaction.ref;
+			DebugVariableRef* oldParent = tearPoint->parent;
+			DebugVariableRef* prevChild = 0;
+			for (DebugVariableRef* child = oldParent->var->group.firstChild; child; child = child->next) {
+				if (child == tearPoint) {
+					if (prevChild) {
+						prevChild->next = child->next;
+					}
+					else {
+						oldParent->var->group.firstChild = oldParent->var->group.firstChild->next;
+					}
+					break;
+				}
+				prevChild = child;
+			}
+			DebugVariableRef* dst = oldParent;
+			bool isParentTree = dst->var->type == DebugVarType::Tree;
+			if (!isParentTree) {
+				DebugVariableContext context = BeginDebugVariableTree(state, "NewUserTree", mousePos);
+				dst = context.parent;
+				dst->next = state->UITree;
+				state->UITree = dst;
+			}
+			dst->var->tree.firstChild = tearPoint;
+			tearPoint->next = 0;
+			tearPoint->parent = dst;
+			state->interaction.ref = dst;
+		}
 	}
 	
 	
 	// Actual interaction functions
-	if (state->interaction.var) {
-		DebugVariable* var = state->interaction.var;
+	if (state->interaction.ref) {
+		DebugVariable* var = state->interaction.ref->var;
 		V2 dMouse = mousePos - state->interaction.startMousePos;
 		switch (state->interaction.type) {
 		case DebugInteract_Toggle: {
@@ -785,13 +825,15 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			var->profiler.rect.max = V2{ newMaxX, newMaxY };
 		} break;
 		case DebugInteract_Tear: {
-			//DebugVariableContext context = {};
-			//DebugVariableRef* tree = state->UITree;
-			//state->UITree = BeginDebugVariableGroup(state, context, "NewUserGroup");
-			//state->UITree->next = tree;
-			//state->UITree->var->group.firstChild = PushStructSize(state->mainArena, DebufVariableRef);
-			//EndDebugVariableGroup(context);
 			DebugRenderLine(state, "Tearing!", state->fontContext, V4{ 1, 1, 1, 1 });
+			char buffer[256];
+			sprintf_s(buffer, 256, "MOUSE POS! %f %f", var->tree.pos.X, var->tree.pos.Y);
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+			var->tree.pos = mousePos;
+			if (var->tree.pos.X > 300.f) {
+				i32 breakhere = 3;
+			}
+			
 		} break;
 		}
 	}
@@ -834,7 +876,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			interaction = "Move";
 		} break;
 		}
-		sprintf_s(buffer, sizeof(buffer), "%s with %s", interaction, state->interaction.var ? state->interaction.var->name : "none");
+		sprintf_s(buffer, sizeof(buffer), "%s with %s", interaction, state->interaction.ref ? state->interaction.ref->var->name : "none");
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 		sprintf_s(buffer, sizeof(buffer), "LM: WasPressed: %d", WasPressed(controller.B.mouseLeft));
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
@@ -850,7 +892,12 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		case DebugInteract_Resize:
 		case DebugInteract_DragIncrease: {
 			if (!IsPressed(controller.B.mouseLeft)) {
-				state->interaction = state->nextInteraction;
+				state->interaction = {};
+			}
+		} break;
+		case DebugInteract_Tear: {
+			if (!IsPressed(controller.B.mouseLeft)) {
+				state->interaction = {};
 			}
 		} break;
 		case DebugInteract_Noop: {
@@ -859,7 +906,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		default: {
-			state->interaction = state->nextInteraction;
+			state->interaction = {};
 		}
 	}
 }
