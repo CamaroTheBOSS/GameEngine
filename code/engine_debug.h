@@ -67,8 +67,8 @@ enum DebugInteractionType {
 struct DebugInteraction {
 	DebugInteractionType type;
 	DebugVariableRef* ref;
-	DebugVariableRef* hot;
 	V2 startMousePos;
+	Rect2 boundingBox;
 };
 
 // ------------------- EVENT PROFILER --------------------

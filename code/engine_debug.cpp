@@ -365,7 +365,7 @@ void DebugBegin(LoadedBitmap& screenBitmap) {
 	state->hotRecord = 0;
 	state->hotFrameIndex = U32_MAX;
 	state->hotRegionIndex = U32_MAX;
-	state->nextInteraction = {};
+	state->nextHotInteraction = {};
 #endif
 }
 
@@ -668,10 +668,10 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 			if (var->type == DebugVarType::ProfilerUI) {
 				DebugRenderProfilerUI(state, var->profiler.rect, mousePos);
 				Rect2 anchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
-				bool isHot = IsInRectangle(anchor, mousePos) && state->nextInteraction.type == DebugInteract_None;
+				bool isHot = IsInRectangle(anchor, mousePos) && state->nextHotInteraction.type == DebugInteract_None;
 				if (isHot) {
 					itemColor = hotItemColor;
-					state->nextInteraction.hot = node;
+					state->nextHotInteraction.ref = node;
 				}
 				PushRect(state->renderGroup, anchor, 0, V2{ 0, 0 }, itemColor);
 			}
@@ -683,10 +683,10 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				}
 				DebugVariableToText(var, at, u4(end - at), DebugVarToText_AddColon);
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
-				bool isHot = IsInRectangle(bb, mousePos) && state->nextInteraction.type == DebugInteract_None;
+				bool isHot = IsInRectangle(bb, mousePos) && state->nextHotInteraction.type == DebugInteract_None;
 				if (isHot) {
 					itemColor = hotItemColor;
-					state->nextInteraction.hot = node;
+					state->nextHotInteraction.ref = node;
 				}
 				
 				PushRect(state->renderGroup, AddRadius(bb, V2{4.f, 4.f}), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
@@ -716,55 +716,45 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	// Set hot interaction
-	if (state->nextInteraction.hot) {
-		state->nextInteraction.startMousePos = mousePos;
-		switch (state->nextInteraction.hot->var->type) {	
+	if (state->nextHotInteraction.ref) {
+		state->nextHotInteraction.startMousePos = mousePos;
+		switch (state->nextHotInteraction.ref->var->type) {
 		case DebugVarType::CompileTimeBool:
 		case DebugVarType::Bool: {
-			if (WasReleased(controller.B.mouseLeft)) {
-				state->nextInteraction.type = DebugInteract_Toggle;
+			if (WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction.type = DebugInteract_Toggle;
 			}
 		} break;
 		case DebugVarType::Group: {
-			if (WasReleased(controller.B.mouseLeft)) {
-				state->nextInteraction.type = DebugInteract_Expand;
+			if (WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction.type = DebugInteract_Expand;
 			}
 		} break;
 		case DebugVarType::CompileTimeFloat:
 		case DebugVarType::Float: {
 			if (WasPressed(controller.B.mouseLeft)) {
-				state->nextInteraction.type = DebugInteract_DragIncrease;
+				state->nextHotInteraction.type = DebugInteract_DragIncrease;
 			}
 		} break;
 		case DebugVarType::CompilationSwitch: {
-			if (WasReleased(controller.B.mouseLeft)) {
-				state->nextInteraction.type = DebugInteract_Compile;
+			if (WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction.type = DebugInteract_Compile;
 			}
 		} break;
 		case DebugVarType::ProfilerUI: {
 			if (WasPressed(controller.B.mouseLeft)) {
-				state->nextInteraction.type = DebugInteract_Resize;
+				state->nextHotInteraction.type = DebugInteract_Resize;
 			}
 		} break;
 		}
 		if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
-			state->nextInteraction.type = DebugInteract_Tear;
+			state->nextHotInteraction.type = DebugInteract_Tear;
 		}
 	}
-	else {
-		if (IsPressed(controller.B.mouseLeft) || IsPressed(controller.B.mouseRight)) {
-			state->nextInteraction.type = DebugInteract_Noop;
-		}
-	}
-	if (state->nextInteraction.type != DebugInteract_None) {
-		state->nextInteraction.ref = state->nextInteraction.hot;
-	}
-
 	// Begin interaction
-	if (!state->interaction.ref && state->interaction.type != DebugInteract_Noop) {
-		state->interaction = state->nextInteraction;
-		state->nextInteraction = {};
-
+	if (!state->interacting && state->nextHotInteraction.type != DebugInteract_None) {
+		state->interaction = state->nextHotInteraction;
+		state->interacting = true;
 		if (state->interaction.type == DebugInteract_Tear) {
 			DebugVariableRef* tearPoint = state->interaction.ref;
 			DebugVariableRef* oldParent = tearPoint->parent;
@@ -798,26 +788,12 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	
 	
 	// Actual interaction functions
-	if (state->interaction.ref) {
+	if (state->interacting && state->interaction.ref) {
 		DebugVariable* var = state->interaction.ref->var;
 		V2 dMouse = mousePos - state->interaction.startMousePos;
 		switch (state->interaction.type) {
-		case DebugInteract_Toggle: {
-			var->boolean = !var->boolean;
-		} break;
-		case DebugInteract_Expand: {
-			var->group.expanded = !var->group.expanded;
-		} break;
 		case DebugInteract_DragIncrease: {
 			var->fl32 += 0.001f * dMouse.Y;
-		} break;
-		case DebugInteract_Compile: {
-			WriteDebugConfig(state);
-			if (state->compilationHandle.state != CmdState_Running) {
-				char cwd[] = "..\\code";
-				char cmd[] = "cmd.exe /c build.bat --game_only";
-				state->compilationHandle = Platform->SystemExecuteCommand(cwd, cmd);
-			}
 		} break;
 		case DebugInteract_Resize: {
 			f32 newMaxX = Maximum(mousePos.X, var->profiler.rect.min.X + 10.f);
@@ -825,14 +801,13 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			var->profiler.rect.max = V2{ newMaxX, newMaxY };
 		} break;
 		case DebugInteract_Tear: {
+#if 0
 			DebugRenderLine(state, "Tearing!", state->fontContext, V4{ 1, 1, 1, 1 });
 			char buffer[256];
 			sprintf_s(buffer, 256, "MOUSE POS! %f %f", var->tree.pos.X, var->tree.pos.Y);
 			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+#endif
 			var->tree.pos = mousePos;
-			if (var->tree.pos.X > 300.f) {
-				i32 breakhere = 3;
-			}
 			
 		} break;
 		}
@@ -888,26 +863,46 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 #endif
 
 	// End interactions
-		switch (state->interaction.type) {
-		case DebugInteract_Resize:
-		case DebugInteract_DragIncrease: {
-			if (!IsPressed(controller.B.mouseLeft)) {
-				state->interaction = {};
-			}
-		} break;
-		case DebugInteract_Tear: {
-			if (!IsPressed(controller.B.mouseLeft)) {
-				state->interaction = {};
-			}
-		} break;
-		case DebugInteract_Noop: {
-			if (!IsPressed(controller.B.mouseLeft) && !IsPressed(controller.B.mouseRight)) {
-				state->interaction = {};
-			}
-		} break;
-		default: {
-			state->interaction = {};
+	bool interactionEnded = false;
+	switch (state->interaction.type) {
+	case DebugInteract_Resize:
+	case DebugInteract_DragIncrease:
+	case DebugInteract_Tear: {
+		interactionEnded = !IsPressed(controller.B.mouseLeft);
+	} break;
+	case DebugInteract_Noop: {
+		interactionEnded = !IsPressed(controller.B.mouseLeft) &&
+			!IsPressed(controller.B.mouseRight);
+	} break;
+	case DebugInteract_Toggle: {
+		DebugVariable* var = state->interaction.ref->var;
+		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
+			var->boolean = !var->boolean;
+			interactionEnded = true;
 		}
+	} break;
+	case DebugInteract_Expand: {
+		DebugVariable* var = state->interaction.ref->var;
+		if (!IsPressed(controller.B.mouseLeft)) {
+			var->group.expanded = !var->group.expanded;
+			interactionEnded = true;
+		}
+	} break;
+	case DebugInteract_Compile: {
+		if (!IsPressed(controller.B.mouseLeft)) {
+			if (state->compilationHandle.state != CmdState_Running) {
+				WriteDebugConfig(state);
+				char cwd[] = "..\\code";
+				char cmd[] = "cmd.exe /c build.bat --game_only";
+				state->compilationHandle = Platform->SystemExecuteCommand(cwd, cmd);
+			}
+			interactionEnded = true;
+		}
+	} break;
+	}
+	if (interactionEnded) {
+		state->interaction = {};
+		state->interacting = false;
 	}
 }
 	
