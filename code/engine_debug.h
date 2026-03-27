@@ -53,7 +53,6 @@ struct DebugVariableContext {
 
 enum DebugInteractionType {
 	DebugInteract_None,
-	DebugInteract_Noop,
 
 	DebugInteract_Toggle,
 	DebugInteract_Expand,

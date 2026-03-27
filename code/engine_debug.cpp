@@ -651,6 +651,12 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 	}
 }
 
+inline
+bool IsVariableRefHot(DebugState* state, DebugVariableRef* ref) {
+	return state->hotInteraction.ref == ref;
+}
+
+internal
 void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	for (DebugVariableRef* tree = state->UITree; tree; tree = tree->next) {
 		Assert(tree->var->type == DebugVarType::Tree);
@@ -665,15 +671,17 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 			DebugVariable* var = node->var;
 			char buffer[256] = {};
 			char* end = buffer + sizeof(buffer);
+			bool isHot = IsVariableRefHot(state, node);
+			if (isHot) {
+				itemColor = hotItemColor;
+			}
 			if (var->type == DebugVarType::ProfilerUI) {
 				DebugRenderProfilerUI(state, var->profiler.rect, mousePos);
-				Rect2 anchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
-				bool isHot = IsInRectangle(anchor, mousePos) && state->nextHotInteraction.type == DebugInteract_None;
-				if (isHot) {
-					itemColor = hotItemColor;
+				Rect2 resizeAnchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
+				if (IsInRectangle(resizeAnchor, mousePos)) {
 					state->nextHotInteraction.ref = node;
 				}
-				PushRect(state->renderGroup, anchor, 0, V2{ 0, 0 }, itemColor);
+				PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
 			}
 			else {
 				char* at = buffer;
@@ -683,12 +691,9 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				}
 				DebugVariableToText(var, at, u4(end - at), DebugVarToText_AddColon);
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
-				bool isHot = IsInRectangle(bb, mousePos) && state->nextHotInteraction.type == DebugInteract_None;
-				if (isHot) {
-					itemColor = hotItemColor;
+				if (IsInRectangle(bb, mousePos)) {
 					state->nextHotInteraction.ref = node;
 				}
-				
 				PushRect(state->renderGroup, AddRadius(bb, V2{4.f, 4.f}), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
 				DebugRenderLine(state, buffer, fontContext, itemColor);
 			}
@@ -751,9 +756,11 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			state->nextHotInteraction.type = DebugInteract_Tear;
 		}
 	}
-	// Begin interaction
-	if (!state->interacting && state->nextHotInteraction.type != DebugInteract_None) {
-		state->interaction = state->nextHotInteraction;
+	state->hotInteraction = state->nextHotInteraction;
+
+	// What to do at the beginning of interaction
+	if (!state->interacting && state->hotInteraction.type != DebugInteract_None) {
+		state->interaction = state->hotInteraction;
 		state->interacting = true;
 		if (state->interaction.type == DebugInteract_Tear) {
 			DebugVariableRef* tearPoint = state->interaction.ref;
@@ -786,8 +793,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		}
 	}
 	
-	
-	// Actual interaction functions
+	// What to do DURING the interaction (for interactions taking more time than one frame)
 	if (state->interacting && state->interaction.ref) {
 		DebugVariable* var = state->interaction.ref->var;
 		V2 dMouse = mousePos - state->interaction.startMousePos;
@@ -829,9 +835,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		case DebugInteract_None: {
 			interaction = "None";
 		} break;
-		case DebugInteract_Noop: {
-			interaction = "Noop";
-		} break;
 		case DebugInteract_Toggle: {
 			interaction = "Toggle";
 		} break;
@@ -862,17 +865,13 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	}
 #endif
 
-	// End interactions
+	// What to do at the END of interaction
 	bool interactionEnded = false;
 	switch (state->interaction.type) {
 	case DebugInteract_Resize:
 	case DebugInteract_DragIncrease:
 	case DebugInteract_Tear: {
 		interactionEnded = !IsPressed(controller.B.mouseLeft);
-	} break;
-	case DebugInteract_Noop: {
-		interactionEnded = !IsPressed(controller.B.mouseLeft) &&
-			!IsPressed(controller.B.mouseRight);
 	} break;
 	case DebugInteract_Toggle: {
 		DebugVariable* var = state->interaction.ref->var;

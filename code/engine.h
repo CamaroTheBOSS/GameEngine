@@ -117,6 +117,7 @@ struct DebugState {
 	u32 variableCount;
 	DebugVariable variables[128];
 	DebugInteraction interaction;
+	DebugInteraction hotInteraction;
 	DebugInteraction nextHotInteraction;
 	bool interacting;
 
