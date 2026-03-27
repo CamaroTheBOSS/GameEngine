@@ -55,7 +55,6 @@ enum DebugInteractionType {
 	DebugInteract_None,
 
 	DebugInteract_Toggle,
-	DebugInteract_Expand,
 	DebugInteract_Resize,
 	DebugInteract_Move,
 	DebugInteract_DragIncrease,
@@ -63,11 +62,25 @@ enum DebugInteractionType {
 	DebugInteract_Tear,
 };
 
+struct DebugModifiedPosition {
+	V2 initial;
+	V2* actual;
+};
+
+struct DebugInteractionState {
+	V2 startMousePos;
+	Rect2 startBoundingBox;
+	union {
+		void* generic;
+		bool* boolean;
+		DebugModifiedPosition pos;
+	};
+};
+
 struct DebugInteraction {
 	DebugInteractionType type;
 	DebugVariableRef* ref;
-	V2 startMousePos;
-	Rect2 boundingBox;
+	DebugInteractionState state;
 };
 
 // ------------------- EVENT PROFILER --------------------
