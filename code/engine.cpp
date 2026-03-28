@@ -6,8 +6,6 @@
 #include "engine_render.cpp"
 
 PlatformAPI* Platform;
-DebugGlobalState debugGlobalState_ = {};
-DebugGlobalState* debugGlobalState = &debugGlobalState_;
 
 internal
 void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
@@ -840,7 +838,6 @@ LoadedBitmap MakeEmptyBuffer(MemoryArena& arena, u32 width, u32 height) {
 	LoadedBitmap bmp = {};
 	u64 alignment = 32;
 	bmp.data = PushArray(arena, width * height, u32, alignment);
-	bmp.bufferStart = ptrcast(void, bmp.data);
 	bmp.height = height;
 	bmp.width = width;
 	bmp.widthOverHeight = f4(width) / f4(height);
@@ -1180,7 +1177,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	screenBitmap.width = bitmap.width;
 	screenBitmap.data = ptrcast(u32, bitmap.data);
 	screenBitmap.pitch = bitmap.pitch;
-	DebugBegin(screenBitmap);
 
 	TIMED_BLOCK_BEGIN(BeginSimAndInputProc);
 	SetCamera(state);
@@ -1572,13 +1568,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			envMapXAxis, envMapYAxis, V4{ 1, 1, 1, 1 }, LOD, 0, 0, 0, 0);
 	}
 #endif
-
-	TIMED_BLOCK_BEGIN(Finishing);
+	TIMED_BLOCK_BEGIN(Rendering);
 	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
-#if defined(PROFILER)
-	DebugRenderOverlay(&memory, screenBitmap, input);
-#endif
-	
+	TIMED_BLOCK_END(Rendering);
 
 	EndRendering(renderGroup);
 	EndSimulation(*simRegion, world);
@@ -1586,7 +1578,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	EndTempMemory(simMemory);
 	CheckArena(tranState->arena);
 	CheckArena(world.arena);
-	TIMED_BLOCK_END(Finishing);
 }
 
 extern "C" void GameFillSoundBuffer(ProgramMemory& memory, SoundData& soundData) {
@@ -1596,6 +1587,9 @@ extern "C" void GameFillSoundBuffer(ProgramMemory& memory, SoundData& soundData)
 	RenderSoundToBuffer(state->audio, tranState->assets, soundData);
 }
 
+#if INTERNAL_BUILD
 #include "engine_debug.cpp"
-
-u32 debugRecordsCount_Main = __COUNTER__;
+#else
+extern "C" DEBUG_INIT(DebugInit) { return 0; }
+extern "C" DEBUG_FINISH_FRAME(DebugFinishFrame) { return 0; };
+#endif

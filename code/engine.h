@@ -91,7 +91,7 @@ struct DebugState {
 	PlatformQueue* highPriorityQueue;
 
 	// Event Collation
-	u32 eventStacksCount;
+	u8 eventStacksCount;
 	DebugEventStack* eventStacks;
 	OpenDebugEvent* openEventFreeList;
 

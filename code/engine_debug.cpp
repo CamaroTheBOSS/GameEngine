@@ -1,5 +1,8 @@
 #include "engine.h"
 
+DebugGlobalState debugGlobalState_ = {};
+DebugGlobalState* debugGlobalState = &debugGlobalState_;
+
 // TODO: Delete stdlib
 #include <stdio.h>
 
@@ -280,28 +283,10 @@ void EndDebugVariableGroupOrTree(DebugVariableContext& context) {
 	context.parent = context.parent->parent;
 }
 
-inline
-DebugState* GetDebugState() {
-#if defined(INTERNAL_BUILD)
-	if (debugGlobalMemory->debugMemorySize == 0) {
-		return 0;
-	}
-	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
-	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
-	if (!state->isInitialized) {
-		return 0;
-	}
-	return state;
-#else
-	return 0;
-#endif
-}
-
 inline 
-void DebugBegin(LoadedBitmap& screenBitmap) {
-#if INTERNAL_BUILD
+DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 	if (debugGlobalMemory->debugMemorySize == 0) {
-		return;
+		return 0;
 	}
 	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
 	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
@@ -345,14 +330,14 @@ void DebugBegin(LoadedBitmap& screenBitmap) {
 		EndDebugVariableGroupOrTree(context);
 		EndDebugVariableGroupOrTree(context);
 		EndDebugVariableGroupOrTree(context);
-
+		BeginRendering(state->renderGroup);
 		state->isInitialized = true;
 	}
-
+	EndRendering(state->renderGroup);
+	BeginRendering(state->renderGroup);
 	state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
 	state->renderGroup.pushBufferSize = 0;
 	state->renderGroup.projection = GetOrtographicProjection(screenBitmap.width, screenBitmap.height, 1);
-	BeginRendering(state->renderGroup);
 	state->font = GetOrPrefetchFont(
 		state->renderGroup, GetFontWithType(*state->renderGroup.assets, Font_Debug)
 	);
@@ -366,11 +351,11 @@ void DebugBegin(LoadedBitmap& screenBitmap) {
 	state->hotFrameIndex = U32_MAX;
 	state->hotRegionIndex = U32_MAX;
 	state->nextHotInteraction = {};
-#endif
+	return state;
 }
 
 internal
-DebugEventStack* GetDebugStackForThread(DebugState* state, u32 threadId) {
+DebugEventStack* GetDebugStackForThread(DebugState* state, u16 threadId) {
 	for (u32 stackIndex = 0; stackIndex < state->eventStacksCount; stackIndex++) {
 		DebugEventStack* stack = state->eventStacks + stackIndex;
 		if (stack->threadId == threadId) {
@@ -395,12 +380,13 @@ DebugRecord* GetDebugRecord(u32 tUnit, u32 recordIndex) {
 
 inline
 DebugRecord* GetDebugRecordFor(DebugEvent* event) {
-	DebugRecord* record = debugGlobalState->debugRecords[event->translationUnit] + event->debugRecordIndex;
+	DebugRecord* record = debugGlobalState->debugRecords[event->translationUnit] + event->recordIndex;
 	return record;
 }
 
 internal
 void DebugCollateEvents(DebugState* debugState) {
+	TIMED_FUNCTION;
 	TemporaryMemory stackMemory = BeginTempMemory(debugState->collationArena);
 	debugState->eventStacks = PushArray(debugState->collationArena, MAX_DEBUG_THREADS, DebugEventStack);
 	debugState->eventStacksCount = 0;
@@ -443,7 +429,7 @@ void DebugCollateEvents(DebugState* debugState) {
 				OpenDebugEvent* parentBlock = block->next;
 				DebugEvent* openEvent = block->event;
 				if (openEvent) {
-					if (openEvent->debugRecordIndex == event->debugRecordIndex &&
+					if (openEvent->recordIndex == event->recordIndex &&
 						openEvent->translationUnit == event->translationUnit &&
 						openEvent->threadId == event->threadId)
 					{
@@ -456,10 +442,10 @@ void DebugCollateEvents(DebugState* debugState) {
 							DebugProfilerRegion* region = frameInfo->regions + regionIndex;
 							// TODO: If minT < 0 -> that means openEvent started on one of the previous frames.
 							// Do something about it!
-							if (event->debugRecordIndex == 2 && event->translationUnit == 2) {
+							if (event->recordIndex == 2 && event->translationUnit == 2) {
 								int breakhere = 5;
 							}
-							region->recordIndex = event->debugRecordIndex;
+							region->recordIndex = event->recordIndex;
 							region->translationUnit = event->translationUnit;
 							region->laneId = stack->laneId;
 							region->parentRecord = 0;
@@ -470,8 +456,7 @@ void DebugCollateEvents(DebugState* debugState) {
 							}
 							region->minT = minT;
 							region->maxT = maxT;
-							region->startCycles = openEvent->cycles;
-							region->endCycles = event->cycles;
+							region->durationCycles = u4(openEvent->cycles - event->cycles);
 							region->parentRegionIndex = U32_MAX;
 							for (u32 index = 0; index < block->childRegionCount; index++) {
 								DebugProfilerRegion* childRegion = frameInfo->regions + block->childRegionIndexes[index];
@@ -618,7 +603,7 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 					sprintf_s(buffer, "t<%4f,%4f>, ec(%d)",
 						minT,
 						maxT,
-						u4(region->endCycles - region->startCycles)
+						region->durationCycles
 					);
 					DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
 				}
@@ -916,10 +901,9 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 }
 	
 
-void DebugRenderOverlay(ProgramMemory* memory, LoadedBitmap& dstBitmap, InputData& input) {
+void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& input) {
 	TIMED_FUNCTION;
-	DebugState* state = GetDebugState();
-	if (!state || !state->font) {
+	if (!state->font) {
 		return;
 	}
 	Controller& controller = input.controllers[KB_CONTROLLER_IDX];
@@ -949,13 +933,21 @@ extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {
 	return debugGlobalState;
 }
 
-extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory) {
+extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory, BitmapData& rawBitmap, InputData& input) {
 	TIMED_FUNCTION;
-	DebugState* state = GetDebugState();
+	LoadedBitmap bitmap = {};
+	bitmap.height = rawBitmap.height;
+	bitmap.width = rawBitmap.width;
+	bitmap.data = ptrcast(u32, rawBitmap.data);
+	bitmap.pitch = rawBitmap.pitch;
+
+	DebugState* state = DebugBegin(bitmap);
 	if (!state) {
 		return 0;
 	}
-	EndRendering(state->renderGroup);
+	DebugRenderOverlay(state, bitmap, input);
+
+
 	if (state->compilationHandle.state == CmdState_Running) {
 		Platform->SystemGetCommandState(state->compilationHandle);
 	}
@@ -967,3 +959,5 @@ extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory) {
 	DebugFrameInfo* result = state->frames + frameWriteIndex;
 	return result;
 }
+
+u32 debugRecordsCount_Main = __COUNTER__;

@@ -3,7 +3,6 @@
 #include "engine_rand.h"
 
 struct LoadedBitmap {
-	void* bufferStart;
 	u32* data;
 	f32 widthOverHeight;
 	i32 height;

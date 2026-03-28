@@ -10,15 +10,17 @@
 
 #if defined(INTERNAL_BUILD)
 LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(TB(static_cast<u64>(10)));
-#else
-LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(0);
-#endif
 volatile u32 GLOBAL_THREAD_ID_GEN = 0;
 thread_local u32 THREAD_LOCAL_ID = 0;
-PlatformAPI* Platform;
 DebugGlobalState debugGlobalState_ = {};
 DebugGlobalState* debugGlobalState = &debugGlobalState_;
 extern u32 DebugRecordsCount_Platform;
+#else
+LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(0);
+#endif
+
+PlatformAPI* Platform;
+
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {}
 extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub) {
@@ -29,7 +31,7 @@ extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub) {
 		}
 	}
 }
-extern "C" DEBUG_INIT(DebugInitStub) { return debugGlobalState; }
+extern "C" DEBUG_INIT(DebugInitStub) { return 0; }
 extern "C" DEBUG_FINISH_FRAME(DebugFinishFrameStub) { return 0; };
 
 struct SoundRenderData {
@@ -373,7 +375,9 @@ bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue) {
 internal
 DWORD Win32ThreadProc(LPVOID params) {
 	PlatformQueue* queue = ptrcast(PlatformQueue, params);
+#if INTERNAL_BUILD
 	THREAD_LOCAL_ID = AtomicAddU32(&GLOBAL_THREAD_ID_GEN, 1) + 1;
+#endif
 	while (true) {
 		if (!Win32TryPopAndExecuteTaskFromQueue(queue)) {
 			WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
@@ -383,10 +387,16 @@ DWORD Win32ThreadProc(LPVOID params) {
 	return 0;
 }
 
+
 internal
 u32 Win32GetCurrentThreadId() {
+#if INTERNAL_BUILD
 	return THREAD_LOCAL_ID;
+#else
+	return 0;
+#endif
 }
+
 
 internal
 bool Win32WorkInQueueIsDone(PlatformQueue* queue) {
@@ -1223,12 +1233,14 @@ int CALLBACK WinMain(
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 
 	Win32ReloadGameCode(gameCode);
+#if INTERNAL_BUILD
 	debugGlobalState = gameCode.DebugInit(programMemory);
 	debugGlobalState->debugRecordsCount[TRANSLATION_UNIT] = DebugRecordsCount_Platform;
+#endif
 	u64 frameStartTime = Win32GetCurrentTimestamp();
 	u64 rdtscStart = __rdtsc();
+	MARKUP_FRAME_BEGIN;
 	while (globalRunning) {
-		MARKUP_FRAME_BEGIN;
 		TIMED_BLOCK_BEGIN(InputProcessing);
 		Win32ReloadGameCode(gameCode);
 
@@ -1244,14 +1256,7 @@ int CALLBACK WinMain(
 		else if (globalWin32State.dLoopRecord.replaying) {
 			Win32DebugReplayInput(globalWin32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);
 		}
-#if DEBUGUI_PRINT_PLATFORM_INPUT_TO_CONSOLE
-		char buffer[256];
-		sprintf_s(buffer, 256, "w%d i%d\n",
-			inputData.controllers[KB_CONTROLLER_IDX].B.kA.wasDown,
-			inputData.controllers[KB_CONTROLLER_IDX].B.kA.isDown
-		);
-		OutputDebugStringA(buffer);
-#endif
+
 		inputData.dtFrame = targetFrameRefreshSeconds;
 		programMemory.executableReloaded = gameCode.reloaded;
 		TIMED_BLOCK_END(InputProcessing);
@@ -1259,6 +1264,9 @@ int CALLBACK WinMain(
 		// PART: Game main loop
 		gameCode.GameMainLoopFrame(programMemory, globalBitmap, inputData);
 		TIMED_BLOCK_END(GameMainLoop);
+#if INTERNAL_BUILD
+		gameCode.DebugFinishFrame(programMemory, globalBitmap, inputData);
+#endif
 
 		// PART: Timing stuff
 		TIMED_BLOCK_BEGIN(WaitTillNextFrame);
@@ -1281,6 +1289,7 @@ int CALLBACK WinMain(
 		}
 		frameStartTime = frameEndTime;
 		TIMED_BLOCK_END(WaitTillNextFrame);
+		MARKUP_FRAME_END;
 		TIMED_BLOCK_BEGIN(DisplayWindow);
 		// PART: Displaying window
 		auto dim = GetWindowDimension(window);
@@ -1316,11 +1325,10 @@ int CALLBACK WinMain(
 			LPCTSTR errMsg = err.ErrorMessage();
 		}
 		TIMED_BLOCK_END(GatherAndRenderSound);
-
-		gameCode.DebugFinishFrame(programMemory);
-		MARKUP_FRAME_END;
 	}
 	return 0;
 }
 
+#if INTERNAL_BUILD
 u32 DebugRecordsCount_Platform = __COUNTER__;
+#endif

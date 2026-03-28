@@ -185,7 +185,7 @@ struct ProgramMemory {
 #define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, InputData& input)
 #define GAME_FILL_SOUND_BUFFER(name) void name(ProgramMemory& memory, SoundData& soundData)
 #define DEBUG_INIT(name) DebugGlobalState* name(ProgramMemory& memory)
-#define DEBUG_FINISH_FRAME(name) DebugFrameInfo* name(ProgramMemory& memory)
+#define DEBUG_FINISH_FRAME(name) DebugFrameInfo* name(ProgramMemory& memory, BitmapData& bitmap, InputData& input)
 typedef GAME_MAIN_LOOP_FRAME(_GameMainLoopFrame);
 typedef GAME_FILL_SOUND_BUFFER(_GameFillSoundBuffer);
 typedef DEBUG_INIT(_DebugInit);

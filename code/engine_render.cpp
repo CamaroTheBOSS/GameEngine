@@ -579,7 +579,7 @@ void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Platf
 	// no guarrantee that between reading these pixels and writing them back, neighbour thread didn't
 	// change these pixels to something else. If so, masked override will actually change the pixels
 	// which shouldn't happened!
-	Assert((reinterpret_cast<uptr>(dstBuffer.bufferStart) & 31) == 0);
+	Assert((reinterpret_cast<uptr>(dstBuffer.data) & 31) == 0);
 	Assert((tileWidth & 7) == 0);
 	Assert(((dstBuffer.width % tileWidth) & 7) == 0);
 	// NOTE: These are sanity checks, too many tiles on too small resolutions will cause stupid things like
