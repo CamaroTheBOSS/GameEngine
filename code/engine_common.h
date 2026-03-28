@@ -91,7 +91,9 @@ typedef long long i64;
 typedef float f32;
 typedef double f64;
 
+#if INTERNAL_BUILD
 #include "engine_debug_config.h"
+#endif
 #include "engine_intrinsics.h"
 #include "engine_math.h"
 

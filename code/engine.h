@@ -96,6 +96,7 @@ struct DebugState {
 	OpenDebugEvent* openEventFreeList;
 
 	DebugTree* UITree;
+	DebugVariableRef* compileTimeVariables;
 
 	// Profiler
 	u32 frameReadIndex;
@@ -114,8 +115,9 @@ struct DebugState {
 	Rect2 overlayBoundaries;
 	LoadedFont* font;
 	
-	u32 variableCount;
-	DebugVariable variables[128];
+	DebugVariableHashEntry* variableHash[4096];
+	DebugVariable* querableVariables[DebugVarQuery_Count];
+
 	DebugInteraction interaction;
 	DebugInteraction hotInteraction;
 	DebugInteraction nextHotInteraction;

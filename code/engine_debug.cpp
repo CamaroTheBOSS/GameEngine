@@ -2,6 +2,7 @@
 
 DebugGlobalState debugGlobalState_ = {};
 DebugGlobalState* debugGlobalState = &debugGlobalState_;
+DebugVariable nullDebugVariable = {};
 
 // TODO: Delete stdlib
 #include <stdio.h>
@@ -208,13 +209,37 @@ void ReadDebugConfig(DebugState* state) {
 }
 
 inline
+DebugVariable* QueryDebugVariable(DebugVarQueryName query) {
+	if (debugGlobalMemory->debugMemorySize == 0) {
+		return 0;
+	}
+	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
+	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
+	DebugVariable* var = state->querableVariables[query];
+	if (!var) {
+		return &nullDebugVariable;
+	}
+	return var;
+}
+
+inline
 DebugVariable* _AddDebugVariable(DebugState* state, const char* name, DebugVarType type) {
-	Assert(state->variableCount < ArrayCount(state->variables));
-	DebugVariable* variable = state->variables + state->variableCount++;
+	static_assert((ArrayCount(state->variableHash) & (ArrayCount(state->variableHash) - 1)) == 0 &&
+		"variableHash size must be a power of two");
+	DebugVariable* var = PushStructSize(state->mainArena, DebugVariable);
 	u32 length = StringLength(name) + 1;
-	variable->name = PushString(state->mainArena, name, length);
-	variable->type = type;
-	return variable;
+	var->name = PushString(state->mainArena, name, length);
+	var->type = type;
+
+	// TODO: Better hash function!
+	// TODO: Think whether this hash map has any sense, maybe it should be just straight up allocated
+	// and stored just in reference
+	u32 hash = u4((13 * (reinterpret_cast<uptr>(var) >> 2)) & (ArrayCount(state->variableHash) - 1));
+	DebugVariableHashEntry* newEntry = PushStructSize(state->mainArena, DebugVariableHashEntry);
+	newEntry->var = var;
+	newEntry->next = state->variableHash[hash];
+	state->variableHash[hash] = newEntry;
+	return var;
 }
 
 inline
@@ -237,17 +262,15 @@ DebugVariableRef* _AddReferencedDebugVariable(DebugState* state, DebugVariableCo
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, DebugVarType type, bool value) {
-	Assert(type == DebugVarType::Bool || type == DebugVarType::CompileTimeBool);
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, type);
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, bool value) {
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Bool);
 	ref->var->boolean = value;
 	return ref;
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, DebugVarType type, float value) {
-	Assert(type == DebugVarType::Float || type == DebugVarType::CompileTimeFloat);
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, type);
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, float value) {
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Float);
 	ref->var->fl32 = value;
 	return ref;
 }
@@ -269,6 +292,23 @@ DebugVariableContext BeginDebugVariableTree(DebugState* state, const char* name,
 	context.stackCount = 0;
 	context.stack[0] = 0;
 	return context;
+}
+
+inline
+void MakeVariableCompiled(DebugState* state, DebugVariableRef* ref) {
+	Assert(ref->var);
+	DebugVariableRef* newRef = PushStructSize(state->mainArena, DebugVariableRef);
+	newRef->var = ref->var;
+	newRef->parent = 0;
+	newRef->next = state->compileTimeVariables;
+	state->compileTimeVariables = newRef;
+}
+
+inline
+void MakeVariableQuerable(DebugState* state, DebugVariableRef* ref, DebugVarQueryName queryName) {
+	Assert(ref->var);
+	Assert(state->querableVariables[queryName] == 0);
+	state->querableVariables[queryName] = ref->var;
 }
 
 inline
@@ -302,7 +342,6 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		state->collationScratchBuffer = BeginTempMemory(state->collationArena);
 		ResetDebugCollation(state, frameWriteIndex);
 
-		state->variableCount = 0;
 		state->compilationHandle.state = CmdState_Completed;
 		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
@@ -310,19 +349,22 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		state->UITree = context.tree;
 		BeginDebugVariableGroup(state, context, "Debugging");
 		BeginDebugVariableGroup(state, context, "Compile time switches");
-		AddReferencedDebugVariable(state, context, "CameraZoomout", DebugVarType::CompileTimeBool, false);
-		AddReferencedDebugVariable(state, context, "CameraZoomoutValue", DebugVarType::CompileTimeFloat, 20.f);
-		AddReferencedDebugVariable(state, context, "ShowDebugInteractions", DebugVarType::CompileTimeBool, true);
-		AddReferencedDebugVariable(state, context, "ShowEventsCount", DebugVarType::CompileTimeBool, true);
-		AddReferencedDebugVariable(state, context, "RenderFullHD", DebugVarType::CompileTimeBool, false);
+		MakeVariableCompiled(state, AddReferencedDebugVariable(state, context, "CameraZoomout", false));
+		MakeVariableCompiled(state, AddReferencedDebugVariable(state, context, "RenderFullHD", false));
 		EndDebugVariableGroup(context);
 		_AddReferencedDebugVariable(state, context, "Update and Compile", DebugVarType::CompilationSwitch);
+		
+		BeginDebugVariableGroup(state, context, "Runtime switches");
+		MakeVariableQuerable(state, AddReferencedDebugVariable(state, context, "CameraZoomoutValue", 20.f), DebugVarQuery_CameraZoomoutValue);
+		MakeVariableQuerable(state, AddReferencedDebugVariable(state, context, "ShowDebugInteractions", true), DebugVarQuery_ShowDebugInteractions);
+		MakeVariableQuerable(state, AddReferencedDebugVariable(state, context, "ShowEventsCount", true), DebugVarQuery_ShowDebugEvents);
+		EndDebugVariableGroup(context);
 		EndDebugVariableGroup(context);
 
 		context = BeginDebugVariableTree(state, "Default", leftTopCorner + V2{100.f, 0});
 		state->UITree->next = context.tree;
 		BeginDebugVariableGroup(state, context, "Profiler");
-		state->profilerPause = AddReferencedDebugVariable(state, context, "Pause profiler", DebugVarType::Bool, false);
+		state->profilerPause = AddReferencedDebugVariable(state, context, "Pause profiler", false);
 		DebugVariableRef* profilerUI = _AddReferencedDebugVariable(state, context, "ProfilerUI", DebugVarType::ProfilerUI);
 		profilerUI->var->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
 		EndDebugVariableGroup(context);
@@ -491,11 +533,9 @@ u64 DebugVariableToText(DebugVariable* var, char* buffer, u32 size, u32 flags) {
 	const char* colon = (flags & DebugVarToText_AddColon) ? ":" : "";
 
 	switch (var->type) {
-	case DebugVarType::CompileTimeBool:
 	case DebugVarType::Bool: {
 		at += sprintf_s(at, end - at, "%s%s %d", var->name, colon, var->boolean);
 	} break;
-	case DebugVarType::CompileTimeFloat:
 	case DebugVarType::Float: {
 		at += sprintf_s(at, end - at, "%s%s %f", var->name, colon, var->fl32);
 		if (flags & DebugVarToText_AddFloatSuffix && (end - at) > 0) {
@@ -517,11 +557,8 @@ void WriteDebugConfig(DebugState* state) {
 	char buffer[4096];
 	char* at = buffer;
 	char* end = buffer + sizeof(buffer);
-	for (u32 varIndex = 0; varIndex < state->variableCount; varIndex++) {
-		DebugVariable* var = state->variables + varIndex;
-		if (var->type >= DebugVarType::CompileTimeCount) {
-			continue;
-		}
+	for (DebugVariableRef* ref = state->compileTimeVariables; ref; ref = ref->next) {
+		DebugVariable* var = ref->var;
 		at += DebugVariableToText(var, at, u4(end - at),
 			DebugVarToText_ConfigPrefix |
 			DebugVarToText_AddFloatSuffix |
@@ -714,7 +751,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	if (state->nextHotInteraction.ref) {
 		state->nextHotInteraction.state.startMousePos = mousePos;
 		switch (state->nextHotInteraction.ref->var->type) {
-		case DebugVarType::CompileTimeBool:
 		case DebugVarType::Bool: {
 			if (WasPressed(controller.B.mouseLeft)) {
 				state->nextHotInteraction.type = DebugInteract_Toggle;
@@ -727,7 +763,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				state->nextHotInteraction.state.boolean = &state->nextHotInteraction.ref->var->group.expanded;
 			}
 		} break;
-		case DebugVarType::CompileTimeFloat:
 		case DebugVarType::Float: {
 			if (WasPressed(controller.B.mouseLeft)) {
 				state->nextHotInteraction.type = DebugInteract_DragIncrease;
@@ -828,8 +863,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->selectedRecord = state->hotRecord;
 	}
 
-#if DEBUGUI_ShowDebugInteractions
-	{
+	if (QueryDebugVariable(DebugVarQuery_ShowDebugInteractions)->boolean) {
 		char buffer[256];
 		const char* interaction = "Unknown";
 		switch (state->interaction.type) {
@@ -853,14 +887,15 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		} break;
 		}
 		V2 dMouse = mousePos - state->interaction.state.startMousePos;
-		sprintf_s(buffer, sizeof(buffer), "%s with %s", interaction, state->interaction.ref ? state->interaction.ref->var->name : "none");
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		char* at = buffer;
+		char* end = buffer + sizeof(buffer);
+		at += sprintf_s(at, end - at, "%s with %s", interaction, state->interaction.ref ? state->interaction.ref->var->name : "none");
 		if (state->interacting) {
-			sprintf_s(buffer, sizeof(buffer), "dMouse: %f %f", dMouse.X, dMouse.Y);
-			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+			sprintf_s(at, end - at, ": dMouse: %f %f", dMouse.X, dMouse.Y);
 		}
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		
 	}
-#endif
 
 	// What to do at the END of interaction
 	bool interactionEnded = false;
@@ -914,13 +949,11 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 		DebugRenderLine(state, "Failed Compilation", state->fontContext, V4{ 1, 1, 1, 1 });
 	}
 	DebugInteract(state, mousePos, controller);
-#if DEBUGUI_ShowEventsCount
-	{
+	if (QueryDebugVariable(DebugVarQuery_ShowDebugEvents)->boolean) {
 		char buffer[256];
 		sprintf_s(buffer, 256, "events in frame 0: %d", debugGlobalState->debugEventsCount[0]);
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 	}
-#endif
 	
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
 }

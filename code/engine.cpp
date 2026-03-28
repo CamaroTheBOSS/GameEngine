@@ -1291,7 +1291,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	f32 originalCameraDistance = renderGroup.projection.camera.distanceToTarget;
 	//NOTE: Change this to change debug view
 #if DEBUGUI_CameraZoomout
-	renderGroup.projection.camera.distanceToTarget = DEBUGUI_CameraZoomoutValue;
+	renderGroup.projection.camera.distanceToTarget = QueryDebugVariable(DebugVarQuery_CameraZoomoutValue)->fl32;
 #endif
 
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);

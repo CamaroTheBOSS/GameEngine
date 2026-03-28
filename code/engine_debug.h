@@ -1,11 +1,15 @@
 #include "engine_common.h"
 
 // ------------------- DEBUG VARIABLES --------------------
-enum class DebugVarType : u8 {
-	CompileTimeBool,
-	CompileTimeFloat,
-	CompileTimeCount,
+enum DebugVarQueryName {
+	DebugVarQuery_CameraZoomoutValue,
+	DebugVarQuery_ShowDebugInteractions,
+	DebugVarQuery_ShowDebugEvents,
 
+	DebugVarQuery_Count
+};
+
+enum class DebugVarType : u8 {
 	Bool,
 	Float,
 	Group,
@@ -23,7 +27,13 @@ struct DebugVariableRef {
 	DebugVariableRef* next;
 	DebugVariableRef* parent;
 };
+struct DebugVariableHashEntry {
+	DebugVariable* var;
+	DebugVariableHashEntry* next;
+};
 
+// TODO: It is possible to decouple DebugVariableGroup fro DebugVariable?
+// I would like to have DebugVariableList and group should be separate concept
 struct DebugVariableGroup {
 	bool expanded;
 	DebugVariableRef* firstChild;
@@ -36,6 +46,8 @@ struct DebugTree {
 	DebugTree* next;
 };
 
+// TODO: These should be stored in hash table for querying
+// TODO: Debug variable bitmap
 struct DebugVariable {
 	DebugVarType type;
 	char* name;
@@ -259,3 +271,5 @@ struct FontDrawContext {
 	f32 lineAdvance;
 	LoadedFont* font;
 };
+
+DebugVariable* QueryDebugVariable(DebugVarQueryName query);
