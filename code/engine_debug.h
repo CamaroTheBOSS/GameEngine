@@ -9,7 +9,6 @@ enum class DebugVarType : u8 {
 	Bool,
 	Float,
 	Group,
-	Tree,
 	CompilationSwitch,
 	ProfilerUI,
 };
@@ -32,7 +31,7 @@ struct DebugVariableGroup {
 
 struct DebugVariableTree {
 	V2 pos;
-	DebugVariableRef* firstChild;
+	DebugVariableRef* root;
 
 	DebugVariableTree* next;
 };
@@ -45,13 +44,14 @@ struct DebugVariable {
 		f32 fl32;
 		DebugProfilerSettings profiler;
 		DebugVariableGroup group;
-		DebugVariableTree tree;
 	};
 };
 
 struct DebugVariableContext {
 	DebugVariableTree* tree;
-	DebugVariableRef* parent;
+
+	u32 stackCount;
+	DebugVariableRef* stack[64];
 };
 
 enum DebugInteractionType {
@@ -73,6 +73,7 @@ struct DebugModifiedPosition {
 struct DebugInteractionState {
 	V2 startMousePos;
 	Rect2 startBoundingBox;
+	DebugVariableTree* relevantTree;
 	union {
 		void* generic;
 		bool* boolean;

@@ -223,21 +223,15 @@ DebugVariableRef* _AddReferencedDebugVariable(DebugState* state, DebugVariableCo
 	DebugVariableRef* ref = PushStructSize(state->mainArena, DebugVariableRef);
 	ref->next = 0;
 	ref->var = var;
-	ref->parent = context.parent;
-	if (context.parent) {
-		if (context.parent->var->type == DebugVarType::Group) {
-			DebugVariableGroup* group = &context.parent->var->group;
-			ref->next = group->firstChild;
-			group->firstChild = ref;
-		}
-		else if (context.parent->var->type == DebugVarType::Tree) {
-			DebugVariableTree* tree = &context.parent->var->tree;
-			ref->next = tree->firstChild;
-			tree->firstChild = ref;
-		}
-		else {
-			Assert(!"Invalid Context!");
-		}	
+	ref->parent = context.stack[context.stackCount];
+	if (ref->parent) {
+		Assert(ref->parent->var->type == DebugVarType::Group);
+		DebugVariableGroup* group = &ref->parent->var->group;
+		ref->next = group->firstChild;
+		group->firstChild = ref;
+	}
+	else {
+		context.tree->root = ref;
 	}
 	return ref;
 }
@@ -262,26 +256,25 @@ inline
 DebugVariableRef* BeginDebugVariableGroup(DebugState* state, DebugVariableContext& context, const char* name) {
 	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Group);
 	ref->var->group = {};
-	Assert(context.parent->var->type == DebugVarType::Tree || context.parent->var->type == DebugVarType::Group);
-	context.parent = ref;
+	context.stack[++context.stackCount] = ref;
 	return ref;
 }
 
 inline
 DebugVariableContext BeginDebugVariableTree(DebugState* state, const char* name, V2 pos) {
 	DebugVariableContext context = {};
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Tree);
-	ref->var->tree = {};
-	ref->var->tree.pos = pos;
-	context.tree = &ref->var->tree;
-	context.parent = ref;
+	DebugVariableTree* tree = PushStructSize(state->mainArena, DebugVariableTree);
+	tree->pos = pos;
+	context.tree = tree;
+	context.stackCount = 0;
+	context.stack[0] = 0;
 	return context;
 }
 
 inline
-void EndDebugVariableGroupOrTree(DebugVariableContext& context) {
-	Assert(context.parent || !"Tried to enclose group when none were opened");
-	context.parent = context.parent->parent;
+void EndDebugVariableGroup(DebugVariableContext& context) {
+	Assert(context.stackCount > 0 || !"Tried to enclose group when none were opened");
+	context.stackCount--;
 }
 
 inline 
@@ -322,10 +315,9 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		AddReferencedDebugVariable(state, context, "ShowDebugInteractions", DebugVarType::CompileTimeBool, true);
 		AddReferencedDebugVariable(state, context, "ShowEventsCount", DebugVarType::CompileTimeBool, true);
 		AddReferencedDebugVariable(state, context, "RenderFullHD", DebugVarType::CompileTimeBool, false);
-		EndDebugVariableGroupOrTree(context);
+		EndDebugVariableGroup(context);
 		_AddReferencedDebugVariable(state, context, "Update and Compile", DebugVarType::CompilationSwitch);
-		EndDebugVariableGroupOrTree(context);
-		EndDebugVariableGroupOrTree(context);
+		EndDebugVariableGroup(context);
 
 		context = BeginDebugVariableTree(state, "Default", leftTopCorner + V2{100.f, 0});
 		state->UITree->next = context.tree;
@@ -333,7 +325,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		state->profilerPause = AddReferencedDebugVariable(state, context, "Pause profiler", DebugVarType::Bool, false);
 		DebugVariableRef* profilerUI = _AddReferencedDebugVariable(state, context, "ProfilerUI", DebugVarType::ProfilerUI);
 		profilerUI->var->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
-		EndDebugVariableGroupOrTree(context);
+		EndDebugVariableGroup(context);
 
 
 		BeginRendering(state->renderGroup);
@@ -648,9 +640,10 @@ bool IsVariableRefHot(DebugState* state, DebugVariableRef* ref) {
 }
 
 inline
-void SetNextHotInteraction(DebugState* state, DebugVariableRef* ref, Rect2 boundingBox) {
+void SetNextHotInteraction(DebugState* state, DebugVariableRef* ref, Rect2 boundingBox, DebugVariableTree* tree) {
 	state->nextHotInteraction.ref = ref;
 	state->nextHotInteraction.state.startBoundingBox = boundingBox;
+	state->nextHotInteraction.state.relevantTree = tree;
 }
 
 internal
@@ -658,7 +651,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	for (DebugVariableTree* tree = state->UITree; tree; tree = tree->next) {
 		FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->pos);
 		DebugVariableRef* parent = 0;
-		DebugVariableRef* node = tree->firstChild;
+		DebugVariableRef* node = tree->root;
 		u32 depth = 0;
 		while (node) {
 			V4 itemColor = V4{ 1, 1, 1, 1 };
@@ -676,7 +669,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				Rect2 resizeAnchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
 				// TODO: Should this condition be included in SetNextHotInteraction?
 				if (IsInRectangle(resizeAnchor, mousePos)) {
-					SetNextHotInteraction(state, node, resizeAnchor);
+					SetNextHotInteraction(state, node, resizeAnchor, tree);
 				}
 				PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
 			}
@@ -689,7 +682,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				DebugVariableToText(var, at, u4(end - at), DebugVarToText_AddColon);
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
 				if (IsInRectangle(bb, mousePos)) {
-					SetNextHotInteraction(state, node, bb);
+					SetNextHotInteraction(state, node, bb, tree);
 				}
 				PushRect(state->renderGroup, AddRadius(bb, V2{4.f, 4.f}), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
 				DebugRenderLine(state, buffer, fontContext, itemColor);
@@ -764,34 +757,33 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		if (state->interaction.type == DebugInteract_Tear) {
 			DebugVariableRef* tearPoint = state->interaction.ref;
 			DebugVariableRef* oldParent = tearPoint->parent;
-			DebugVariableRef* prevChild = 0;
-			for (DebugVariableRef* child = oldParent->var->group.firstChild; child; child = child->next) {
-				if (child == tearPoint) {
-					if (prevChild) {
-						prevChild->next = child->next;
+			V2* treePosition = &state->interaction.state.relevantTree->pos;
+			if (oldParent) {
+				DebugVariableRef* prevChild = 0;
+				for (DebugVariableRef* child = oldParent->var->group.firstChild; child; child = child->next) {
+					if (child == tearPoint) {
+						if (prevChild) {
+							prevChild->next = child->next;
+						}
+						else {
+							oldParent->var->group.firstChild = oldParent->var->group.firstChild->next;
+						}
+						break;
 					}
-					else {
-						oldParent->var->group.firstChild = oldParent->var->group.firstChild->next;
-					}
-					break;
+					prevChild = child;
 				}
-				prevChild = child;
-			}
-			DebugVariableTree* dst = &oldParent->var->tree;
-			DebugVariableRef* newParent = oldParent;
-			if (oldParent->var->type != DebugVarType::Tree) {
 				DebugVariableContext context = BeginDebugVariableTree(state, "NewUserTree", mousePos);
-				newParent = context.parent;
-				dst = context.tree;
+				DebugVariableTree* dst = context.tree;
 				dst->next = state->UITree;
 				state->UITree = dst;
-			}
-			dst->firstChild = tearPoint;
-			tearPoint->next = 0;
-			tearPoint->parent = newParent;
 
-			state->interaction.state.pos.actual = &dst->pos;
-			state->interaction.state.pos.initial = dst->pos;
+				dst->root = tearPoint;
+				tearPoint->next = 0;
+				tearPoint->parent = 0;
+				treePosition = &dst->pos;
+			}
+			state->interaction.state.pos.actual = treePosition;
+			state->interaction.state.pos.initial = *treePosition;
 		}
 	}
 	
@@ -805,12 +797,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			if (LengthSq(dMouse) > 5.f) {
 				state->interaction.type = DebugInteract_Move;
 				state->interaction.state.startMousePos = mousePos;
-				for (DebugVariableRef* ref = state->interaction.ref; ref->parent; ref = ref->parent) {
-					state->interaction.ref = ref->parent;
-				}
-				Assert(state->interaction.ref->var->type == DebugVarType::Tree);
-				state->interaction.state.pos.initial = state->interaction.ref->var->tree.pos;
-				state->interaction.state.pos.actual = &state->interaction.ref->var->tree.pos;
+				state->interaction.state.pos.initial = state->interaction.state.relevantTree->pos;
+				state->interaction.state.pos.actual = &state->interaction.state.relevantTree->pos;
 			}
 		} break;
 		case DebugInteract_DragIncrease: {
