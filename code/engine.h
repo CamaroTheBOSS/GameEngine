@@ -95,7 +95,7 @@ struct DebugState {
 	DebugEventStack* eventStacks;
 	OpenDebugEvent* openEventFreeList;
 
-	DebugVariableTree* UITree;
+	DebugTree* UITree;
 
 	// Profiler
 	u32 frameReadIndex;

@@ -29,11 +29,11 @@ struct DebugVariableGroup {
 	DebugVariableRef* firstChild;
 };
 
-struct DebugVariableTree {
+struct DebugTree {
 	V2 pos;
 	DebugVariableRef* root;
 
-	DebugVariableTree* next;
+	DebugTree* next;
 };
 
 struct DebugVariable {
@@ -48,7 +48,7 @@ struct DebugVariable {
 };
 
 struct DebugVariableContext {
-	DebugVariableTree* tree;
+	DebugTree* tree;
 
 	u32 stackCount;
 	DebugVariableRef* stack[64];
@@ -73,7 +73,7 @@ struct DebugModifiedPosition {
 struct DebugInteractionState {
 	V2 startMousePos;
 	Rect2 startBoundingBox;
-	DebugVariableTree* relevantTree;
+	DebugTree* relevantTree;
 	union {
 		void* generic;
 		bool* boolean;

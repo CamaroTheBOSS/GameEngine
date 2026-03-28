@@ -263,7 +263,7 @@ DebugVariableRef* BeginDebugVariableGroup(DebugState* state, DebugVariableContex
 inline
 DebugVariableContext BeginDebugVariableTree(DebugState* state, const char* name, V2 pos) {
 	DebugVariableContext context = {};
-	DebugVariableTree* tree = PushStructSize(state->mainArena, DebugVariableTree);
+	DebugTree* tree = PushStructSize(state->mainArena, DebugTree);
 	tree->pos = pos;
 	context.tree = tree;
 	context.stackCount = 0;
@@ -640,7 +640,7 @@ bool IsVariableRefHot(DebugState* state, DebugVariableRef* ref) {
 }
 
 inline
-void SetNextHotInteraction(DebugState* state, DebugVariableRef* ref, Rect2 boundingBox, DebugVariableTree* tree) {
+void SetNextHotInteraction(DebugState* state, DebugVariableRef* ref, Rect2 boundingBox, DebugTree* tree) {
 	state->nextHotInteraction.ref = ref;
 	state->nextHotInteraction.state.startBoundingBox = boundingBox;
 	state->nextHotInteraction.state.relevantTree = tree;
@@ -648,7 +648,7 @@ void SetNextHotInteraction(DebugState* state, DebugVariableRef* ref, Rect2 bound
 
 internal
 void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
-	for (DebugVariableTree* tree = state->UITree; tree; tree = tree->next) {
+	for (DebugTree* tree = state->UITree; tree; tree = tree->next) {
 		FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->pos);
 		DebugVariableRef* parent = 0;
 		DebugVariableRef* node = tree->root;
@@ -773,7 +773,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 					prevChild = child;
 				}
 				DebugVariableContext context = BeginDebugVariableTree(state, "NewUserTree", mousePos);
-				DebugVariableTree* dst = context.tree;
+				DebugTree* dst = context.tree;
 				dst->next = state->UITree;
 				state->UITree = dst;
 
