@@ -46,7 +46,6 @@ struct DebugTree {
 	DebugTree* next;
 };
 
-// TODO: These should be stored in hash table for querying
 // TODO: Debug variable bitmap
 struct DebugVariable {
 	DebugVarType type;

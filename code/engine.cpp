@@ -1181,7 +1181,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TIMED_BLOCK_BEGIN(BeginSimAndInputProc);
 	SetCamera(state);
 	TemporaryMemory simMemory = BeginTempMemory(tranState->arena);
-	ProjectionProps projection = GetStandardProjection(bitmap.width, bitmap.height);
+	Projection projection = GetStandardProjection(bitmap.width, bitmap.height);
 	Rect2 cameraBounds = GetRenderRectangleAtTarget(projection, bitmap.width, bitmap.height);
 	Rect3 simBounds = ToRect3(cameraBounds, V2{ -3, 1 } *state->world.tileSizeInMeters.Z);
 	simBounds.max.X += 5.f;
@@ -1249,8 +1249,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			entity->sword->distanceRemaining = 5.f;
 			entity->sword->timeRemaining = 4.f;
 
-			V2 screenDim = GetDim(GetRenderRectangleAtTarget(projection, bitmap.width, bitmap.height));
-			V2 mousePos = Hadamard(screenDim, controller.mouse - V2{0.5f, 0.5f});
+			V2 mousePos = controller.mouse;
 			f32 mouseVecLength = Length(mousePos);
 			f32 projectileSpeed = 5.f;
 			if (mouseVecLength != 0.f) {
@@ -1468,6 +1467,34 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (IsFlagSet(*entity, EntityFlag_Movable) && !IsFlagSet(*entity, EntityFlag_NonSpatial)) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
+#if DEBUGUI_ShowEntityHitboxes
+		Controller& controller = input.controllers[KB_CONTROLLER_IDX];
+		EntityBasis basis = {};
+		basis.center = controller.mouse / renderGroup.projection.metersToPixels;
+		basis.size = V2{ 200.0f, 200.0f };
+
+		for (u32 volumeIndex = 0; volumeIndex < entity->collision->volumeCount; volumeIndex++) {
+			CollisionVolume* volume = entity->collision->volumes + volumeIndex;
+			V3 center = groundLevelPos + volume->offsetPos;
+			Rect2 volumeRect = GetRectFromCenterDim(center.XY, volume->size.XY);
+
+			
+
+			//f32 distanceZ = renderGroup.projection.camera.distanceToTarget;
+			f32 distanceZ = groundLevelPos.Z + volume->offsetPos.Z;
+			V2 unprojected = FromPixelSpaceToWorldSpace(renderGroup.projection, controller.mouse, distanceZ);
+			V3 mousePos = ToV3(unprojected, distanceZ);
+
+			V4 color = V4{ 1, 0, 1, layerAlpha };
+			if (IsInRectangle(volumeRect, mousePos.XY)) {
+				color = V4{ 1, 1, 0, layerAlpha };
+			}
+			PushRectBorders(renderGroup, center, volume->size.XY, color, 0.05f);
+#if 0
+			PushRect(renderGroup, mousePos, V2{1.f, 1.f}, V2{ 0, 0 }, V4{ 1, 0, 0, 1 });
+#endif
+		}
+#endif
 	}
 	TIMED_BLOCK_END(UpdateEntities);
 #if 0

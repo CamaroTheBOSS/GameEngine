@@ -1010,8 +1010,10 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 	POINT point;
 	GetCursorPos(&point);
 	ScreenToClient(state.window, &point);
-	controller.mouse.X = f4(point.x - state.bltOffsetX) / state.displayWidth;
-	controller.mouse.Y = 1.f - f4(point.y - state.bltOffsetY) / state.displayHeight;
+	f32 widthCoeff = f4(globalBitmap.width) / f4(state.displayWidth);
+	f32 heightCoeff = f4(globalBitmap.height) / f4(state.displayHeight);
+	controller.mouse.X = f4(point.x - state.bltOffsetX) * widthCoeff + 0.5f;
+	controller.mouse.Y = globalBitmap.height - (f4(point.y - state.bltOffsetY) * heightCoeff + 0.5f);
 }
 
 internal
@@ -1129,7 +1131,7 @@ int CALLBACK WinMain(
 ) {
 	InitializeQueue(globalHighPriorityQueue, 8);
 	InitializeQueue(globalLowPriorityQueue, 2);
-#if DEBUGUI_RenderFullHD
+#if 0
 	u32 globalBitmapWidth = 1920;
 	u32 globalBitmapHeight = 1080;
 #else
@@ -1232,17 +1234,16 @@ int CALLBACK WinMain(
 	u32 soundSamplesToWriteEachFrame = u4(globalSoundData.dataFormat.Format.nSamplesPerSec * refreshSecondsWithSafetyMargin);
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 
-	Win32ReloadGameCode(gameCode);
-#if INTERNAL_BUILD
-	debugGlobalState = gameCode.DebugInit(programMemory);
-	debugGlobalState->debugRecordsCount[TRANSLATION_UNIT] = DebugRecordsCount_Platform;
-#endif
 	u64 frameStartTime = Win32GetCurrentTimestamp();
 	u64 rdtscStart = __rdtsc();
 	MARKUP_FRAME_BEGIN;
 	while (globalRunning) {
 		TIMED_BLOCK_BEGIN(InputProcessing);
 		Win32ReloadGameCode(gameCode);
+#if INTERNAL_BUILD
+		debugGlobalState = gameCode.DebugInit(programMemory);
+		debugGlobalState->debugRecordsCount[TRANSLATION_UNIT] = DebugRecordsCount_Platform;
+#endif
 
 		// TODO: ResetInput for Gamepad as well!
 		ResetInput(inputData.controllers[KB_CONTROLLER_IDX]);

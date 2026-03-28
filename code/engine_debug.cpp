@@ -1,5 +1,21 @@
 #include "engine.h"
 
+/* TODO:
+* Better profiler 
+* - regions should be debug variables and be used in interaction system!
+* - should display frames starting from the newest! The oldest should be dropped when outside the screen
+* - should display frame information: duration, events count and other stuff
+* - should be another tree displayed in different way -> Pause / Resize / Move / Clickable regions
+* 
+* Profiler for memory
+* - all the stack allocators should be visible
+* - memory from asset system should be visible
+* 
+* Entity introspection
+* - entity selection
+* - checking and modifing values!
+*/
+
 DebugGlobalState debugGlobalState_ = {};
 DebugGlobalState* debugGlobalState = &debugGlobalState_;
 DebugVariable nullDebugVariable = {};
@@ -9,7 +25,8 @@ DebugVariable nullDebugVariable = {};
 
 //NOTE: Intelisense helpers
 internal void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue);
-inline ProjectionProps GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 metersToPixels);
+inline V2 FromPixelSpaceToWorldSpace(Projection& projection, V2 pixelSpacePos, f32 atDistanceFromCamera);
+inline Projection GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 metersToPixels);
 inline RenderGroup AllocateRenderGroup(MemoryArena& arena, Assets* assets, u32 size, bool renderInBackground);
 inline LoadedFont* GetOrPrefetchFont(RenderGroup& group, FontId fid);
 inline FontId GetFontWithType(Assets& assets, FontType type);
@@ -355,7 +372,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		BeginDebugVariableGroup(state, context, "Debugging");
 		BeginDebugVariableGroup(state, context, "Compile time switches");
 		MakeVariableCompiled(state, AddReferencedDebugVariable(state, context, "CameraZoomout", false));
-		MakeVariableCompiled(state, AddReferencedDebugVariable(state, context, "RenderFullHD", false));
+		MakeVariableCompiled(state, AddReferencedDebugVariable(state, context, "ShowEntityHitboxes", false));
 		EndDebugVariableGroup(context);
 		_AddReferencedDebugVariable(state, context, "Update and Compile", DebugVarType::CompilationSwitch);
 		
@@ -895,6 +912,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		char* at = buffer;
 		char* end = buffer + sizeof(buffer);
 		at += sprintf_s(at, end - at, "%s with %s", interaction, state->interaction.ref ? state->interaction.ref->var->name : "none");
+		at += sprintf_s(at, end - at, "mousePos: %f %f", mousePos.X, mousePos.Y);
 		if (state->interacting) {
 			sprintf_s(at, end - at, ": dMouse: %f %f", dMouse.X, dMouse.Y);
 		}
@@ -943,9 +961,7 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 		return;
 	}
 	Controller& controller = input.controllers[KB_CONTROLLER_IDX];
-	V2 mousePos = { controller.mouse.X - 0.5f, controller.mouse.Y - 0.5f };
-	mousePos = Hadamard(mousePos, V2i(dstBitmap.width, dstBitmap.height));
-
+	V2 mousePos = FromPixelSpaceToWorldSpace(state->renderGroup.projection, controller.mouse, 0.f);
 	DebugRenderVariablesMenu(state, mousePos);
 	if (state->compilationHandle.state == CmdState_Running) {
 		DebugRenderLine(state, "Compiling", state->fontContext, V4{1, 1, 1, 1});

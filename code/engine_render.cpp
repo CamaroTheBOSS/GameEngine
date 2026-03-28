@@ -3,35 +3,58 @@
 #include "engine_intrinsics.h"
 #include "engine_rand.h"
 
-struct EntityProjectedParams {
-	V2 center;
-	V2 size;
-	bool valid;
-};
-
 internal
-EntityProjectedParams CalculatePerspectiveProjection(ProjectionProps& projection,
-	V3 entityCenter, V2 entitySize)
+EntityBasis ProjectCoords(Projection& projection, V3 center, V2 size)
 {
-	EntityProjectedParams result = {};
+	EntityBasis result = {};
 	if (projection.orthographic) {
-		result.center = projection.screenCenter + entityCenter.XY * projection.metersToPixels;
-		result.size = entitySize * projection.metersToPixels;
+		result.center = projection.screenCenter + center.XY * projection.metersToPixels;
+		result.size = size * projection.metersToPixels;
 		result.valid = true;
 	}
 	else {
-		V3 rawCoords = ToV3(entityCenter.XY, 1.f);
-		f32 denominator = projection.camera.distanceToTarget - entityCenter.Z;
+		V3 rawCoords = ToV3(center.XY, 1.f);
+		f32 denominator = projection.camera.distanceToTarget - center.Z;
 		if (denominator > projection.camera.nearClip) {
 			V3 projectedCoords = projection.camera.focalLength * rawCoords / denominator;
 			result.center = projection.screenCenter + projectedCoords.XY * projection.metersToPixels;
-			result.size = projectedCoords.Z * entitySize * projection.metersToPixels;
+			result.size = projectedCoords.Z * size * projection.metersToPixels;
 			result.valid = true;
 		}
 	}
 	
 	return result;
 }
+
+inline
+V2 FromPixelSpaceToWorldSpace(Projection& projection, V2 pixelSpacePos, f32 atDistanceFromCamera) {
+	V2 worldSpace = (pixelSpacePos - projection.screenCenter) / projection.metersToPixels;
+	if (!projection.orthographic) {
+		f32 distanceFromTarget = projection.camera.distanceToTarget - atDistanceFromCamera;
+		worldSpace = worldSpace * distanceFromTarget / projection.camera.focalLength;
+	}
+	return worldSpace;
+}
+
+internal 
+V2 UnprojectSize(Projection& projection, V2 size) {
+	return size / projection.metersToPixels;
+}
+
+inline
+Rect2 GetRenderRectangleAtDistance(Projection& projection, u32 width, u32 height, f32 distance) {
+	V2 screenDim = 0.5f * V2i(width, height) / projection.metersToPixels;
+	V2 projectedDims = distance * screenDim / projection.camera.focalLength;
+	Rect2 result = GetRectFromCenterHalfDim(V2{ 0, 0 }, projectedDims);
+	return result;
+}
+
+inline
+Rect2 GetRenderRectangleAtTarget(Projection& projection, u32 width, u32 height) {
+	Rect2 result = GetRenderRectangleAtDistance(projection, width, height, projection.camera.distanceToTarget);
+	return result;
+}
+
 
 inline
 V4 SRGB255ToLinear1(V4 input) {
@@ -614,28 +637,8 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 }
 
 inline
-V2 UnprojectCoords(ProjectionProps& projection, V2 projectedCoords, f32 atDistanceFromCamera) {
-	V2 worldCoords = atDistanceFromCamera * projectedCoords / projection.camera.focalLength;
-	return worldCoords;
-}
-
-inline
-Rect2 GetRenderRectangleAtDistance(ProjectionProps& projection, u32 width, u32 height, f32 distance) {
-	V2 screenDim = 0.5f * V2i(width, height) / projection.metersToPixels;
-	V2 projectedDims = UnprojectCoords(projection, screenDim, distance);
-	Rect2 result = GetRectFromCenterHalfDim(V2{ 0, 0 }, projectedDims);
-	return result;
-}
-
-inline 
-Rect2 GetRenderRectangleAtTarget(ProjectionProps& projection, u32 width, u32 height) {
-	Rect2 result = GetRenderRectangleAtDistance(projection, width, height, projection.camera.distanceToTarget);
-	return result;
-}
-
-inline
-CameraProps GetStandardCamera() {
-	CameraProps result = {};
+Camera GetStandardCamera() {
+	Camera result = {};
 	result.distanceToTarget = 10.f;
 	result.focalLength = 0.7f;
 	result.nearClip = 0.2f;
@@ -643,8 +646,8 @@ CameraProps GetStandardCamera() {
 }
 
 inline
-ProjectionProps GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 metersToPixels) {
-	ProjectionProps result = {};
+Projection GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 metersToPixels) {
+	Projection result = {};
 	result.monitorWidth = 0.52f;
 	result.metersToPixels = metersToPixels;
 	result.screenCenter = { widthPix / 2.f,
@@ -655,8 +658,8 @@ ProjectionProps GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 meters
 }
 
 inline
-ProjectionProps GetStandardProjection(u32 widthPix, u32 heightPix) {
-	ProjectionProps result = {};
+Projection GetStandardProjection(u32 widthPix, u32 heightPix) {
+	Projection result = {};
 	result.monitorWidth = 0.52f;
 	result.metersToPixels = widthPix * result.monitorWidth;
 	result.screenCenter = { widthPix / 2.f,
@@ -716,7 +719,7 @@ bool PushClearCall(RenderGroup& group, V4 color) {
 inline
 bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, V2 offset, V4 color) {
 	V2 sizeUnprojected = height * V2{ bitmap->widthOverHeight, 1 };
-	EntityProjectedParams params = CalculatePerspectiveProjection(group.projection, center, sizeUnprojected);
+	EntityBasis params = ProjectCoords(group.projection, center, sizeUnprojected);
 	if (!params.valid) {
 		return false;
 	}
@@ -759,7 +762,7 @@ bool PushBitmap(RenderGroup& group, BitmapId bid, V3 center, f32 height, V2 offs
 
 inline
 bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
-	EntityProjectedParams params = CalculatePerspectiveProjection(group.projection, center, size);
+	EntityBasis params = ProjectCoords(group.projection, center, size);
 	if (!params.valid) {
 		return false;
 	}

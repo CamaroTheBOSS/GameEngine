@@ -1,2 +1,2 @@
-#define DEBUGUI_RenderFullHD 0
+#define DEBUGUI_ShowEntityHitboxes 1
 #define DEBUGUI_CameraZoomout 1

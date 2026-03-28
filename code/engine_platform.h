@@ -58,7 +58,7 @@ struct Controller {
 		Button E[17];
 		static_assert(sizeof(B) == sizeof(E));
 	};
-	// Mouse data (<0-1> value relative to window size where 0 is left or top, and 1 is right or bottom)
+	// Mouse data is in screen space <-0.5w + 0.5, 0.5w - 0.5> <-0.5h + 0.5, 0.5h - 0.5)
 	V2 mouse;
 };
 #pragma warning(pop)

@@ -14,6 +14,12 @@
 	   is responsible for correctly premultipling all the colors
 */
 
+struct EntityBasis {
+	V2 center;
+	V2 size;
+	bool valid;
+};
+
 struct EnvironmentMap {
 	u32 mapWidth;
 	u32 mapHeight;
@@ -62,14 +68,14 @@ struct RenderCallCoordinateSystem {
 	EnvironmentMap* bottomEnvMap;
 };
 
-struct CameraProps {
+struct Camera {
 	f32 focalLength;
 	f32 distanceToTarget;
 	f32 nearClip;
 };
 
-struct ProjectionProps {
-	CameraProps camera;
+struct Projection {
+	Camera camera;
 	f32 monitorWidth;
 	f32 metersToPixels;
 	V2 screenCenter;
@@ -77,7 +83,7 @@ struct ProjectionProps {
 };
 
 struct RenderGroup {
-	ProjectionProps projection;
+	Projection projection;
 	u8* pushBuffer;
 	u32 pushBufferSize;
 	u32 maxPushBufferSize;
