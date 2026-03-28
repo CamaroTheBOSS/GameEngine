@@ -782,8 +782,11 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				tearPoint->parent = 0;
 				treePosition = &dst->pos;
 			}
+			state->interaction.state.pos.initial = V2{ 
+				state->interaction.state.startBoundingBox.min.X, 
+				state->interaction.state.startBoundingBox.max.Y 
+			};
 			state->interaction.state.pos.actual = treePosition;
-			state->interaction.state.pos.initial = *treePosition;
 		}
 	}
 	
