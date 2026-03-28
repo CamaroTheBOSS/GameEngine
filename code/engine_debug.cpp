@@ -209,17 +209,22 @@ void ReadDebugConfig(DebugState* state) {
 }
 
 inline
+DebugVariable* QueryDebugVariable(DebugState* state, DebugVarQueryName query) {
+	DebugVariable* var = state->querableVariables[query];
+	if (!var) {
+		return &nullDebugVariable;
+	}
+	return var;
+}
+
+inline
 DebugVariable* QueryDebugVariable(DebugVarQueryName query) {
 	if (debugGlobalMemory->debugMemorySize == 0) {
 		return 0;
 	}
 	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
 	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
-	DebugVariable* var = state->querableVariables[query];
-	if (!var) {
-		return &nullDebugVariable;
-	}
-	return var;
+	return QueryDebugVariable(state, query);
 }
 
 inline
@@ -863,7 +868,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->selectedRecord = state->hotRecord;
 	}
 
-	if (QueryDebugVariable(DebugVarQuery_ShowDebugInteractions)->boolean) {
+	if (QueryDebugVariable(state, DebugVarQuery_ShowDebugInteractions)->boolean) {
 		char buffer[256];
 		const char* interaction = "Unknown";
 		switch (state->interaction.type) {
@@ -949,7 +954,7 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 		DebugRenderLine(state, "Failed Compilation", state->fontContext, V4{ 1, 1, 1, 1 });
 	}
 	DebugInteract(state, mousePos, controller);
-	if (QueryDebugVariable(DebugVarQuery_ShowDebugEvents)->boolean) {
+	if (QueryDebugVariable(state, DebugVarQuery_ShowDebugEvents)->boolean) {
 		char buffer[256];
 		sprintf_s(buffer, 256, "events in frame 0: %d", debugGlobalState->debugEventsCount[0]);
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
