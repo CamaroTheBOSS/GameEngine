@@ -273,6 +273,7 @@ DebugVariableContext BeginDebugVariableTree(DebugState* state, const char* name,
 	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Tree);
 	ref->var->tree = {};
 	ref->var->tree.pos = pos;
+	context.tree = &ref->var->tree;
 	context.parent = ref;
 	return context;
 }
@@ -313,7 +314,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 		DebugVariableContext context = BeginDebugVariableTree(state, "Default", leftTopCorner);
-		state->UITree = context.parent;
+		state->UITree = context.tree;
 		BeginDebugVariableGroup(state, context, "Debugging");
 		BeginDebugVariableGroup(state, context, "Compile time switches");
 		AddReferencedDebugVariable(state, context, "CameraZoomout", DebugVarType::CompileTimeBool, false);
@@ -323,13 +324,18 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		AddReferencedDebugVariable(state, context, "RenderFullHD", DebugVarType::CompileTimeBool, false);
 		EndDebugVariableGroupOrTree(context);
 		_AddReferencedDebugVariable(state, context, "Update and Compile", DebugVarType::CompilationSwitch);
+		EndDebugVariableGroupOrTree(context);
+		EndDebugVariableGroupOrTree(context);
+
+		context = BeginDebugVariableTree(state, "Default", leftTopCorner + V2{100.f, 0});
+		state->UITree->next = context.tree;
 		BeginDebugVariableGroup(state, context, "Profiler");
 		state->profilerPause = AddReferencedDebugVariable(state, context, "Pause profiler", DebugVarType::Bool, false);
 		DebugVariableRef* profilerUI = _AddReferencedDebugVariable(state, context, "ProfilerUI", DebugVarType::ProfilerUI);
 		profilerUI->var->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
 		EndDebugVariableGroupOrTree(context);
-		EndDebugVariableGroupOrTree(context);
-		EndDebugVariableGroupOrTree(context);
+
+
 		BeginRendering(state->renderGroup);
 		state->isInitialized = true;
 	}
@@ -649,11 +655,10 @@ void SetNextHotInteraction(DebugState* state, DebugVariableRef* ref, Rect2 bound
 
 internal
 void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
-	for (DebugVariableRef* tree = state->UITree; tree; tree = tree->next) {
-		Assert(tree->var->type == DebugVarType::Tree);
-		FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->var->tree.pos);
+	for (DebugVariableTree* tree = state->UITree; tree; tree = tree->next) {
+		FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->pos);
 		DebugVariableRef* parent = 0;
-		DebugVariableRef* node = tree->var->tree.firstChild;
+		DebugVariableRef* node = tree->firstChild;
 		u32 depth = 0;
 		while (node) {
 			V4 itemColor = V4{ 1, 1, 1, 1 };
@@ -772,18 +777,21 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				}
 				prevChild = child;
 			}
-			DebugVariableRef* dst = oldParent;
-			bool isParentTree = dst->var->type == DebugVarType::Tree;
-			if (!isParentTree) {
+			DebugVariableTree* dst = &oldParent->var->tree;
+			DebugVariableRef* newParent = oldParent;
+			if (oldParent->var->type != DebugVarType::Tree) {
 				DebugVariableContext context = BeginDebugVariableTree(state, "NewUserTree", mousePos);
-				dst = context.parent;
+				newParent = context.parent;
+				dst = context.tree;
 				dst->next = state->UITree;
 				state->UITree = dst;
 			}
-			dst->var->tree.firstChild = tearPoint;
+			dst->firstChild = tearPoint;
 			tearPoint->next = 0;
-			tearPoint->parent = dst;
-			state->interaction.ref = dst;
+			tearPoint->parent = newParent;
+
+			state->interaction.state.pos.actual = &dst->pos;
+			state->interaction.state.pos.initial = dst->pos;
 		}
 	}
 	
@@ -813,13 +821,10 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			f32 newMaxY = Maximum(mousePos.Y, var->profiler.rect.min.Y + 10.f);
 			var->profiler.rect.max = V2{ newMaxX, newMaxY };
 		} break;
+		case DebugInteract_Tear:
 		case DebugInteract_Move: {
 			DebugModifiedPosition& pos = state->interaction.state.pos;
 			*pos.actual = pos.initial + dMouse;
-		} break;
-		case DebugInteract_Tear: {
-			var->tree.pos = mousePos;
-			
 		} break;
 		}
 	}

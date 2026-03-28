@@ -33,6 +33,8 @@ struct DebugVariableGroup {
 struct DebugVariableTree {
 	V2 pos;
 	DebugVariableRef* firstChild;
+
+	DebugVariableTree* next;
 };
 
 struct DebugVariable {
@@ -48,6 +50,7 @@ struct DebugVariable {
 };
 
 struct DebugVariableContext {
+	DebugVariableTree* tree;
 	DebugVariableRef* parent;
 };
 
