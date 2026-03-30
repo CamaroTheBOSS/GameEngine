@@ -407,7 +407,9 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 	if (state->font) {
 		f32 scale = 0.15f;
 		f32 lineAdvance = scale * GetFontLineAdvance(state->font);
-		state->fontContext = InitializeFontDrawContext(state->font, 0.15f, -lineAdvance, state->overlayBoundaries.min + V2{ 0, lineAdvance });
+		//state->fontContext = InitializeFontDrawContext(state->font, 0.15f, -lineAdvance, state->overlayBoundaries.min + V2{ 0, lineAdvance });
+		V2 leftUpCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
+		state->fontContext = InitializeFontDrawContext(state->font, 0.15f, lineAdvance, leftUpCorner - V2{ 0, lineAdvance });
 	}
 	state->hotRecord = 0;
 	state->hotFrameIndex = U32_MAX;
@@ -953,7 +955,57 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->interacting = false;
 	}
 }
+
+void DebugDumpStruct(DebugState* state, MemberDefinition* memberArray, u32 memberCount, void* basePtr, u32 indentLevel = 0) {
+	for (u32 memberIndex = 0; memberIndex < memberCount; memberIndex++) {
+		MemberDefinition* member = memberArray + memberIndex;
+		char buffer[256];
+		char* at = buffer;
+		char* end = buffer + sizeof(buffer);
+		for (u32 indent = 0; indent < indentLevel; indent++) {
+			*at++ = ' ';
+			*at++ = ' ';
+			*at++ = ' ';
+		}
+		*at = 0;
+		u8* memberAddress = ptrcast(u8, basePtr) + member->offset;
+		switch (member->type) {
+		case MetaType_u32: {
+			sprintf_s(at, end - at, "%s: %d", member->name, *ptrcast(u32, memberAddress));
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		} break;
+		case MetaType_i32: {
+			sprintf_s(at, end - at, "%s: %d", member->name, *ptrcast(i32, memberAddress));
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		} break;
+		case MetaType_f32: {
+			sprintf_s(at, end - at, "%s: %f", member->name, *ptrcast(f32, memberAddress));
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		} break;
+		case MetaType_V2: {
+			V2* v = ptrcast(V2, memberAddress);
+			sprintf_s(at, end - at, "%s: {%.2f, %.2f}", member->name, v->X, v->Y);
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		} break;
+		case MetaType_V3: {
+			V3* v = ptrcast(V3, memberAddress);
+			sprintf_s(at, end - at, "%s: {%.2f, %.2f, %.2f}", member->name, v->X, v->Y, v->Z);
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		} break;
+		case MetaType_V4: {
+			V4* v = ptrcast(V4, memberAddress);
+			sprintf_s(at, end - at, "%s: {%.2f, %.2f, %.2f, %.2f}", member->name, v->X, v->Y, v->Z, v->W);
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		} break;
+		case MetaType_CollisionVolumeGroup: {
+			sprintf_s(at, end - at, "%s:", member->name);
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+			DebugDumpStruct(state, MembersOf_CollisionVolumeGroup, ArrayCount(MembersOf_CollisionVolumeGroup), memberAddress, indentLevel + 1);
+		}
+		}
+	}
 	
+}	
 
 void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& input) {
 	TIMED_FUNCTION;
@@ -975,6 +1027,16 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 		sprintf_s(buffer, 256, "events in frame 0: %d", debugGlobalState->debugEventsCount[0]);
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 	}
+
+	Entity entity = {};
+	entity.faceDir = 23.f;
+	entity.pos = V3{ 1, 2, 3 };
+	entity.highEntityIndex = 23;
+	entity.flags = 32;
+	entity.walkableDim = V3{ 10, 11, 12 };
+	size_t off = offsetof(Entity, flags);
+	DebugDumpStruct(state, MembersOf_Entity, ArrayCount(MembersOf_Entity), &entity);
+	
 	
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
 }

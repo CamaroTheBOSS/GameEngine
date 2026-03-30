@@ -50,6 +50,7 @@
 #define AssertMainThread Assert(debugGlobalMemory->debug.GetCurrThreadId() == 0)
 #define InvalidDefaultCase default: { Assert(0) } break
 #define scast(type, expression) static_cast<type>(expression)
+#define rcst(type, expression) reinterpret_cast<type>(expression)
 #define f4(expression) static_cast<f32>(expression)
 #define u2(expression) static_cast<u16>(expression)
 #define u4(expression) static_cast<u32>(expression)
@@ -94,6 +95,7 @@ typedef double f64;
 #if INTERNAL_BUILD
 #include "engine_debug_config.h"
 #endif
+#include "engine_meta.h"
 #include "engine_intrinsics.h"
 #include "engine_math.h"
 

@@ -1,5 +1,4 @@
 #include "engine_common.h"
-
 // ------------------- DEBUG VARIABLES --------------------
 enum DebugVarQueryName {
 	DebugVarQuery_CameraZoomoutValue,

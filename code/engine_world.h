@@ -61,12 +61,14 @@ struct CollisionVolume {
 	V3 size;
 };
 
+Introspect(category: "World")
 struct CollisionVolumeGroup {
 	CollisionVolume totalVolume; // Bounding box volume
 	u32 volumeCount;
 	CollisionVolume* volumes;
 };
 
+Introspect(category: "World")
 struct Entity {
 	u32 storageIndex;
 	V3 pos;

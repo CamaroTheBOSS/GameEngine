@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "engine_meta.cpp"
 #include "engine_world.cpp"
 #include "engine_simulation.cpp"
 #include "engine_rand.cpp"
@@ -1477,10 +1478,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			CollisionVolume* volume = entity->collision->volumes + volumeIndex;
 			V3 center = groundLevelPos + volume->offsetPos;
 			Rect2 volumeRect = GetRectFromCenterDim(center.XY, volume->size.XY);
-
-			
-
-			//f32 distanceZ = renderGroup.projection.camera.distanceToTarget;
 			f32 distanceZ = groundLevelPos.Z + volume->offsetPos.Z;
 			V2 unprojected = FromPixelSpaceToWorldSpace(renderGroup.projection, controller.mouse, distanceZ);
 			V3 mousePos = ToV3(unprojected, distanceZ);

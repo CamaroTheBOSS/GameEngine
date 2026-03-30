@@ -30,9 +30,15 @@ set LinkerFlags= %WIN_LIB_FLAGS% -incremental:no -opt:ref user32.lib gdi32.lib o
 pushd ..\build
   echo %cd%
   del *.pdb > NUL 2> NUL
+
+  REM Code generator
+  cl %CompilerFlags% ..\code\tools_code_generator.cpp /link -incremental:no %WIN_LIB_FLAGS%
+  pushd ..\code 
+  ..\build\tools_code_generator.exe > engine_meta.cpp
+  popd
   
-  REM Engine Asset Composer
-  REM cl %CompilerFlags% ..\code\engine_asset_file_composer.cpp /link -incremental:no gdi32.lib user32.lib %WIN_LIB_FLAGS% 
+  REM Asset Composer
+  REM cl %CompilerFlags% ..\code\tools_asset_file_composer.cpp /link -incremental:no gdi32.lib user32.lib %WIN_LIB_FLAGS% 
 
   REM Platform layer + game code
   cl %CompilerFlags% -O2 -DTRANSLATION_UNIT=1 ..\code\engine_optimized.cpp /c -Foengine_optimized.obj

@@ -136,7 +136,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="engine_assets.cpp" />
-    <ClCompile Include="engine_asset_file_composer.cpp" />
+    <ClCompile Include="tools_asset_file_composer.cpp" />
+    <ClCompile Include="tools_code_generator.cpp" />
     <ClCompile Include="engine_debug.cpp" />
     <ClCompile Include="engine_intrinsics.h" />
     <ClCompile Include="engine_math.h" />
@@ -154,6 +155,8 @@
     <ClInclude Include="engine_common.h" />
     <ClInclude Include="engine_debug.h" />
     <ClInclude Include="engine_debug_config.h" />
+    <ClInclude Include="engine_meta.h" />
+    <ClInclude Include="engine_meta.cpp" />
     <ClInclude Include="engine_platform.h" />
     <ClInclude Include="engine_rand.h" />
     <ClInclude Include="engine_render.h" />
