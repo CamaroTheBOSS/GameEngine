@@ -127,6 +127,13 @@ void InitializeArena(MemoryArena& arena, void* data, u64 capacity) {
 }
 
 inline
+void ResetArena(MemoryArena& arena) {
+	Assert(arena.tempCount == 0);
+	arena.data = arena.data - arena.used;
+	arena.used = 0;
+}
+
+inline
 u64 GetAlignmentOffset(MemoryArena& arena, u64 alignment) {
 	u64 alignMask = alignment - 1;
 	Assert((alignment & alignMask) == 0);

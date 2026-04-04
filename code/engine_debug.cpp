@@ -18,7 +18,9 @@
 
 DebugGlobalState debugGlobalState_ = {};
 DebugGlobalState* debugGlobalState = &debugGlobalState_;
+#if 0
 DebugVariable nullDebugVariable = {};
+#endif
 
 // TODO: Delete stdlib
 #include <stdio.h>
@@ -153,16 +155,14 @@ FontDrawContext InitializeStandardFontDrawContext(DebugState* state, V2 topline)
 
 internal
 void ResetDebugCollation(DebugState* debugState, u32 frameWriteIndex) {
-	EndTempMemory(debugState->collationScratchBuffer);
-	CheckArena(debugState->collationArena);
+	ResetArena(debugState->collationArena);
 	debugState->openEventFreeList = 0;
-	debugState->eventStacksCount = 0;
-	debugState->eventStacks = 0;
+	debugState->threadStacksCount = 0;
+	debugState->threadStacks = 0;
 	debugState->selectedFrameIndex = U32_MAX;
 	debugState->selectedRegionIndex = U32_MAX;
 	debugState->selectedRecord = 0;
 	debugState->frameReadIndex = (frameWriteIndex + 1) % MAX_DEBUG_FRAMES;
-	debugState->collationScratchBuffer = BeginTempMemory(debugState->collationArena);
 	debugState->frames = PushArray(debugState->collationArena, MAX_DEBUG_FRAMES, DebugFrameInfo);
 }
 
@@ -225,6 +225,7 @@ void ReadDebugConfig(DebugState* state) {
 #endif
 }
 
+#if 0
 inline
 DebugVariable* QueryDebugVariable(DebugState* state, DebugVarQueryName query) {
 	DebugVariable* var = state->querableVariables[query];
@@ -245,29 +246,18 @@ DebugVariable* QueryDebugVariable(DebugVarQueryName query) {
 }
 
 inline
-DebugVariable* _AddDebugVariable(DebugState* state, const char* name, DebugVarType type) {
-	static_assert((ArrayCount(state->variableHash) & (ArrayCount(state->variableHash) - 1)) == 0 &&
-		"variableHash size must be a power of two");
-	DebugVariable* var = PushStructSize(state->mainArena, DebugVariable);
+DebugVariable* _AddDebugVariable(DebugState* state, MemoryArena* arena, const char* name, DebugVarType type) {
+	DebugVariable* var = PushStructSize(*arena, DebugVariable);
 	u32 length = StringLength(name) + 1;
-	var->name = PushString(state->mainArena, name, length);
+	var->name = PushString(*arena, name, length);
 	var->type = type;
-
-	// TODO: Better hash function!
-	// TODO: Think whether this hash map has any sense, maybe it should be just straight up allocated
-	// and stored just in reference
-	u32 hash = u4((13 * (reinterpret_cast<uptr>(var) >> 2)) & (ArrayCount(state->variableHash) - 1));
-	DebugVariableHashEntry* newEntry = PushStructSize(state->mainArena, DebugVariableHashEntry);
-	newEntry->var = var;
-	newEntry->next = state->variableHash[hash];
-	state->variableHash[hash] = newEntry;
 	return var;
 }
 
 inline
 DebugVariableRef* _AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, DebugVarType type) {
-	DebugVariable* var = _AddDebugVariable(state, name, type);
-	DebugVariableRef* ref = PushStructSize(state->mainArena, DebugVariableRef);
+	DebugVariable* var = _AddDebugVariable(state, context.arena, name, type);
+	DebugVariableRef* ref = PushStructSize(*context.arena, DebugVariableRef);
 	ref->next = 0;
 	ref->var = var;
 	ref->parent = context.stack[context.stackCount];
@@ -286,14 +276,49 @@ DebugVariableRef* _AddReferencedDebugVariable(DebugState* state, DebugVariableCo
 inline
 DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, bool value) {
 	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Bool);
-	ref->var->boolean = value;
+	ref->var->data_bool = value;
 	return ref;
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, float value) {
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, f32 value) {
 	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Float);
-	ref->var->fl32 = value;
+	ref->var->data_f32 = value;
+	return ref;
+}
+
+inline
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, i32 value) {
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::I32);
+	ref->var->data_i32 = value;
+	return ref;
+}
+
+inline
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, u32 value) {
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::U32);
+	ref->var->data_u32 = value;
+	return ref;
+}
+
+inline
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V2 value) {
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec2);
+	ref->var->data_V2 = value;
+	return ref;
+}
+
+inline
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V3 value) {
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec3);
+	ref->var->data_V3 = value;
+	return ref;
+}
+
+inline
+DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V4 value) {
+	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec4);
+	ref->var->data_V4 = value;
 	return ref;
 }
 
@@ -306,13 +331,19 @@ DebugVariableRef* BeginDebugVariableGroup(DebugState* state, DebugVariableContex
 }
 
 inline
-DebugVariableContext BeginDebugVariableTree(DebugState* state, const char* name, V2 pos) {
+DebugVariableContext BeginDebugVariableTree(DebugState* state, MemoryArena& arena, const char* name, V2 pos) {
 	DebugVariableContext context = {};
-	DebugTree* tree = PushStructSize(state->mainArena, DebugTree);
+	DebugTree* tree = PushStructSize(arena, DebugTree);
 	tree->pos = pos;
 	context.tree = tree;
 	context.stackCount = 0;
 	context.stack[0] = 0;
+	context.arena = &arena;
+
+	tree->next = state->UISentinel.next;
+	tree->prev = &state->UISentinel;
+	tree->prev->next = tree;
+	tree->next->prev = tree;
 	return context;
 }
 
@@ -332,12 +363,14 @@ void MakeVariableQuerable(DebugState* state, DebugVariableRef* ref, DebugVarQuer
 	Assert(state->querableVariables[queryName] == 0);
 	state->querableVariables[queryName] = ref->var;
 }
+#endif
 
 inline
 void EndDebugVariableGroup(DebugVariableContext& context) {
 	Assert(context.stackCount > 0 || !"Tried to enclose group when none were opened");
 	context.stackCount--;
 }
+
 
 inline 
 DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
@@ -361,14 +394,16 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		u32 frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
 		state->renderGroup = AllocateRenderGroup(state->mainArena, &tranState->assets, MB(4), false);
 		state->highPriorityQueue = tranState->highPriorityQueue;
-		state->collationScratchBuffer = BeginTempMemory(state->collationArena);
 		ResetDebugCollation(state, frameWriteIndex);
 
 		state->compilationHandle.state = CmdState_Completed;
 		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
+		state->UISentinel.next = &state->UISentinel;
+		state->UISentinel.prev = &state->UISentinel;
+
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
-		DebugVariableContext context = BeginDebugVariableTree(state, "Default", leftTopCorner);
-		state->UITree = context.tree;
+#if 0
+		DebugVariableContext context = BeginDebugVariableTree(state, state->mainArena, "Default", leftTopCorner);
 		BeginDebugVariableGroup(state, context, "Debugging");
 		BeginDebugVariableGroup(state, context, "Compile time switches");
 		MakeVariableCompiled(state, AddReferencedDebugVariable(state, context, "CameraZoomout", false));
@@ -383,15 +418,13 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		EndDebugVariableGroup(context);
 		EndDebugVariableGroup(context);
 
-		context = BeginDebugVariableTree(state, "Default", leftTopCorner + V2{100.f, 0});
-		state->UITree->next = context.tree;
+		context = BeginDebugVariableTree(state, state->mainArena, "Default", leftTopCorner + V2{100.f, 0});
 		BeginDebugVariableGroup(state, context, "Profiler");
 		state->profilerPause = AddReferencedDebugVariable(state, context, "Pause profiler", false);
 		DebugVariableRef* profilerUI = _AddReferencedDebugVariable(state, context, "ProfilerUI", DebugVarType::ProfilerUI);
 		profilerUI->var->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
 		EndDebugVariableGroup(context);
-
-
+#endif
 		BeginRendering(state->renderGroup);
 		state->isInitialized = true;
 	}
@@ -419,20 +452,21 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 }
 
 internal
-DebugEventStack* GetDebugStackForThread(DebugState* state, u16 threadId) {
-	for (u32 stackIndex = 0; stackIndex < state->eventStacksCount; stackIndex++) {
-		DebugEventStack* stack = state->eventStacks + stackIndex;
+DebugThreadStack* GetDebugStackForThread(DebugState* state, u16 threadId) {
+	for (u32 stackIndex = 0; stackIndex < state->threadStacksCount; stackIndex++) {
+		DebugThreadStack* stack = state->threadStacks + stackIndex;
 		if (stack->threadId == threadId) {
-			Assert(stack->events);
 			return stack;
 		}
 	}
-	Assert(state->eventStacksCount < MAX_DEBUG_THREADS);
-	DebugEventStack* stack = state->eventStacks + state->eventStacksCount++;
+	Assert(state->threadStacksCount < MAX_DEBUG_THREADS);
+	DebugThreadStack* stack = state->threadStacks + state->threadStacksCount++;
 	stack->threadId = threadId;
-	stack->laneId = state->eventStacksCount - 1;
-	stack->events = PushStructSize(state->collationArena, OpenDebugEvent);
-	*stack->events = {};
+	stack->laneId = state->threadStacksCount - 1;
+	stack->timeEvents = PushStructSize(state->collationArena, OpenDebugEvent);
+	stack->dataEvents = PushStructSize(state->collationArena, OpenDebugEvent);
+	*stack->timeEvents = {};
+	*stack->dataEvents = {};
 	return stack;
 }
 
@@ -449,11 +483,35 @@ DebugRecord* GetDebugRecordFor(DebugEvent* event) {
 }
 
 internal
+OpenDebugEvent* PushToEventStack(DebugState* state, OpenDebugEvent** stack, DebugEvent* event) {
+	OpenDebugEvent* newBlock = state->openEventFreeList;
+	if (newBlock) {
+		state->openEventFreeList = newBlock->next;
+	}
+	else {
+		newBlock = PushStructSize(state->collationArena, OpenDebugEvent);
+	}
+	newBlock->next = *stack;
+	newBlock->event = event;
+	newBlock->childRegionCount = 0;
+	*stack = newBlock;
+	return newBlock;
+}
+
+inline
+void PopFromEventStack(DebugState* state, OpenDebugEvent** stack) {
+	OpenDebugEvent* block = *stack;
+	*stack = block->next;
+	block->next = state->openEventFreeList;
+	state->openEventFreeList = block;
+}
+
+internal
 void DebugCollateEvents(DebugState* debugState) {
 	TIMED_FUNCTION;
 	TemporaryMemory stackMemory = BeginTempMemory(debugState->collationArena);
-	debugState->eventStacks = PushArray(debugState->collationArena, MAX_DEBUG_THREADS, DebugEventStack);
-	debugState->eventStacksCount = 0;
+	debugState->threadStacks = PushArray(debugState->collationArena, MAX_DEBUG_THREADS, DebugThreadStack);
+	debugState->threadStacksCount = 0;
 	debugState->openEventFreeList = 0;
 
 	debugState->frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
@@ -472,24 +530,13 @@ void DebugCollateEvents(DebugState* debugState) {
 			eventIndex++
 			) {
 			DebugEvent* event = eventsInFrame + eventIndex;
-			if (event->type == Event_BlockBegin) {
-				DebugEventStack* stack = GetDebugStackForThread(debugState, event->threadId);
-				OpenDebugEvent* newOpenEvent = debugState->openEventFreeList;
-				if (newOpenEvent) {
-					debugState->openEventFreeList = newOpenEvent->next;
-				}
-				else {
-					newOpenEvent = PushStructSize(debugState->collationArena, OpenDebugEvent);
-				}
-				Assert(stack->threadId == event->threadId);
-				newOpenEvent->next = stack->events;
-				newOpenEvent->event = event;
-				newOpenEvent->childRegionCount = 0;
-				stack->events = newOpenEvent;
-			}
-			else if (event->type == Event_BlockEnd) {
-				DebugEventStack* stack = GetDebugStackForThread(debugState, event->threadId);
-				OpenDebugEvent* block = stack->events;
+			DebugThreadStack* stack = GetDebugStackForThread(debugState, event->threadId);
+			switch (event->type) {
+			case Event_Time_BlockBegin: {
+				PushToEventStack(debugState, &stack->timeEvents, event);
+			} break;
+			case Event_Time_BlockEnd: {
+				OpenDebugEvent* block = stack->timeEvents;
 				OpenDebugEvent* parentBlock = block->next;
 				DebugEvent* openEvent = block->event;
 				if (openEvent) {
@@ -527,14 +574,52 @@ void DebugCollateEvents(DebugState* debugState) {
 								childRegion->parentRegionIndex = regionIndex;
 							}
 						}
-						stack->events = parentBlock;
-						block->next = debugState->openEventFreeList;
-						debugState->openEventFreeList = block;
+						PopFromEventStack(debugState, &stack->timeEvents);
 					}
 				}
-			}
-			else {
-				Assert(!"Unknown event type");
+			} break;
+			case Event_Data_BlockBegin: {
+				PushToEventStack(debugState, &stack->dataEvents, event);
+				DebugRecord* record = GetDebugRecordFor(event);
+				//BeginDebugVariableGroup(debugState, debugState->dataBlockContext, record->blockName);
+			} break;
+			case Event_Data_BlockEnd: {
+				PopFromEventStack(debugState, &stack->dataEvents);
+				//EndDebugVariableGroup(debugState->dataBlockContext);
+			} break;
+			case Event_Data_u32: {
+				DebugRecord* record = GetDebugRecordFor(event);
+				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_u32);
+			} break;
+			case Event_Data_i32: {
+				DebugRecord* record = GetDebugRecordFor(event);
+				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_i32);
+			} break;
+			case Event_Data_f32: {
+				DebugRecord* record = GetDebugRecordFor(event);
+				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_f32);
+			} break;
+			case Event_Data_V2: {
+				DebugRecord* record = GetDebugRecordFor(event);
+				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_V2);
+			} break;
+			case Event_Data_V3: {
+				DebugRecord* record = GetDebugRecordFor(event);
+				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_V3);
+			} break;
+			case Event_Data_V4: {
+				DebugRecord* record = GetDebugRecordFor(event);
+				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_V4);
+			} break;
+			case Event_Data_Rect2: {
+				//DebugRecord* record = GetDebugRecordFor(event);
+				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName);
+			} break;
+			case Event_Data_Rect3: {
+				//DebugRecord* record = GetDebugRecordFor(event);
+				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName);
+			} break;
+
 			}
 		}
 	}
@@ -558,10 +643,10 @@ u64 DebugVariableToText(DebugVariable* var, char* buffer, u32 size, u32 flags) {
 
 	switch (var->type) {
 	case DebugVarType::Bool: {
-		at += sprintf_s(at, end - at, "%s%s %d", var->name, colon, var->boolean);
+		at += sprintf_s(at, end - at, "%s%s %d", var->name, colon, var->data_bool);
 	} break;
 	case DebugVarType::Float: {
-		at += sprintf_s(at, end - at, "%s%s %f", var->name, colon, var->fl32);
+		at += sprintf_s(at, end - at, "%s%s %f", var->name, colon, var->data_f32);
 		if (flags & DebugVarToText_AddFloatSuffix && (end - at) > 0) {
 			*at++ = 'f';
 		}
@@ -610,7 +695,7 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 		V4{1, 0.5f, 0.5f, 1},
 	};
 	u32 frameIndexForDrawing = 0;
-	f32 frameWidth = f4(state->eventStacksCount) * threadLaneTotalWidth + frameLaneSpace;
+	f32 frameWidth = f4(state->threadStacksCount) * threadLaneTotalWidth + frameLaneSpace;
 	f32 collationScale = DEBUG_COLLATION_SCALE;
 	PushRect(state->renderGroup, boundaries, 0, V2{ 0, 0 }, V4{ 0.03f, 0.03f, 0.03f, 1 });
 	u32 firstFrameIndex = state->frameWriteIndex + 1;
@@ -709,7 +794,7 @@ void SetNextHotInteraction(DebugState* state, DebugVariableRef* ref, Rect2 bound
 
 internal
 void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
-	for (DebugTree* tree = state->UITree; tree; tree = tree->next) {
+	for (DebugTree* tree = state->UISentinel.next; tree != &state->UISentinel; tree = tree->next) {
 		FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->pos);
 		DebugVariableRef* parent = 0;
 		DebugVariableRef* node = tree->root;
@@ -778,7 +863,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		case DebugVarType::Bool: {
 			if (WasPressed(controller.B.mouseLeft)) {
 				state->nextHotInteraction.type = DebugInteract_Toggle;
-				state->nextHotInteraction.state.boolean = &state->nextHotInteraction.ref->var->boolean;
+				state->nextHotInteraction.state.boolean = &state->nextHotInteraction.ref->var->data_bool;
 			}
 		} break;
 		case DebugVarType::Group: {
@@ -814,6 +899,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->interaction = state->hotInteraction;
 		state->interacting = true;
 		if (state->interaction.type == DebugInteract_Tear) {
+#if 0
 			DebugVariableRef* tearPoint = state->interaction.ref;
 			DebugVariableRef* oldParent = tearPoint->parent;
 			V2* treePosition = &state->interaction.state.relevantTree->pos;
@@ -831,11 +917,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 					}
 					prevChild = child;
 				}
-				DebugVariableContext context = BeginDebugVariableTree(state, "NewUserTree", mousePos);
+				DebugVariableContext context = BeginDebugVariableTree(state, state->mainArena, "NewUserTree", mousePos);
 				DebugTree* dst = context.tree;
-				dst->next = state->UITree;
-				state->UITree = dst;
-
 				dst->root = tearPoint;
 				tearPoint->next = 0;
 				tearPoint->parent = 0;
@@ -846,6 +929,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				state->interaction.state.startBoundingBox.max.Y 
 			};
 			state->interaction.state.pos.actual = treePosition;
+#endif
 		}
 	}
 	
@@ -864,7 +948,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		case DebugInteract_DragIncrease: {
-			var->fl32 += 0.001f * dMouse.Y;
+			var->data_f32 += 0.001f * dMouse.Y;
 		} break;
 		case DebugInteract_Resize: {
 			f32 newMaxX = Maximum(mousePos.X, var->profiler.rect.min.X + 10.f);
@@ -887,7 +971,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->selectedRecord = state->hotRecord;
 	}
 
-	if (QueryDebugVariable(state, DebugVarQuery_ShowDebugInteractions)->boolean) {
+#if 0
+	if (QueryDebugVariable(state, DebugVarQuery_ShowDebugInteractions)->data_bool) {
 		char buffer[256];
 		const char* interaction = "Unknown";
 		switch (state->interaction.type) {
@@ -919,8 +1004,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			sprintf_s(at, end - at, ": dMouse: %f %f", dMouse.X, dMouse.Y);
 		}
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-		
 	}
+#endif
 
 	// What to do at the END of interaction
 	bool interactionEnded = false;
@@ -1022,11 +1107,13 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 		DebugRenderLine(state, "Failed Compilation", state->fontContext, V4{ 1, 1, 1, 1 });
 	}
 	DebugInteract(state, mousePos, controller);
-	if (QueryDebugVariable(state, DebugVarQuery_ShowDebugEvents)->boolean) {
+#if 0
+	if (QueryDebugVariable(state, DebugVarQuery_ShowDebugEvents)->data_bool) {
 		char buffer[256];
 		sprintf_s(buffer, 256, "events in frame 0: %d", debugGlobalState->debugEventsCount[0]);
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 	}
+#endif
 
 	Entity entity = {};
 	entity.faceDir = 23.f;
@@ -1063,9 +1150,11 @@ extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory, BitmapData& r
 	if (state->compilationHandle.state == CmdState_Running) {
 		Platform->SystemGetCommandState(state->compilationHandle);
 	}
-	if (state->profilerPause->var->boolean) {
+#if 0
+	if (state->profilerPause->var->data_bool) {
 		return 0;
 	}
+#endif
 	DebugCollateEvents(state);
 	u32 frameWriteIndex = u4(debugGlobalState->frameAndEventIndex >> 32);
 	DebugFrameInfo* result = state->frames + frameWriteIndex;

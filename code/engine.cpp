@@ -1291,7 +1291,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	f32 originalCameraDistance = renderGroup.projection.camera.distanceToTarget;
 	//NOTE: Change this to change debug view
 #if DEBUGUI_CameraZoomout
-	renderGroup.projection.camera.distanceToTarget = QueryDebugVariable(DebugVarQuery_CameraZoomoutValue)->fl32;
+#if 0
+	renderGroup.projection.camera.distanceToTarget = QueryDebugVariable(DebugVarQuery_CameraZoomoutValue)->data_f32;
+#endif
 #endif
 
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
@@ -1473,6 +1475,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		EntityBasis basis = {};
 		basis.center = controller.mouse / renderGroup.projection.metersToPixels;
 		basis.size = V2{ 200.0f, 200.0f };
+		Entity* hotEntity = 0;
 
 		for (u32 volumeIndex = 0; volumeIndex < entity->collision->volumeCount; volumeIndex++) {
 			CollisionVolume* volume = entity->collision->volumes + volumeIndex;
@@ -1485,11 +1488,30 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			V4 color = V4{ 1, 0, 1, layerAlpha };
 			if (IsInRectangle(volumeRect, mousePos.XY)) {
 				color = V4{ 1, 1, 0, layerAlpha };
+				hotEntity = entity;
 			}
 			PushRectBorders(renderGroup, center, volume->size.XY, color, 0.05f);
 #if 0
 			PushRect(renderGroup, mousePos, V2{1.f, 1.f}, V2{ 0, 0 }, V4{ 1, 0, 0, 1 });
 #endif
+		}
+		if (hotEntity) {
+			DEBUG_BEGIN_DATA_BLOCK(HotEntity);
+			DEBUG_DATA(u32, hotEntity->flags);
+			//DEBUG_DATA(hotEntity->collision);
+			DEBUG_DATA(f32, hotEntity->distanceRemaining);
+			DEBUG_DATA(f32, hotEntity->faceDir);
+			DEBUG_DATA(u32, hotEntity->highEntityIndex);
+			//DEBUG_DATA(hotEntity->hitPoints);
+			DEBUG_DATA(V3, hotEntity->pos);
+			DEBUG_DATA(u32, hotEntity->storageIndex);
+			//DEBUG_DATA(hotEntity->sword);
+			DEBUG_DATA(f32, hotEntity->timeRemaining);
+			DEBUG_DATA(u32, hotEntity->type);
+			DEBUG_DATA(V3, hotEntity->vel);
+			DEBUG_DATA(V3, hotEntity->walkableDim);
+			//DEBUG_DATA(hotEntity->worldPos);
+			DEBUG_END_DATA_BLOCK;
 		}
 #endif
 	}

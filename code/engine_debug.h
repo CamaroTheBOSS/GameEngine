@@ -1,5 +1,6 @@
 #include "engine_common.h"
 // ------------------- DEBUG VARIABLES --------------------
+#if 0
 enum DebugVarQueryName {
 	DebugVarQuery_CameraZoomoutValue,
 	DebugVarQuery_ShowDebugInteractions,
@@ -7,10 +8,17 @@ enum DebugVarQueryName {
 
 	DebugVarQuery_Count
 };
+#endif
 
 enum class DebugVarType : u8 {
 	Bool,
 	Float,
+	U32,
+	I32,
+	Vec2,
+	Vec3,
+	Vec4,
+
 	Group,
 	CompilationSwitch,
 	ProfilerUI,
@@ -43,6 +51,7 @@ struct DebugTree {
 	DebugVariableRef* root;
 
 	DebugTree* next;
+	DebugTree* prev;
 };
 
 // TODO: Debug variable bitmap
@@ -50,8 +59,14 @@ struct DebugVariable {
 	DebugVarType type;
 	char* name;
 	union {
-		bool boolean;
-		f32 fl32;
+		bool data_bool;
+		f32 data_f32;
+		u32 data_u32;
+		i32 data_i32;
+		V2 data_V2;
+		V3 data_V3;
+		V4 data_V4;
+
 		DebugProfilerSettings profiler;
 		DebugVariableGroup group;
 	};
@@ -59,6 +74,7 @@ struct DebugVariable {
 
 struct DebugVariableContext {
 	DebugTree* tree;
+	MemoryArena* arena;
 
 	u32 stackCount;
 	DebugVariableRef* stack[64];
@@ -120,8 +136,21 @@ struct DebugRecord {
 };
 
 enum DebugEventType : u8 {
-	Event_BlockBegin,
-	Event_BlockEnd,
+	Event_Unknown,
+
+	Event_Time_BlockBegin,
+	Event_Time_BlockEnd,
+
+	Event_Data_BlockBegin,
+	Event_Data_BlockEnd,
+	Event_Data_u32,
+	Event_Data_f32,
+	Event_Data_i32,
+	Event_Data_V2,
+	Event_Data_V3,
+	Event_Data_V4,
+	Event_Data_Rect2,
+	Event_Data_Rect3,
 };
 
 struct DebugEvent {
@@ -132,6 +161,16 @@ struct DebugEvent {
 	u16 recordIndex;
 	u16 threadId;
 	u64 cycles;
+	union {
+		u32 data_u32;
+		f32 data_f32;
+		i32 data_i32;
+		V2 data_V2;
+		V3 data_V3;
+		V4 data_V4;
+		Rect2 data_Rect2;
+		Rect3 data_Rect3;
+	};
 };
 
 struct DebugProfilerRegion {
@@ -184,13 +223,14 @@ struct OpenDebugEvent {
 	OpenDebugEvent* next;
 };
 
-struct DebugEventStack {
+struct DebugThreadStack {
 	u16 threadId;
-	u8 laneId;
-	OpenDebugEvent* events;
+	u8 laneId; //NOTE: de facto threadId starting from 0,1,2,3,4...N
+	OpenDebugEvent* timeEvents;
+	OpenDebugEvent* dataEvents;
 };
 
-#define RecordDebugEvent(counter, eventtype) {\
+#define RecordDebugEventNoBracket(counter, eventtype) \
 	u64 frameAndEventIndex = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);\
 	u32 frameIndex = frameAndEventIndex >> 32;\
 	u32 eventIndex = frameAndEventIndex & U32_MAX;\
@@ -202,8 +242,9 @@ struct DebugEventStack {
 	event->coreId = u8(coreId);\
 	event->type = eventtype;\
 	event->translationUnit = TRANSLATION_UNIT;\
-	event->threadId = u2(GetFastThreadId());\
-}
+	event->threadId = u2(GetFastThreadId());
+#define RecordDebugEvent(counter, eventtype) { RecordDebugEventNoBracket(counter, eventtype) }
+
 #if INTERNAL_BUILD
 #define TIMED_FUNCTION__(line) TimedBlock block##line(__FILE__, __FUNCTION__, __LINE__, __COUNTER__)
 #define TIMED_FUNCTION_(line) TIMED_FUNCTION__(line)
@@ -214,7 +255,7 @@ struct DebugEventStack {
 	record##lineNumber->file = fileName;															\
 	record##lineNumber->blockName = name;															\
 	record##lineNumber->line = lineNumber;															\
-	RecordDebugEvent(counter, Event_BlockBegin);
+	RecordDebugEvent(counter, Event_Time_BlockBegin);
 #define TIMED_BLOCK_BEGIN_(counter, fileName, name, lineNumber) \
 	TIMED_BLOCK_BEGIN__(counter, fileName, name, lineNumber)
 #define TIMED_BLOCK_BEGIN(blockName)		\
@@ -222,7 +263,7 @@ struct DebugEventStack {
 	TIMED_BLOCK_BEGIN_(counter##blockName, __FILE__, #blockName, __LINE__)
 
 #define TIMED_BLOCK_END_(counter) \
-	RecordDebugEvent(counter, Event_BlockEnd);
+	RecordDebugEvent(counter, Event_Time_BlockEnd);
 #define TIMED_BLOCK_END(blockName) \
 	TIMED_BLOCK_END_(counter##blockName)
 
@@ -234,6 +275,26 @@ struct DebugEventStack {
 	u32 oldFrameIndex = oldFrameAndEventIndex >> 32;\
 	debugGlobalState->debugEventsCount[oldFrameIndex] = oldFrameAndEventIndex & U32_MAX;\
 	MARKUP_FRAME_BEGIN }
+
+#define DEBUG_BEGIN_DATA_BLOCK(Name) { \
+	u16 counter##Name = __COUNTER__; \
+	DebugRecord* record##Name = debugGlobalState->debugRecords[TRANSLATION_UNIT] + counter##Name;	\
+	record##Name->file = __FILE__;															\
+	record##Name->blockName = #Name;															\
+	record##Name->line = __LINE__;	\
+	RecordDebugEvent(counter##Name, Event_Data_BlockBegin) }
+	
+#define DEBUG_END_DATA_BLOCK \
+	RecordDebugEvent(0, Event_Data_BlockEnd)
+#define DEBUG_DATA(type, data) { \
+	u16 counter##Name = __COUNTER__; \
+	DebugRecord* record##Name = debugGlobalState->debugRecords[TRANSLATION_UNIT] + counter##Name;	\
+	record##Name->file = __FILE__;															\
+	record##Name->blockName = #data;															\
+	record##Name->line = __LINE__;	\
+	RecordDebugEventNoBracket(0, Event_Data_##type); \
+	event->data_##type = data; }
+
 #else
 #define TIMED_FUNCTION
 #define TIMED_BLOCK_BEGIN__(...)
@@ -242,6 +303,9 @@ struct DebugEventStack {
 #define TIMED_BLOCK_END(...)
 #define MARKUP_FRAME_BEGIN
 #define MARKUP_FRAME_END
+#define DEBUG_BEGIN_DATA_BLOCK(...)
+#define DEBUG_END_DATA_BLOCK
+#define DEBUG_DATA(...)
 #endif
 
 struct ManualTimedBlock {
@@ -270,4 +334,6 @@ struct FontDrawContext {
 	LoadedFont* font;
 };
 
+#if 0
 DebugVariable* QueryDebugVariable(DebugVarQueryName query);
+#endif

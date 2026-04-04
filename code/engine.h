@@ -86,16 +86,16 @@ struct TransientState {
 struct DebugState {
 	MemoryArena mainArena;
 	MemoryArena collationArena;
-	TemporaryMemory collationScratchBuffer;
 	RenderGroup renderGroup;
 	PlatformQueue* highPriorityQueue;
 
 	// Event Collation
-	u8 eventStacksCount;
-	DebugEventStack* eventStacks;
+	u8 threadStacksCount;
+	DebugThreadStack* threadStacks;
 	OpenDebugEvent* openEventFreeList;
 
-	DebugTree* UITree;
+	DebugTree UISentinel;
+	DebugVariableContext dataBlockContext;
 	DebugVariableRef* compileTimeVariables;
 
 	// Profiler
@@ -115,8 +115,9 @@ struct DebugState {
 	Rect2 overlayBoundaries;
 	LoadedFont* font;
 	
-	DebugVariableHashEntry* variableHash[4096];
+#if 0
 	DebugVariable* querableVariables[DebugVarQuery_Count];
+#endif
 
 	DebugInteraction interaction;
 	DebugInteraction hotInteraction;
