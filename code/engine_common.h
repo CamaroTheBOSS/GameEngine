@@ -80,6 +80,16 @@
 	#define LLVM_MCA_END(name)
 #endif
 
+#define DLINKED_LIST_INIT(sentinel) \
+	(sentinel)->next = sentinel; \
+	(sentinel)->prev = sentinel;
+
+#define DLINKED_LIST_ADD(sentinel, node) \
+	(node)->next = (sentinel)->next; \
+	(node)->prev = sentinel;	\
+	(node)->next->prev = node; \
+	(node)->prev->next = node;
+
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;

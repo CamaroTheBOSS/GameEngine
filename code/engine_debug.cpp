@@ -45,7 +45,7 @@ u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodep
 	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
 	u32 firstKerningIndex = font->codepointToLogicalIndex[firstCodepoint];
 	u32 secondKerningIndex = font->codepointToLogicalIndex[secondCodepoint];
-	Assert((firstKerningIndex != 0 || firstCodepoint == 0) && secondKerningIndex != 0);
+	//Assert((firstKerningIndex != 0 || firstCodepoint == 0) && secondKerningIndex != 0);
 	return font->kerningTable[firstKerningIndex * font->onePastMaxLogicalIndex + secondKerningIndex];
 }
 
@@ -161,7 +161,6 @@ void ResetDebugCollation(DebugState* debugState, u32 frameWriteIndex) {
 	debugState->threadStacks = 0;
 	debugState->selectedFrameIndex = U32_MAX;
 	debugState->selectedRegionIndex = U32_MAX;
-	debugState->selectedRecord = 0;
 	debugState->frameReadIndex = (frameWriteIndex + 1) % MAX_DEBUG_FRAMES;
 	debugState->frames = PushArray(debugState->collationArena, MAX_DEBUG_FRAMES, DebugFrameInfo);
 }
@@ -255,79 +254,79 @@ DebugVariable* _AddDebugVariable(DebugState* state, MemoryArena* arena, const ch
 }
 
 inline
-DebugVariableRef* _AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, DebugVarType type) {
+DebugVariableLink* _AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, DebugVarType type) {
 	DebugVariable* var = _AddDebugVariable(state, context.arena, name, type);
-	DebugVariableRef* ref = PushStructSize(*context.arena, DebugVariableRef);
-	ref->next = 0;
-	ref->var = var;
-	ref->parent = context.stack[context.stackCount];
-	if (ref->parent) {
-		Assert(ref->parent->var->type == DebugVarType::Group);
-		DebugVariableGroup* group = &ref->parent->var->group;
-		ref->next = group->firstChild;
-		group->firstChild = ref;
+	DebugVariableLink* link = PushStructSize(*context.arena, DebugVariableLink);
+	link->next = 0;
+	link->var = var;
+	link->parent = context.stack[context.stackCount];
+	if (link->parent) {
+		Assert(link->parent->var->type == DebugVarType::Group);
+		DebugVariableGroup* group = &link->parent->var->group;
+		link->next = group->firstChild;
+		group->firstChild = link;
 	}
 	else {
-		context.tree->root = ref;
+		context.tree->root = link;
 	}
-	return ref;
+	return link;
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, bool value) {
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Bool);
-	ref->var->data_bool = value;
-	return ref;
+DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, bool value) {
+	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Bool);
+	link->var->data_bool = value;
+	return link;
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, f32 value) {
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Float);
-	ref->var->data_f32 = value;
-	return ref;
+DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, f32 value) {
+	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Float);
+	link->var->data_f32 = value;
+	return link;
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, i32 value) {
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::I32);
-	ref->var->data_i32 = value;
-	return ref;
+DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, i32 value) {
+	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::I32);
+	link->var->data_i32 = value;
+	return link;
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, u32 value) {
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::U32);
-	ref->var->data_u32 = value;
-	return ref;
+DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, u32 value) {
+	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::U32);
+	link->var->data_u32 = value;
+	return link;
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V2 value) {
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec2);
-	ref->var->data_V2 = value;
-	return ref;
+DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V2 value) {
+	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec2);
+	link->var->data_V2 = value;
+	return link;
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V3 value) {
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec3);
-	ref->var->data_V3 = value;
-	return ref;
+DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V3 value) {
+	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec3);
+	link->var->data_V3 = value;
+	return link;
 }
 
 inline
-DebugVariableRef* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V4 value) {
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec4);
-	ref->var->data_V4 = value;
-	return ref;
+DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V4 value) {
+	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec4);
+	link->var->data_V4 = value;
+	return link;
 }
 
 inline
-DebugVariableRef* BeginDebugVariableGroup(DebugState* state, DebugVariableContext& context, const char* name) {
-	DebugVariableRef* ref = _AddReferencedDebugVariable(state, context, name, DebugVarType::Group);
-	ref->var->group = {};
-	context.stack[++context.stackCount] = ref;
-	return ref;
+DebugVariableLink* BeginDebugVariableGroup(DebugState* state, DebugVariableContext& context, const char* name) {
+	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Group);
+	link->var->group = {};
+	context.stack[++context.stackCount] = link;
+	return link;
 }
 
 inline
@@ -348,20 +347,20 @@ DebugVariableContext BeginDebugVariableTree(DebugState* state, MemoryArena& aren
 }
 
 inline
-void MakeVariableCompiled(DebugState* state, DebugVariableRef* ref) {
-	Assert(ref->var);
-	DebugVariableRef* newRef = PushStructSize(state->mainArena, DebugVariableRef);
-	newRef->var = ref->var;
+void MakeVariableCompiled(DebugState* state, DebugVariableLink* link) {
+	Assert(link->var);
+	DebugVariableLink* newRef = PushStructSize(state->mainArena, DebugVariableLink);
+	newRef->var = link->var;
 	newRef->parent = 0;
 	newRef->next = state->compileTimeVariables;
 	state->compileTimeVariables = newRef;
 }
 
 inline
-void MakeVariableQuerable(DebugState* state, DebugVariableRef* ref, DebugVarQueryName queryName) {
-	Assert(ref->var);
+void MakeVariableQuerable(DebugState* state, DebugVariableLink* link, DebugVarQueryName queryName) {
+	Assert(link->var);
 	Assert(state->querableVariables[queryName] == 0);
-	state->querableVariables[queryName] = ref->var;
+	state->querableVariables[queryName] = link->var;
 }
 
 
@@ -372,6 +371,23 @@ void EndDebugVariableGroup(DebugVariableContext& context) {
 }
 #endif
 
+//inline
+//DebugVariableLink* AddCollationDebugLinkGroup(DebugState* state, const char* name, DebugEvent* event, DebugVariableLink* parent) {
+//	DebugVariableLink* link = PushStructSize(state->collationArena, DebugVariableLink);
+//	link->next = 0;
+//	link->event = event;
+//	link->parent = parent;
+//	if (parent) {
+//		DebugVariableGroup* group = &link->parent->event
+//		link->next = group->firstChild;
+//		group->firstChild = link;
+//	}
+//	else {
+//		context.tree->root = link;
+//	}
+//	return link;
+//}
+
 inline 
 DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 	if (debugGlobalMemory->debugMemorySize == 0) {
@@ -380,9 +396,6 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
 	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
 	if (!state->isInitialized) {
-		debugGlobalState->debugRecordsCount[0] = debugRecordsCount_Main;
-		debugGlobalState->debugRecordsCount[1] = debugRecordsCount_Optimized;
-
 		TransientState* tranState = ptrcast(TransientState, debugGlobalMemory->transientMemory);
 		Assert(tranState->isInitialized);
 		InitializeArena(
@@ -400,9 +413,6 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 #if 0
 		state->compilationHandle.state = CmdState_Completed;
 #endif
-		state->UISentinel.next = &state->UISentinel;
-		state->UISentinel.prev = &state->UISentinel;
-
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 #if 0
 		DebugVariableContext context = BeginDebugVariableTree(state, state->mainArena, "Default", leftTopCorner);
@@ -423,10 +433,11 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		context = BeginDebugVariableTree(state, state->mainArena, "Default", leftTopCorner + V2{100.f, 0});
 		BeginDebugVariableGroup(state, context, "Profiler");
 		state->profilerPause = AddReferencedDebugVariable(state, context, "Pause profiler", false);
-		DebugVariableRef* profilerUI = _AddReferencedDebugVariable(state, context, "ProfilerUI", DebugVarType::ProfilerUI);
+		DebugVariableLink* profilerUI = _AddReferencedDebugVariable(state, context, "ProfilerUI", DebugVarType::ProfilerUI);
 		profilerUI->var->profiler.rect = GetRectFromMinMax(V2{ -450, -250 }, V2{ 450, -50 });
 		EndDebugVariableGroup(context);
 #endif
+		state->frameMemory = BeginTempMemory(state->collationArena);
 		BeginRendering(state->renderGroup);
 		state->isInitialized = true;
 	}
@@ -446,7 +457,6 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		V2 leftUpCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 		state->fontContext = InitializeFontDrawContext(state->font, 0.15f, lineAdvance, leftUpCorner - V2{ 0, lineAdvance });
 	}
-	state->hotRecord = 0;
 	state->hotFrameIndex = U32_MAX;
 	state->hotRegionIndex = U32_MAX;
 	state->nextHotInteraction = {};
@@ -470,18 +480,6 @@ DebugThreadStack* GetDebugStackForThread(DebugState* state, u16 threadId) {
 	*stack->timeEvents = {};
 	*stack->dataEvents = {};
 	return stack;
-}
-
-inline
-DebugRecord* GetDebugRecord(u32 tUnit, u32 recordIndex) {
-	DebugRecord* record = debugGlobalState->debugRecords[tUnit] + recordIndex;
-	return record;
-}
-
-inline
-DebugRecord* GetDebugRecordFor(DebugEvent* event) {
-	DebugRecord* record = debugGlobalState->debugRecords[event->translationUnit] + event->recordIndex;
-	return record;
 }
 
 internal
@@ -508,10 +506,66 @@ void PopFromEventStack(DebugState* state, OpenDebugEvent** stack) {
 	state->openEventFreeList = block;
 }
 
+struct DebugVariableDefinitionContext {
+	u32 stackDepth;
+	DebugVariableLink* parentStack[64];
+};
+
+internal
+DebugVariableLink* AddCollationVariableLink(DebugState* state, DebugVariableDefinitionContext& context, DebugEvent* event) {
+	DebugVariableLink* link = PushStructSize(state->collationArena, DebugVariableLink);
+	DebugVariableLink* parent = context.parentStack[context.stackDepth];
+	ZeroStruct(*link);
+	link->parent = parent;
+	link->event = event;
+	Assert(event);
+	DLINKED_LIST_INIT(link);
+	if (parent) {
+		if (!parent->children) {
+			parent->children = PushStructSize(state->collationArena, DebugVariableLink);
+			ZeroStruct(*parent->children);
+			DLINKED_LIST_INIT(parent->children);
+		}
+		DLINKED_LIST_ADD(parent->children, link);
+	}
+	return link;
+}
+
+internal
+DebugVariableLink* BeginCollationVariableLinkGroup(DebugState* state, DebugVariableDefinitionContext& context, DebugEvent* event) {
+	Assert(context.stackDepth < ArrayCount(context.parentStack) - 1);
+	DebugVariableLink* link = AddCollationVariableLink(state, context, event);
+	context.parentStack[++context.stackDepth] = link;
+	return link;
+}
+
+internal
+void EndCollationVariableLinkGroup(DebugState* state, DebugVariableDefinitionContext& context) {
+	Assert(context.stackDepth > 0 || !"Tried to enclose group when none were opened");
+	context.stackDepth--;
+
+	if (context.stackDepth == 0) {
+
+	}
+}
+internal void DebugRenderVariablesMenu(DebugState*, V2);
 internal
 void DebugCollateEvents(DebugState* debugState) {
 	TIMED_FUNCTION;
-	TemporaryMemory stackMemory = BeginTempMemory(debugState->collationArena);
+
+	EndTempMemory(debugState->frameMemory);
+	debugState->frameMemory = BeginTempMemory(debugState->collationArena);
+	debugState->UISentinel = {};
+	DLINKED_LIST_INIT(&debugState->UISentinel);
+	DebugTree* dataTree = PushStructSize(debugState->collationArena, DebugTree);
+	*dataTree = {};
+	dataTree->pos = V2{ debugState->overlayBoundaries.min.X, debugState->overlayBoundaries.max.Y };
+	DLINKED_LIST_ADD(&debugState->UISentinel, dataTree);
+	DLINKED_LIST_INIT(&dataTree->root);
+	DebugVariableDefinitionContext context = {};
+	context.parentStack[0] = &dataTree->root;
+
+
 	debugState->threadStacks = PushArray(debugState->collationArena, MAX_DEBUG_THREADS, DebugThreadStack);
 	debugState->threadStacksCount = 0;
 	debugState->openEventFreeList = 0;
@@ -542,10 +596,7 @@ void DebugCollateEvents(DebugState* debugState) {
 				OpenDebugEvent* parentBlock = block->next;
 				DebugEvent* openEvent = block->event;
 				if (openEvent) {
-					if (openEvent->recordIndex == event->recordIndex &&
-						openEvent->translationUnit == event->translationUnit &&
-						openEvent->threadId == event->threadId)
-					{
+					if (openEvent->threadId == event->threadId) {
 						f32 minT = f4(openEvent->cycles - startCycles) * scale;
 						f32 maxT = f4(event->cycles - startCycles) * scale;
 						f32 thresholdT = 0.01f;
@@ -555,18 +606,14 @@ void DebugCollateEvents(DebugState* debugState) {
 							DebugProfilerRegion* region = frameInfo->regions + regionIndex;
 							// TODO: If minT < 0 -> that means openEvent started on one of the previous frames.
 							// Do something about it!
-							if (event->recordIndex == 2 && event->translationUnit == 2) {
-								int breakhere = 5;
-							}
-							region->recordIndex = event->recordIndex;
-							region->translationUnit = event->translationUnit;
 							region->laneId = stack->laneId;
-							region->parentRecord = 0;
+							region->parentEventId = 0;
 							if (parentBlock->event) {
-								region->parentRecord = GetDebugRecordFor(parentBlock->event);
+								region->parentEventId = parentBlock->event->blockName;
 								Assert(parentBlock->childRegionCount < ArrayCount(parentBlock->childRegionIndexes));
 								parentBlock->childRegionIndexes[parentBlock->childRegionCount++] = regionIndex;
 							}
+							region->regionName = block->event->blockName;
 							region->minT = minT;
 							region->maxT = maxT;
 							region->durationCycles = u4(openEvent->cycles - event->cycles);
@@ -582,50 +629,23 @@ void DebugCollateEvents(DebugState* debugState) {
 			} break;
 			case Event_Data_BlockBegin: {
 				PushToEventStack(debugState, &stack->dataEvents, event);
-				DebugRecord* record = GetDebugRecordFor(event);
-				//BeginDebugVariableGroup(debugState, debugState->dataBlockContext, record->blockName);
+				BeginCollationVariableLinkGroup(debugState, context, event);
 			} break;
 			case Event_Data_BlockEnd: {
 				PopFromEventStack(debugState, &stack->dataEvents);
-				//EndDebugVariableGroup(debugState->dataBlockContext);
+				EndCollationVariableLinkGroup(debugState, context);
 			} break;
-			case Event_Data_u32: {
-				DebugRecord* record = GetDebugRecordFor(event);
-				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_u32);
-			} break;
-			case Event_Data_i32: {
-				DebugRecord* record = GetDebugRecordFor(event);
-				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_i32);
-			} break;
-			case Event_Data_f32: {
-				DebugRecord* record = GetDebugRecordFor(event);
-				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_f32);
-			} break;
-			case Event_Data_V2: {
-				DebugRecord* record = GetDebugRecordFor(event);
-				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_V2);
-			} break;
-			case Event_Data_V3: {
-				DebugRecord* record = GetDebugRecordFor(event);
-				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_V3);
-			} break;
+			case Event_Data_u32:
+			case Event_Data_i32:
+			case Event_Data_f32:
+			case Event_Data_V2:
+			case Event_Data_V3:
 			case Event_Data_V4: {
-				DebugRecord* record = GetDebugRecordFor(event);
-				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName, event->data_V4);
+				AddCollationVariableLink(debugState, context, event);
 			} break;
-			case Event_Data_Rect2: {
-				//DebugRecord* record = GetDebugRecordFor(event);
-				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName);
-			} break;
-			case Event_Data_Rect3: {
-				//DebugRecord* record = GetDebugRecordFor(event);
-				//AddReferencedDebugVariable(debugState, debugState->dataBlockContext, record->blockName);
-			} break;
-
 			}
 		}
 	}
-	EndTempMemory(stackMemory);
 }
 
 enum DebugVarToTextFlags {
@@ -643,19 +663,36 @@ u64 DebugEventToText(DebugEvent* event, char* buffer, u32 size, u32 flags) {
 	}
 	const char* colon = (flags & DebugVarToText_AddColon) ? ":" : "";
 
-	DebugRecord* record = GetDebugRecordFor(event);
 	switch (event->type) {
 	case Event_Data_bool: {
-		at += sprintf_s(at, end - at, "%s%s %d", record->blockName, colon, event->data_bool);
+		at += sprintf_s(at, end - at, "%s%s %d", event->blockName, colon, event->data_bool);
+	} break;
+	case Event_Data_i32: {
+		at += sprintf_s(at, end - at, "%s%s %d", event->blockName, colon, event->data_i32);
+	} break;
+	case Event_Data_u32: {
+		at += sprintf_s(at, end - at, "%s%s %d", event->blockName, colon, event->data_u32);
 	} break;
 	case Event_Data_f32: {
-		at += sprintf_s(at, end - at, "%s%s %f", record->blockName, colon, event->data_f32);
+		at += sprintf_s(at, end - at, "%s%s %f", event->blockName, colon, event->data_f32);
 		if (flags & DebugVarToText_AddFloatSuffix && (end - at) > 0) {
 			*at++ = 'f';
 		}
 	} break;
-	case Event_Group: {
-		at += sprintf_s(at, end - at, "%s%s", record->blockName, colon);
+	case Event_Data_V2: {
+		at += sprintf_s(at, end - at, "%s%s {%2.f, %2.f}", event->blockName, colon,
+			event->data_V2.X, event->data_V2.Y);
+	} break;
+	case Event_Data_V3: {
+		at += sprintf_s(at, end - at, "%s%s {%2.f, %2.f, %2.f}", event->blockName, colon,
+			event->data_V3.X, event->data_V3.Y, event->data_V3.Z);
+	} break;
+	case Event_Data_V4: {
+		at += sprintf_s(at, end - at, "%s%s {%2.f, %2.f, %2.f, %2.f}", event->blockName, colon,
+			event->data_V4.X, event->data_V4.Y, event->data_V4.Z, event->data_V4.W);
+	} break;
+	case Event_Data_BlockBegin: {
+		at += sprintf_s(at, end - at, "%s%s", event->blockName, colon);
 	} break;
 	}
 	if (flags & DebugVarToText_AddNewLine && (end - at) > 0) {
@@ -669,8 +706,8 @@ void WriteDebugConfig(DebugState* state) {
 	char buffer[4096];
 	char* at = buffer;
 	char* end = buffer + sizeof(buffer);
-	for (DebugVariableRef* ref = state->compileTimeVariables; ref; ref = ref->next) {
-		DebugVariable* var = ref->var;
+	for (DebugVariableLink* link = state->compileTimeVariables; link; link = link->next) {
+		DebugVariable* var = link->var;
 		at += DebugVariableToText(var, at, u4(end - at),
 			DebugVarToText_ConfigPrefix |
 			DebugVarToText_AddFloatSuffix |
@@ -712,7 +749,7 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 		DebugFrameInfo* frameInfo = state->frames + frameIndex;
 		for (u32 regionIndex = 0; regionIndex < frameInfo->regionsCount; regionIndex++) {
 			DebugProfilerRegion* region = frameInfo->regions + regionIndex;
-			if (state->selectedRecord != region->parentRecord) {
+			if (state->selectedEventId != region->parentEventId) {
 				continue;
 			}
 			if (state->selectedFrameIndex != U32_MAX &&
@@ -732,17 +769,12 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 				(maxT - minT) * profilerHeight
 			};
 			Rect2 rectangle = GetRectFromCenterDim(spanCenter.XY, spanSize);
-			u32 colorIndex = (13 * region->translationUnit + region->recordIndex) % ArrayCount(colors);
+			u32 colorIndex = u4(13 * reinterpret_cast<uptr>(region->regionName)) % ArrayCount(colors);
 			bool isHovered = IsInRectangle(rectangle, mousePos);
 			if (isHovered) {
-				DebugRecord* record = debugGlobalState->debugRecords[region->translationUnit] + region->recordIndex;
-				if (record->blockName) {
+				if (region->regionName) {
 					char buffer[256];
-					sprintf_s(buffer, "%s | %s:%d",
-						record->blockName,
-						record->file,
-						record->line
-					);
+					sprintf_s(buffer, "%s", region->regionName);
 					V4 color = V4{ 1, 1, 1, 1 };
 					f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
 					V2 textPos = mousePos + V2{ 0, lineAdvance };
@@ -755,7 +787,7 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 					);
 					DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
 				}
-				state->hotRecord = record;
+				state->hotRegionName = region->regionName;
 				state->hotRegionIndex = regionIndex;
 				state->hotFrameIndex = frameIndex;
 			}
@@ -785,13 +817,13 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 }
 
 inline
-bool IsVariableRefHot(DebugState* state, DebugVariableRef* ref) {
-	return state->hotInteraction.ref == ref;
+bool IsVariableHot(DebugState* state, DebugVariableLink* link) {
+	return state->hotInteraction.link == link;
 }
 
 inline
-void SetNextHotInteraction(DebugState* state, DebugVariableRef* ref, Rect2 boundingBox, DebugTree* tree) {
-	state->nextHotInteraction.ref = ref;
+void SetNextHotInteraction(DebugState* state, DebugVariableLink* link, Rect2 boundingBox, DebugTree* tree) {
+	state->nextHotInteraction.link = link;
 	state->nextHotInteraction.state.startBoundingBox = boundingBox;
 	state->nextHotInteraction.state.relevantTree = tree;
 }
@@ -800,17 +832,22 @@ internal
 void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	for (DebugTree* tree = state->UISentinel.next; tree != &state->UISentinel; tree = tree->next) {
 		FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->pos);
-		DebugVariableRef* parent = 0;
-		DebugVariableRef* node = tree->root;
+		DebugVariableLink* parent = &tree->root;
+		if (!parent->children) {
+			continue;
+		}
+		DebugVariableLink* sentinel = parent->children;
+		DebugVariableLink* node = sentinel->next;
+
 		u32 depth = 0;
-		while (node) {
+		while (node != sentinel) {
 			V4 itemColor = V4{ 1, 1, 1, 1 };
 			V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
 
 			DebugEvent* event = node->event;
 			char buffer[256] = {};
 			char* end = buffer + sizeof(buffer);
-			bool isHot = IsVariableRefHot(state, node);
+			bool isHot = IsVariableHot(state, node);
 			if (isHot) {
 				itemColor = hotItemColor;
 			}
@@ -835,24 +872,25 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				if (IsInRectangle(bb, mousePos)) {
 					SetNextHotInteraction(state, node, bb, tree);
 				}
-				PushRect(state->renderGroup, AddRadius(bb, V2{4.f, 4.f}), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
+				PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
 				DebugRenderLine(state, buffer, fontContext, itemColor);
 			}
-			if (event->type == Event_Group && event->data_bool/*var->group.expanded*/) {
+			if (node->children/*var->group.expanded*/) {
 				parent = node;
-				//node = var->group.firstChild;
-				node = node->next; // TODO: Change this to traverse tree correctly
+				sentinel = node->children;
+				node = sentinel->next;
 				depth += 1;
 			}
-			else if (node) {
+			else if (node != sentinel) {
 				node = node->next;
 			}
-			if (!node && parent) {
+			while (node == sentinel && parent) {
 				node = parent->next;
-				if (node) {
-					parent = node->parent;
-					depth -= 1;
+				parent = node->parent;
+				if (parent) {
+					sentinel = parent->children;
 				}
+				depth -= 1;
 			}
 			if (!parent) {
 				break;
@@ -863,9 +901,9 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	// Set hot interaction
-	if (state->nextHotInteraction.ref) {
+	if (state->nextHotInteraction.link) {
 		state->nextHotInteraction.state.startMousePos = mousePos;
-		DebugEvent* event = state->nextHotInteraction.ref->event;
+		DebugEvent* event = state->nextHotInteraction.link->event;
 		switch (event->type) {
 		case Event_Group:
 		case Event_Data_bool: {
@@ -904,12 +942,12 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->interacting = true;
 		if (state->interaction.type == DebugInteract_Tear) {
 #if 0
-			DebugVariableRef* tearPoint = state->interaction.ref;
-			DebugVariableRef* oldParent = tearPoint->parent;
+			DebugVariableLink* tearPoint = state->interaction.link;
+			DebugVariableLink* oldParent = tearPoint->parent;
 			V2* treePosition = &state->interaction.state.relevantTree->pos;
 			if (oldParent) {
-				DebugVariableRef* prevChild = 0;
-				for (DebugVariableRef* child = oldParent->var->group.firstChild; child; child = child->next) {
+				DebugVariableLink* prevChild = 0;
+				for (DebugVariableLink* child = oldParent->var->group.firstChild; child; child = child->next) {
 					if (child == tearPoint) {
 						if (prevChild) {
 							prevChild->next = child->next;
@@ -938,8 +976,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	}
 	
 	// What to do DURING the interaction (for interactions taking more time than one frame)
-	if (state->interacting && state->interaction.ref) {
-		DebugEvent* event = state->interaction.ref->event;
+	if (state->interacting && state->interaction.link) {
+		DebugEvent* event = state->interaction.link->event;
 		V2 dMouse = mousePos - state->interaction.state.startMousePos;
 		switch (state->interaction.type) {
 		case DebugInteract_Compile:
@@ -967,12 +1005,16 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		}
 	}
 	if (WasPressed(controller.B.mouseLeft)) {
-		state->selectedRecord = state->hotRecord;
+#if 0
+		state->selected = state->hotRecord;
+#endif
 	}
 	if (WasPressed(controller.B.mouseMiddle)) {
+#if 0
 		state->selectedRegionIndex = state->hotRegionIndex;
 		state->selectedFrameIndex = state->hotFrameIndex;
 		state->selectedRecord = state->hotRecord;
+#endif
 	}
 
 #if 0
@@ -1002,7 +1044,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		V2 dMouse = mousePos - state->interaction.state.startMousePos;
 		char* at = buffer;
 		char* end = buffer + sizeof(buffer);
-		at += sprintf_s(at, end - at, "%s with %s", interaction, state->interaction.ref ? state->interaction.ref->var->name : "none");
+		at += sprintf_s(at, end - at, "%s with %s", interaction, state->interaction.link ? state->interaction.link->var->name : "none");
 		at += sprintf_s(at, end - at, "mousePos: %f %f", mousePos.X, mousePos.Y);
 		if (state->interacting) {
 			sprintf_s(at, end - at, ": dMouse: %f %f", dMouse.X, dMouse.Y);
@@ -1123,14 +1165,14 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 	}
 #endif
 
-	Entity entity = {};
+	/*Entity entity = {};
 	entity.faceDir = 23.f;
 	entity.pos = V3{ 1, 2, 3 };
 	entity.highEntityIndex = 23;
 	entity.flags = 32;
 	entity.walkableDim = V3{ 10, 11, 12 };
 	size_t off = offsetof(Entity, flags);
-	DebugDumpStruct(state, MembersOf_Entity, ArrayCount(MembersOf_Entity), &entity);
+	DebugDumpStruct(state, MembersOf_Entity, ArrayCount(MembersOf_Entity), &entity);*/
 	
 	
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);

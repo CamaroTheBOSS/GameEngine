@@ -86,6 +86,7 @@ struct TransientState {
 struct DebugState {
 	MemoryArena mainArena;
 	MemoryArena collationArena;
+	TemporaryMemory frameMemory;
 	RenderGroup renderGroup;
 	PlatformQueue* highPriorityQueue;
 
@@ -100,13 +101,13 @@ struct DebugState {
 	u32 frameReadIndex;
 	u32 frameWriteIndex;
 	DebugFrameInfo* frames;
-	DebugRecord* hotRecord;
+	const char* hotRegionName;
 	u32 hotRegionIndex;
 	u32 hotFrameIndex;
-	DebugRecord* selectedRecord;
+	const char* selectedEventId;
 	u32 selectedRegionIndex;
 	u32 selectedFrameIndex;
-	DebugVariableRef* profilerPause;
+	DebugVariableLink* profilerPause;
 
 	FontDrawContext fontContext;
 	Rect2 overlayBoundaries;

@@ -1242,7 +1242,6 @@ int CALLBACK WinMain(
 		Win32ReloadGameCode(gameCode);
 #if INTERNAL_BUILD
 		debugGlobalState = gameCode.DebugInit(programMemory);
-		debugGlobalState->debugRecordsCount[TRANSLATION_UNIT] = DebugRecordsCount_Platform;
 #endif
 
 		// TODO: ResetInput for Gamepad as well!
