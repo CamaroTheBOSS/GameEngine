@@ -363,14 +363,14 @@ void MakeVariableQuerable(DebugState* state, DebugVariableRef* ref, DebugVarQuer
 	Assert(state->querableVariables[queryName] == 0);
 	state->querableVariables[queryName] = ref->var;
 }
-#endif
+
 
 inline
 void EndDebugVariableGroup(DebugVariableContext& context) {
 	Assert(context.stackCount > 0 || !"Tried to enclose group when none were opened");
 	context.stackCount--;
 }
-
+#endif
 
 inline 
 DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
@@ -396,8 +396,10 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		state->highPriorityQueue = tranState->highPriorityQueue;
 		ResetDebugCollation(state, frameWriteIndex);
 
-		state->compilationHandle.state = CmdState_Completed;
 		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
+#if 0
+		state->compilationHandle.state = CmdState_Completed;
+#endif
 		state->UISentinel.next = &state->UISentinel;
 		state->UISentinel.prev = &state->UISentinel;
 
@@ -633,7 +635,7 @@ enum DebugVarToTextFlags {
 	DebugVarToText_AddColon = 0x8,
 };
 
-u64 DebugVariableToText(DebugVariable* var, char* buffer, u32 size, u32 flags) {
+u64 DebugEventToText(DebugEvent* event, char* buffer, u32 size, u32 flags) {
 	char* at = buffer;
 	char* end = buffer + size;
 	if (flags & DebugVarToText_ConfigPrefix) {
@@ -641,19 +643,19 @@ u64 DebugVariableToText(DebugVariable* var, char* buffer, u32 size, u32 flags) {
 	}
 	const char* colon = (flags & DebugVarToText_AddColon) ? ":" : "";
 
-	switch (var->type) {
-	case DebugVarType::Bool: {
-		at += sprintf_s(at, end - at, "%s%s %d", var->name, colon, var->data_bool);
+	DebugRecord* record = GetDebugRecordFor(event);
+	switch (event->type) {
+	case Event_Data_bool: {
+		at += sprintf_s(at, end - at, "%s%s %d", record->blockName, colon, event->data_bool);
 	} break;
-	case DebugVarType::Float: {
-		at += sprintf_s(at, end - at, "%s%s %f", var->name, colon, var->data_f32);
+	case Event_Data_f32: {
+		at += sprintf_s(at, end - at, "%s%s %f", record->blockName, colon, event->data_f32);
 		if (flags & DebugVarToText_AddFloatSuffix && (end - at) > 0) {
 			*at++ = 'f';
 		}
 	} break;
-	case DebugVarType::Group:
-	case DebugVarType::CompilationSwitch: {
-		at += sprintf_s(at, end - at, "%s%s", var->name, colon);
+	case Event_Group: {
+		at += sprintf_s(at, end - at, "%s%s", record->blockName, colon);
 	} break;
 	}
 	if (flags & DebugVarToText_AddNewLine && (end - at) > 0) {
@@ -662,6 +664,7 @@ u64 DebugVariableToText(DebugVariable* var, char* buffer, u32 size, u32 flags) {
 	return at - buffer;
 }
 
+#if 0
 void WriteDebugConfig(DebugState* state) {
 	char buffer[4096];
 	char* at = buffer;
@@ -676,6 +679,7 @@ void WriteDebugConfig(DebugState* state) {
 	}
 	debugGlobalMemory->debug.WriteFile(DEBUG_CONFIG_PATH, buffer, at - buffer);
 }
+#endif
 
 void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 	f32 profilerPosY = boundaries.min.Y;
@@ -803,16 +807,17 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 			V4 itemColor = V4{ 1, 1, 1, 1 };
 			V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
 
-			DebugVariable* var = node->var;
+			DebugEvent* event = node->event;
 			char buffer[256] = {};
 			char* end = buffer + sizeof(buffer);
 			bool isHot = IsVariableRefHot(state, node);
 			if (isHot) {
 				itemColor = hotItemColor;
 			}
-			if (var->type == DebugVarType::ProfilerUI) {
-				DebugRenderProfilerUI(state, var->profiler.rect, mousePos);
-				Rect2 resizeAnchor = GetRectFromCenterDim(var->profiler.rect.max, V2{ 8, 8 });
+			if (event->type == Event_ProfilerUI) {
+				Rect2 boundaries = event->data_Rect2;
+				DebugRenderProfilerUI(state, boundaries, mousePos);
+				Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
 				// TODO: Should this condition be included in SetNextHotInteraction?
 				if (IsInRectangle(resizeAnchor, mousePos)) {
 					SetNextHotInteraction(state, node, resizeAnchor, tree);
@@ -825,7 +830,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 					*at++ = ' ';
 					*at++ = ' ';
 				}
-				DebugVariableToText(var, at, u4(end - at), DebugVarToText_AddColon);
+				DebugEventToText(event, at, u4(end - at), DebugVarToText_AddColon);
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
 				if (IsInRectangle(bb, mousePos)) {
 					SetNextHotInteraction(state, node, bb, tree);
@@ -833,9 +838,10 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				PushRect(state->renderGroup, AddRadius(bb, V2{4.f, 4.f}), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
 				DebugRenderLine(state, buffer, fontContext, itemColor);
 			}
-			if (var->type == DebugVarType::Group && var->group.expanded) {
+			if (event->type == Event_Group && event->data_bool/*var->group.expanded*/) {
 				parent = node;
-				node = var->group.firstChild;
+				//node = var->group.firstChild;
+				node = node->next; // TODO: Change this to traverse tree correctly
 				depth += 1;
 			}
 			else if (node) {
@@ -859,30 +865,28 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	// Set hot interaction
 	if (state->nextHotInteraction.ref) {
 		state->nextHotInteraction.state.startMousePos = mousePos;
-		switch (state->nextHotInteraction.ref->var->type) {
-		case DebugVarType::Bool: {
+		DebugEvent* event = state->nextHotInteraction.ref->event;
+		switch (event->type) {
+		case Event_Group:
+		case Event_Data_bool: {
 			if (WasPressed(controller.B.mouseLeft)) {
 				state->nextHotInteraction.type = DebugInteract_Toggle;
-				state->nextHotInteraction.state.boolean = &state->nextHotInteraction.ref->var->data_bool;
+				state->nextHotInteraction.state.boolean = &event->data_bool;
 			}
 		} break;
-		case DebugVarType::Group: {
-			if (WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.type = DebugInteract_Toggle;
-				state->nextHotInteraction.state.boolean = &state->nextHotInteraction.ref->var->group.expanded;
-			}
-		} break;
-		case DebugVarType::Float: {
+		case Event_Data_f32: {
 			if (WasPressed(controller.B.mouseLeft)) {
 				state->nextHotInteraction.type = DebugInteract_DragIncrease;
 			}
 		} break;
+#if 0
 		case DebugVarType::CompilationSwitch: {
 			if (WasPressed(controller.B.mouseLeft)) {
 				state->nextHotInteraction.type = DebugInteract_Compile;
 			}
 		} break;
-		case DebugVarType::ProfilerUI: {
+#endif
+		case Event_ProfilerUI: {
 			if (WasPressed(controller.B.mouseLeft)) {
 				state->nextHotInteraction.type = DebugInteract_Resize;
 			}
@@ -935,7 +939,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	
 	// What to do DURING the interaction (for interactions taking more time than one frame)
 	if (state->interacting && state->interaction.ref) {
-		DebugVariable* var = state->interaction.ref->var;
+		DebugEvent* event = state->interaction.ref->event;
 		V2 dMouse = mousePos - state->interaction.state.startMousePos;
 		switch (state->interaction.type) {
 		case DebugInteract_Compile:
@@ -948,12 +952,12 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		case DebugInteract_DragIncrease: {
-			var->data_f32 += 0.001f * dMouse.Y;
+			event->data_f32 += 0.001f * dMouse.Y;
 		} break;
 		case DebugInteract_Resize: {
-			f32 newMaxX = Maximum(mousePos.X, var->profiler.rect.min.X + 10.f);
-			f32 newMaxY = Maximum(mousePos.Y, var->profiler.rect.min.Y + 10.f);
-			var->profiler.rect.max = V2{ newMaxX, newMaxY };
+			f32 newMaxX = Maximum(mousePos.X, event->data_Rect2.min.X + 10.f);
+			f32 newMaxY = Maximum(mousePos.Y, event->data_Rect2.min.Y + 10.f);
+			event->data_Rect2.max = V2{ newMaxX, newMaxY };
 		} break;
 		case DebugInteract_Tear:
 		case DebugInteract_Move: {
@@ -1023,6 +1027,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			interactionEnded = true;
 		}
 	} break;
+#if 0
 	case DebugInteract_Compile: {
 		if (!IsPressed(controller.B.mouseLeft)) {
 			if (state->compilationHandle.state != CmdState_Running) {
@@ -1034,6 +1039,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			interactionEnded = true;
 		}
 	} break;
+#endif
 	}
 	if (interactionEnded) {
 		state->interaction = {};
@@ -1100,12 +1106,14 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 	Controller& controller = input.controllers[KB_CONTROLLER_IDX];
 	V2 mousePos = FromPixelSpaceToWorldSpace(state->renderGroup.projection, controller.mouse, 0.f);
 	DebugRenderVariablesMenu(state, mousePos);
+#if 0
 	if (state->compilationHandle.state == CmdState_Running) {
 		DebugRenderLine(state, "Compiling", state->fontContext, V4{1, 1, 1, 1});
 	}
 	else if (state->compilationHandle.state == CmdState_Failed) {
 		DebugRenderLine(state, "Failed Compilation", state->fontContext, V4{ 1, 1, 1, 1 });
 	}
+#endif
 	DebugInteract(state, mousePos, controller);
 #if 0
 	if (QueryDebugVariable(state, DebugVarQuery_ShowDebugEvents)->data_bool) {
@@ -1146,11 +1154,10 @@ extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory, BitmapData& r
 	}
 	DebugRenderOverlay(state, bitmap, input);
 
-
+#if 0
 	if (state->compilationHandle.state == CmdState_Running) {
 		Platform->SystemGetCommandState(state->compilationHandle);
 	}
-#if 0
 	if (state->profilerPause->var->data_bool) {
 		return 0;
 	}

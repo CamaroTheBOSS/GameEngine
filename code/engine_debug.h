@@ -1,46 +1,14 @@
 #include "engine_common.h"
 // ------------------- DEBUG VARIABLES --------------------
-#if 0
-enum DebugVarQueryName {
-	DebugVarQuery_CameraZoomoutValue,
-	DebugVarQuery_ShowDebugInteractions,
-	DebugVarQuery_ShowDebugEvents,
 
-	DebugVarQuery_Count
-};
-#endif
-
-enum class DebugVarType : u8 {
-	Bool,
-	Float,
-	U32,
-	I32,
-	Vec2,
-	Vec3,
-	Vec4,
-
-	Group,
-	CompilationSwitch,
-	ProfilerUI,
-};
-
-struct DebugProfilerSettings {
-	Rect2 rect;
-};
-
-struct DebugVariable;
+struct DebugEvent;
 struct DebugVariableRef {
-	DebugVariable* var;
+	DebugEvent* event;
+
 	DebugVariableRef* next;
 	DebugVariableRef* parent;
 };
-struct DebugVariableHashEntry {
-	DebugVariable* var;
-	DebugVariableHashEntry* next;
-};
 
-// TODO: It is possible to decouple DebugVariableGroup fro DebugVariable?
-// I would like to have DebugVariableList and group should be separate concept
 struct DebugVariableGroup {
 	bool expanded;
 	DebugVariableRef* firstChild;
@@ -52,32 +20,6 @@ struct DebugTree {
 
 	DebugTree* next;
 	DebugTree* prev;
-};
-
-// TODO: Debug variable bitmap
-struct DebugVariable {
-	DebugVarType type;
-	char* name;
-	union {
-		bool data_bool;
-		f32 data_f32;
-		u32 data_u32;
-		i32 data_i32;
-		V2 data_V2;
-		V3 data_V3;
-		V4 data_V4;
-
-		DebugProfilerSettings profiler;
-		DebugVariableGroup group;
-	};
-};
-
-struct DebugVariableContext {
-	DebugTree* tree;
-	MemoryArena* arena;
-
-	u32 stackCount;
-	DebugVariableRef* stack[64];
 };
 
 enum DebugInteractionType {
@@ -143,6 +85,7 @@ enum DebugEventType : u8 {
 
 	Event_Data_BlockBegin,
 	Event_Data_BlockEnd,
+	Event_Data_bool,
 	Event_Data_u32,
 	Event_Data_f32,
 	Event_Data_i32,
@@ -151,6 +94,9 @@ enum DebugEventType : u8 {
 	Event_Data_V4,
 	Event_Data_Rect2,
 	Event_Data_Rect3,
+
+	Event_Group,
+	Event_ProfilerUI,
 };
 
 struct DebugEvent {
@@ -162,6 +108,7 @@ struct DebugEvent {
 	u16 threadId;
 	u64 cycles;
 	union {
+		bool data_bool;
 		u32 data_u32;
 		f32 data_f32;
 		i32 data_i32;

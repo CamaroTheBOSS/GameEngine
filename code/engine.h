@@ -95,8 +95,6 @@ struct DebugState {
 	OpenDebugEvent* openEventFreeList;
 
 	DebugTree UISentinel;
-	DebugVariableContext dataBlockContext;
-	DebugVariableRef* compileTimeVariables;
 
 	// Profiler
 	u32 frameReadIndex;
@@ -111,7 +109,6 @@ struct DebugState {
 	DebugVariableRef* profilerPause;
 
 	FontDrawContext fontContext;
-	PlatformCommandHandle compilationHandle;
 	Rect2 overlayBoundaries;
 	LoadedFont* font;
 	
