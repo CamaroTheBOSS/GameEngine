@@ -227,7 +227,7 @@ internal void FinishGeneration(Assets& assets, GenerationId gid);
 inline LoadedBitmap* GetBitmap(Assets& assets, BitmapId bid, GenerationId gid);
 inline LoadedSound* GetSound(Assets& assets, SoundId sid, GenerationId gid);
 inline LoadedFont* GetFont(Assets& assets, FontId fid, GenerationId gid);
-inline AssetMetadata* GetAssetMetadata(Assets& assets, Asset& asset);
+inline AssetMetadata* GetAssetMetadata(Assets& assets, u32 id);
 inline AssetFeatures* GetAssetFeatures(Assets& assets, u32 id);
 inline PlatformFileHandle* GetAssetSource(Assets& assets, u32 index);
 inline SoundId GetFirstSoundIdWithType(Assets& assets, AssetTypeID typeId);

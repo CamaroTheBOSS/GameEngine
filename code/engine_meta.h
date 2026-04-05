@@ -30,3 +30,8 @@ struct MemberDefinition {
 	u32 offset;
 	u32 flags;
 };
+
+// ------------------- GENERATED STUFF -------------------
+// TODO: Make this automatically generated when added fields
+extern MemberDefinition MembersOf_Entity[14];
+extern MemberDefinition MembersOf_CollisionVolumeGroup[3];

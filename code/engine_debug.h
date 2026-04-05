@@ -192,15 +192,15 @@ internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, Debu
 #define MARKUP_FRAME_BEGIN
 #define MARKUP_FRAME_END
 
-inline DebugId DEBUG_POINTER_ID(void* ptr) { return 0; }
-inline void DEBUG_HIT(DebugId did) {}
-inline bool DEBUG_HIGHLIGHTED(DebugId did) { return false;}
+inline DebugId DEBUG_POINTER_ID(void* ptr) { return {}; }
+inline void DEBUG_HIT(DebugId did, Rect2 boundingBox) {}
+inline bool DEBUG_HIGHLIGHTED(DebugId did, V4* color) { return false;}
 inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) { return false; }
 #define DEBUG_UI_ENABLED 0
 #define DEBUG_BEGIN_DATA_BLOCK(...)
 #define DEBUG_END_DATA_BLOCK
 #define DEBUG_DATA(...)
-#define DEFINE_DEBUG_VARIABLE(...)
+#define DEFINE_DEBUG_VARIABLE(type, variable) DebugEvent variable = {}
 #define DEBUG_IF(...) if (0)
 #endif
 

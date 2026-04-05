@@ -45,7 +45,7 @@ void RenderSoundToBuffer(AudioState& audio, Assets& assets, SoundData& dst) {
 			continue;
 		}
 		Asset* asset = GetAsset(assets, currSound->soundId.id);
-		AssetFileSoundInfo* soundInfo = &GetAssetMetadata(assets, *asset)->_soundInfo;
+		AssetFileSoundInfo* soundInfo = &GetAssetMetadata(assets, asset->metadataId)->_soundInfo;
 		SoundId nextInChain = { 0 };
 		if (soundInfo->chain.op == SoundChain::Advance) {
 			nextInChain.id = currSound->soundId.id + soundInfo->chain.count;
@@ -1509,6 +1509,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		}
 	}
+
 	TIMED_BLOCK_END(UpdateEntities);
 #if 0
 	EnvironmentMap* maps[3] = {

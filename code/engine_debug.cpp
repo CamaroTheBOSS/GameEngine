@@ -1072,14 +1072,6 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 	Controller& controller = input.controllers[KB_CONTROLLER_IDX];
 	V2 mousePos = FromPixelSpaceToWorldSpace(state->renderGroup.projection, controller.mouse, 0.f);
 	DebugRenderVariablesMenu(state, mousePos);
-#if 0
-	if (state->compilationHandle.state == CmdState_Running) {
-		DebugRenderLine(state, "Compiling", state->fontContext, V4{1, 1, 1, 1});
-	}
-	else if (state->compilationHandle.state == CmdState_Failed) {
-		DebugRenderLine(state, "Failed Compilation", state->fontContext, V4{ 1, 1, 1, 1 });
-	}
-#endif
 	DebugInteract(state, mousePos, controller);
 
 	DEBUG_IF(Debug_ShowEventsCount) {
@@ -1093,6 +1085,7 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 		}
 	}
+
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
 }
 

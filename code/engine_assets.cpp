@@ -134,12 +134,6 @@ LoadedSound* GetSound(Assets& assets, SoundId sid, GenerationId gid) {
 }
 
 inline
-AssetMetadata* GetAssetMetadata(Assets& assets, Asset& asset) {
-	AssetMetadata* metadata = &assets.metadatas[asset.metadataId];
-	return metadata;
-}
-
-inline
 AssetMetadata* GetAssetMetadata(Assets& assets, u32 id) {
 	AssetMetadata* metadata = &assets.metadatas[id];
 	return metadata;
@@ -501,7 +495,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate) {
 #endif
 	asset.state = AssetState_Pending;
 	WriteCompilatorFence;
-	AssetFileBitmapInfo* metadata = &GetAssetMetadata(assets, asset)->_bitmapInfo;
+	AssetFileBitmapInfo* metadata = &GetAssetMetadata(assets, asset.metadataId)->_bitmapInfo;
 	u32 assetSize = metadata->pitch * metadata->height;
 	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
 	asset.memory = ptrcast(AssetMemoryHeader, AcquireAssetMemory(assets, allocSize));
@@ -579,7 +573,7 @@ bool PrefetchSound(Assets& assets, SoundId sid, bool immediate) {
 #endif
 	asset.state = AssetState_Pending;
 	WriteCompilatorFence;
-	AssetFileSoundInfo* metadata = &GetAssetMetadata(assets, asset)->_soundInfo;
+	AssetFileSoundInfo* metadata = &GetAssetMetadata(assets, asset.metadataId)->_soundInfo;
 	u32 assetSize = (metadata->sampleCount + SOUND_CHUNK_SAMPLE_OVERLAP) * 
 		metadata->nChannels * sizeof(f32);
 	u32 allocSize = assetSize + sizeof(AssetMemoryHeader);
@@ -654,7 +648,7 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 #endif
 	asset.state = AssetState_Pending;
 	WriteCompilatorFence;
-	AssetFileFontInfo* metadata = &GetAssetMetadata(assets, asset)->_fontInfo;
+	AssetFileFontInfo* metadata = &GetAssetMetadata(assets, asset.metadataId)->_fontInfo;
 	u32 codePointDataSize = metadata->onePastMaxCodepoint * sizeof(((LoadedFont*)0)->codepointToLogicalIndex[0]);
 	u32 kerningTableSize = metadata->onePastMaxLogicalIndex * metadata->onePastMaxLogicalIndex * sizeof(((LoadedFont*)0)->kerningTable[0]);
 	u32 assetSize = codePointDataSize + kerningTableSize;;
