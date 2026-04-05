@@ -77,6 +77,75 @@ bool IsSelected(DebugState* state, DebugId did) {
 	return DebugIdsEqual(state->selectedId, did);
 }
 
+internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line) {
+	RecordDebugEventNoBracket(0, Event_PermanentVariableDeclaration, file, name, line);
+	event->data_DebugEvent = subevent;
+	subevent->blockName = name;
+	subevent->coreId = 0;
+	subevent->cycles = 0;
+	subevent->threadId = 0;
+	subevent->type = type;
+	subevent->file = file;
+	subevent->line = line;
+	return subevent;
+}
+
+inline DebugState* GetDebugState() {
+	if (debugGlobalMemory->debugMemorySize == 0) {
+		return 0;
+	}
+	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
+	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
+	if (!state->isInitialized) {
+		return 0;
+	}
+	return state;
+}
+
+inline
+DebugId DEBUG_POINTER_ID(void* ptr) {
+	return { ptr };
+}
+
+inline
+void DEBUG_HIT(DebugId did, Rect2 boundingBox) {
+	DebugState* state = GetDebugState();
+	if (!state) {
+		return;
+	}
+	DebugInteraction interaction = {};
+	interaction.id = did;
+	interaction.startBoundingBox = boundingBox;
+	state->nextHotInteraction = interaction;
+}
+
+inline
+bool DEBUG_HIGHLIGHTED(DebugId did, V4* color) {
+	DebugState* state = GetDebugState();
+	if (!state) {
+		return false;
+	}
+	if (IsSelected(state, did)) {
+		*color = V4{ 1, 1, 0, 1 };
+	}
+	else if (IsHighlighted(state, did)) {
+		*color = V4{ 0, 1, 1, 1 };
+	}
+	else {
+		return false;
+	}
+	return true;
+}
+
+inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) {
+	DebugState* state = GetDebugState();
+	if (!state) {
+		return false;
+	}
+	bool result = IsSelected(state, did) || IsHighlighted(state, did);
+	return result;
+}
+
 inline
 u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodepoint) {
 	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
@@ -202,241 +271,6 @@ void ResetDebugCollation(DebugState* debugState, u32 frameWriteIndex) {
 	debugState->frames = PushArray(debugState->collationArena, MAX_DEBUG_FRAMES, DebugFrameInfo);
 }
 
-internal
-void ReadDebugConfig(DebugState* state) {
-#if 0
-	PlatformFileHandle* handle = Platform->FileOpen(DEBUG_CONFIG_PATH);
-	TemporaryMemory fileDataMemory = BeginTempMemory(state->mainArena);
-	char* fileData = PushArray(state->mainArena, handle->size + 1, char);
-	Platform->FileRead(handle, 0, handle->size, fileData);
-	fileData[handle->size] = 0;
-#endif
-
-#if 0
-	// Find substring
-	//TODO: UB?
-	char* define = ptrcast(char, "#define ");
-	char* result = 0;
-	for (;;) {
-		char* pattern = define;
-		u32 count = 0;
-		while (*fileData && *fileData++ == *pattern++) {
-			count++;
-			if (!*pattern) {
-				result = fileData - count;
-				break;
-			}
-		}
-		if (result || !*fileData) {
-			break;
-		}
-	}
-#endif
-#if 0
-	//NOTE: Reading assumes that variables are IN ORDER
-	u32 variableIndex = 0;
-	u32 spaceCount = 0;
-	while (*fileData) {
-		char* start = 0;
-		char* end = 0;
-		while (*fileData || spaceCount == 2) {
-			if (*fileData++ == ' ') {
-				spaceCount++;
-			}
-		}
-		while (*fileData) {
-			if (*fileData == '\n') {
-				end = fileData;
-				break;
-			}
-			fileData++;
-		};
-		
-		variableIndex++;
-	}
-#endif
-
-#if 0
-	EndTempMemory(fileDataMemory);
-#endif
-}
-
-#if 0
-inline
-DebugVariable* QueryDebugVariable(DebugState* state, DebugVarQueryName query) {
-	DebugVariable* var = state->querableVariables[query];
-	if (!var) {
-		return &nullDebugVariable;
-	}
-	return var;
-}
-
-inline
-DebugVariable* QueryDebugVariable(DebugVarQueryName query) {
-	if (debugGlobalMemory->debugMemorySize == 0) {
-		return 0;
-	}
-	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
-	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
-	return QueryDebugVariable(state, query);
-}
-
-inline
-DebugVariable* _AddDebugVariable(DebugState* state, MemoryArena* arena, const char* name, DebugVarType type) {
-	DebugVariable* var = PushStructSize(*arena, DebugVariable);
-	u32 length = StringLength(name) + 1;
-	var->name = PushString(*arena, name, length);
-	var->type = type;
-	return var;
-}
-
-inline
-DebugVariableLink* _AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, DebugVarType type) {
-	DebugVariable* var = _AddDebugVariable(state, context.arena, name, type);
-	DebugVariableLink* link = PushStructSize(*context.arena, DebugVariableLink);
-	link->next = 0;
-	link->var = var;
-	link->parent = context.stack[context.stackCount];
-	if (link->parent) {
-		Assert(link->parent->var->type == DebugVarType::Group);
-		DebugVariableGroup* group = &link->parent->var->group;
-		link->next = group->firstChild;
-		group->firstChild = link;
-	}
-	else {
-		context.tree->root = link;
-	}
-	return link;
-}
-
-inline
-DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, bool value) {
-	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Bool);
-	link->var->data_bool = value;
-	return link;
-}
-
-inline
-DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, f32 value) {
-	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Float);
-	link->var->data_f32 = value;
-	return link;
-}
-
-inline
-DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, i32 value) {
-	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::I32);
-	link->var->data_i32 = value;
-	return link;
-}
-
-inline
-DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, u32 value) {
-	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::U32);
-	link->var->data_u32 = value;
-	return link;
-}
-
-inline
-DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V2 value) {
-	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec2);
-	link->var->data_V2 = value;
-	return link;
-}
-
-inline
-DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V3 value) {
-	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec3);
-	link->var->data_V3 = value;
-	return link;
-}
-
-inline
-DebugVariableLink* AddReferencedDebugVariable(DebugState* state, DebugVariableContext& context, const char* name, V4 value) {
-	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Vec4);
-	link->var->data_V4 = value;
-	return link;
-}
-
-inline
-DebugVariableLink* BeginDebugVariableGroup(DebugState* state, DebugVariableContext& context, const char* name) {
-	DebugVariableLink* link = _AddReferencedDebugVariable(state, context, name, DebugVarType::Group);
-	link->var->group = {};
-	context.stack[++context.stackCount] = link;
-	return link;
-}
-
-inline
-DebugVariableContext BeginDebugVariableTree(DebugState* state, MemoryArena& arena, const char* name, V2 pos) {
-	DebugVariableContext context = {};
-	DebugTree* tree = PushStructSize(arena, DebugTree);
-	tree->pos = pos;
-	context.tree = tree;
-	context.stackCount = 0;
-	context.stack[0] = 0;
-	context.arena = &arena;
-
-	tree->next = state->UISentinel.next;
-	tree->prev = &state->UISentinel;
-	tree->prev->next = tree;
-	tree->next->prev = tree;
-	return context;
-}
-
-inline
-void MakeVariableCompiled(DebugState* state, DebugVariableLink* link) {
-	Assert(link->var);
-	DebugVariableLink* newRef = PushStructSize(state->mainArena, DebugVariableLink);
-	newRef->var = link->var;
-	newRef->parent = 0;
-	newRef->next = state->compileTimeVariables;
-	state->compileTimeVariables = newRef;
-}
-
-inline
-void MakeVariableQuerable(DebugState* state, DebugVariableLink* link, DebugVarQueryName queryName) {
-	Assert(link->var);
-	Assert(state->querableVariables[queryName] == 0);
-	state->querableVariables[queryName] = link->var;
-}
-
-
-inline
-void EndDebugVariableGroup(DebugVariableContext& context) {
-	Assert(context.stackCount > 0 || !"Tried to enclose group when none were opened");
-	context.stackCount--;
-}
-#endif
-
-//inline
-//DebugVariableLink* AddCollationDebugLinkGroup(DebugState* state, const char* name, DebugEvent* event, DebugVariableLink* parent) {
-//	DebugVariableLink* link = PushStructSize(state->collationArena, DebugVariableLink);
-//	link->next = 0;
-//	link->event = event;
-//	link->parent = parent;
-//	if (parent) {
-//		DebugVariableGroup* group = &link->parent->event
-//		link->next = group->firstChild;
-//		group->firstChild = link;
-//	}
-//	else {
-//		context.tree->root = link;
-//	}
-//	return link;
-//}
-
-inline DebugState* GetDebugState() {
-	if (debugGlobalMemory->debugMemorySize == 0) {
-		return 0;
-	}
-	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
-	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
-	if (!state->isInitialized) {
-		return 0;
-	}
-	return state;
-}
-
 internal 
 DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 	if (debugGlobalMemory->debugMemorySize == 0) {
@@ -487,6 +321,16 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		EndDebugVariableGroup(context);
 #endif
 		state->frameMemory = BeginTempMemory(state->collationArena);
+		state->temporaryVarTree = PushStructSize(state->collationArena, DebugTree);	
+		
+		state->permanentVarTree = PushStructSize(state->mainArena, DebugTree);
+		state->permanentVarTree->pos = leftTopCorner + V2{200, 0};
+		DLINKED_LIST_INIT(&state->permanentVarTree->root);
+
+		DLINKED_LIST_INIT(&state->UISentinel);
+		DLINKED_LIST_ADD(&state->UISentinel, state->temporaryVarTree);
+		DLINKED_LIST_ADD(&state->UISentinel, state->permanentVarTree);
+
 		BeginRendering(state->renderGroup);
 		state->isInitialized = true;
 	}
@@ -502,9 +346,9 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 	if (state->font) {
 		f32 scale = 0.15f;
 		f32 lineAdvance = scale * GetFontLineAdvance(state->font);
-		//state->fontContext = InitializeFontDrawContext(state->font, 0.15f, -lineAdvance, state->overlayBoundaries.min + V2{ 0, lineAdvance });
+		state->fontContext = InitializeFontDrawContext(state->font, 0.15f, -lineAdvance, state->overlayBoundaries.min + V2{ 0, lineAdvance });
 		V2 leftUpCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
-		state->fontContext = InitializeFontDrawContext(state->font, 0.15f, lineAdvance, leftUpCorner - V2{ 0, lineAdvance });
+		//state->fontContext = InitializeFontDrawContext(state->font, 0.15f, lineAdvance, leftUpCorner - V2{ 0, lineAdvance });
 	}
 	state->hotFrameIndex = U32_MAX;
 	state->hotRegionIndex = U32_MAX;
@@ -560,8 +404,8 @@ struct DebugVariableDefinitionContext {
 };
 
 internal
-DebugVariableLink* AddCollationVariableLink(DebugState* state, DebugVariableDefinitionContext& context, DebugEvent* event) {
-	DebugVariableLink* link = PushStructSize(state->collationArena, DebugVariableLink);
+DebugVariableLink* AddCollationVariableLink(DebugState* state, DebugVariableDefinitionContext& context, DebugEvent* event, bool permanent) {
+	DebugVariableLink* link = PushStructSize(permanent ? state->mainArena : state->collationArena, DebugVariableLink);
 	DebugVariableLink* parent = context.parentStack[context.stackDepth];
 	ZeroStruct(*link);
 	link->parent = parent;
@@ -570,7 +414,7 @@ DebugVariableLink* AddCollationVariableLink(DebugState* state, DebugVariableDefi
 	DLINKED_LIST_INIT(link);
 	if (parent) {
 		if (!parent->children) {
-			parent->children = PushStructSize(state->collationArena, DebugVariableLink);
+			parent->children = PushStructSize(permanent ? state->mainArena : state->collationArena, DebugVariableLink);
 			ZeroStruct(*parent->children);
 			DLINKED_LIST_INIT(parent->children);
 		}
@@ -580,9 +424,9 @@ DebugVariableLink* AddCollationVariableLink(DebugState* state, DebugVariableDefi
 }
 
 internal
-DebugVariableLink* BeginCollationVariableLinkGroup(DebugState* state, DebugVariableDefinitionContext& context, DebugEvent* event) {
+DebugVariableLink* BeginCollationVariableLinkGroup(DebugState* state, DebugVariableDefinitionContext& context, DebugEvent* event, bool permanent) {
 	Assert(context.stackDepth < ArrayCount(context.parentStack) - 1);
-	DebugVariableLink* link = AddCollationVariableLink(state, context, event);
+	DebugVariableLink* link = AddCollationVariableLink(state, context, event, permanent);
 	context.parentStack[++context.stackDepth] = link;
 	return link;
 }
@@ -602,18 +446,18 @@ void DebugCollateEvents(DebugState* debugState) {
 	TIMED_FUNCTION;
 
 	// TODO Make this code more sane
+	DLINKED_LIST_REMOVE(debugState->temporaryVarTree);
 	EndTempMemory(debugState->frameMemory);
 	debugState->frameMemory = BeginTempMemory(debugState->collationArena);
-	debugState->UISentinel = {};
-	DLINKED_LIST_INIT(&debugState->UISentinel);
-	DebugTree* dataTree = PushStructSize(debugState->collationArena, DebugTree);
-	*dataTree = {};
-	dataTree->pos = V2{ debugState->overlayBoundaries.min.X, debugState->overlayBoundaries.max.Y };
-	DLINKED_LIST_ADD(&debugState->UISentinel, dataTree);
-	DLINKED_LIST_INIT(&dataTree->root);	
+	debugState->temporaryVarTree = PushStructSize(debugState->collationArena, DebugTree);
+	*debugState->temporaryVarTree = {};
+	debugState->temporaryVarTree->pos = V2{ debugState->overlayBoundaries.min.X, debugState->overlayBoundaries.max.Y };
+	DLINKED_LIST_ADD(&debugState->UISentinel, debugState->temporaryVarTree);
+	DLINKED_LIST_INIT(&debugState->temporaryVarTree->root);
 	DebugVariableDefinitionContext context = {};
-	context.parentStack[0] = &dataTree->root;
-
+	context.parentStack[0] = &debugState->temporaryVarTree->root;
+	DebugVariableDefinitionContext context2 = {};
+	context2.parentStack[0] = &debugState->permanentVarTree->root;
 
 	debugState->threadStacks = PushArray(debugState->collationArena, MAX_DEBUG_THREADS, DebugThreadStack);
 	debugState->threadStacksCount = 0;
@@ -626,6 +470,8 @@ void DebugCollateEvents(DebugState* debugState) {
 		) {
 		DebugFrameInfo* frameInfo = debugState->frames + debugState->frameReadIndex;
 		frameInfo->regionsCount = 0;
+		frameInfo->eventCount = {};
+
 		f32 scale = DEBUG_COLLATION_SCALE;
 		DebugEvent* eventsInFrame = debugGlobalState->debugEvents[debugState->frameReadIndex];
 		u32 eventsInFrameCount = debugGlobalState->debugEventsCount[debugState->frameReadIndex];
@@ -636,6 +482,9 @@ void DebugCollateEvents(DebugState* debugState) {
 			) {
 			DebugEvent* event = eventsInFrame + eventIndex;
 			DebugThreadStack* stack = GetDebugStackForThread(debugState, event->threadId);
+			Assert(event->type < Event_Count);
+			frameInfo->eventCount.count[event->type]++;
+			frameInfo->eventCount.count[Event_Count]++;
 			switch (event->type) {
 			case Event_Time_BlockBegin: {
 				PushToEventStack(debugState, &stack->timeEvents, event);
@@ -678,11 +527,14 @@ void DebugCollateEvents(DebugState* debugState) {
 			} break;
 			case Event_Data_BlockBegin: {
 				PushToEventStack(debugState, &stack->dataEvents, event);
-				BeginCollationVariableLinkGroup(debugState, context, event);
+				BeginCollationVariableLinkGroup(debugState, context, event, false);
 			} break;
 			case Event_Data_BlockEnd: {
 				PopFromEventStack(debugState, &stack->dataEvents);
 				EndCollationVariableLinkGroup(debugState, context);
+			} break;
+			case Event_PermanentVariableDeclaration: {
+				AddCollationVariableLink(debugState, context2, event->data_DebugEvent, true);
 			} break;
 			case Event_Data_u32:
 			case Event_Data_i32:
@@ -690,11 +542,12 @@ void DebugCollateEvents(DebugState* debugState) {
 			case Event_Data_V2:
 			case Event_Data_V3:
 			case Event_Data_V4: {
-				AddCollationVariableLink(debugState, context, event);
+				AddCollationVariableLink(debugState, context, event, false);
 			} break;
 			}
 		}
 	}
+	f32 s = 0;
 }
 
 enum DebugVarToTextFlags {
@@ -1077,8 +930,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 #endif
 	}
 
-#if 0
-	if (QueryDebugVariable(state, DebugVarQuery_ShowDebugInteractions)->data_bool) {
+	DEBUG_IF(Debug_ShowInteractions) {
 		char buffer[256];
 		const char* interaction = "Unknown";
 		switch (state->interaction.type) {
@@ -1100,18 +952,24 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		case DebugInteract_Move: {
 			interaction = "Move";
 		} break;
+		case DebugInteract_Select: {
+			interaction = "Select";
+		} break;
 		}
-		V2 dMouse = mousePos - state->interaction.state.startMousePos;
+		V2 dMouse = mousePos - state->interaction.startMousePos;
 		char* at = buffer;
 		char* end = buffer + sizeof(buffer);
-		at += sprintf_s(at, end - at, "%s with %s", interaction, state->interaction.link ? state->interaction.link->var->name : "none");
-		at += sprintf_s(at, end - at, "mousePos: %f %f", mousePos.X, mousePos.Y);
-		if (state->interacting) {
-			sprintf_s(at, end - at, ": dMouse: %f %f", dMouse.X, dMouse.Y);
+		if (state->interaction.link) {
+			at += sprintf_s(at, end - at, "%s with %s", interaction, state->interaction.link->event->blockName);
+		}
+		else if (!DebugIdIsNull(state->interaction.id)) {
+			at += sprintf_s(at, end - at, "%s with debug id %p", interaction, state->interaction.id.val[0]);
+		}
+		else {
+			at += sprintf_s(at, end - at, "%s with none", interaction);
 		}
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 	}
-#endif
 
 	// What to do at the END of interaction
 	bool interactionEnded = false;
@@ -1207,50 +1065,6 @@ void DebugDumpStruct(DebugState* state, MemberDefinition* memberArray, u32 membe
 	
 }
 
-inline
-DebugId DEBUG_POINTER_ID(void* ptr) {
-	return { ptr };
-}
-
-inline
-void DEBUG_HIT(DebugId did, Rect2 boundingBox) {
-	DebugState* state = GetDebugState();
-	if (!state) {
-		return;
-	}
-	DebugInteraction interaction = {};
-	interaction.id = did;
-	interaction.startBoundingBox = boundingBox;
-	state->nextHotInteraction = interaction;
-}
-
-inline
-bool DEBUG_HIGHLIGHTED(DebugId did, V4* color) {
-	DebugState* state = GetDebugState();
-	if (!state) {
-		return false;
-	}
-	if (IsSelected(state, did)) {
-		*color = V4{ 1, 1, 0, 1 };
-	}
-	else if (IsHighlighted(state, did)) {
-		*color = V4{ 0, 1, 1, 1 };
-	}
-	else {
-		return false;
-	}
-	return true;
-}
-
-inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) {
-	DebugState* state = GetDebugState();
-	if (!state) {
-		return false;
-	}
-	bool result = IsSelected(state, did) || IsHighlighted(state, did);
-	return result;
-}
-
 void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& input) {
 	TIMED_FUNCTION;
 	if (!state->font) {
@@ -1268,24 +1082,18 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 	}
 #endif
 	DebugInteract(state, mousePos, controller);
-#if 0
-	if (QueryDebugVariable(state, DebugVarQuery_ShowDebugEvents)->data_bool) {
-		char buffer[256];
-		sprintf_s(buffer, 256, "events in frame 0: %d", debugGlobalState->debugEventsCount[0]);
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-	}
-#endif
 
-	/*Entity entity = {};
-	entity.faceDir = 23.f;
-	entity.pos = V3{ 1, 2, 3 };
-	entity.highEntityIndex = 23;
-	entity.flags = 32;
-	entity.walkableDim = V3{ 10, 11, 12 };
-	size_t off = offsetof(Entity, flags);
-	DebugDumpStruct(state, MembersOf_Entity, ArrayCount(MembersOf_Entity), &entity);*/
-	
-	
+	DEBUG_IF(Debug_ShowEventsCount) {
+		char buffer[256];
+		sprintf_s(buffer, 256, "Events in frame: %d", debugGlobalState->debugEventsCount[0]);
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+
+		DebugFrameInfo* frameInfo = state->frames + state->frameReadIndex;
+		for (u32 eventType = 0; eventType < ArrayCount(frameInfo->eventCount.count); eventType++) {
+			sprintf_s(buffer, 256, "   (type)%d = (count)%d", eventType, frameInfo->eventCount.count[eventType]);
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		}
+	}
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
 }
 

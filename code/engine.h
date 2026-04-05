@@ -97,6 +97,8 @@ struct DebugState {
 	DebugId selectedId;
 
 	DebugTree UISentinel;
+	DebugTree* permanentVarTree;
+	DebugTree* temporaryVarTree;
 
 	// Profiler
 	u32 frameReadIndex;
@@ -113,10 +115,6 @@ struct DebugState {
 	FontDrawContext fontContext;
 	Rect2 overlayBoundaries;
 	LoadedFont* font;
-	
-#if 0
-	DebugVariable* querableVariables[DebugVarQuery_Count];
-#endif
 
 	DebugInteraction interaction;
 	DebugInteraction hotInteraction;

@@ -29,9 +29,16 @@ enum DebugEventType : u8 {
 	Event_Data_V4,
 	Event_Data_Rect2,
 	Event_Data_Rect3,
-
+	
 	Event_ProfilerUI,
+	Event_PermanentVariableDeclaration,
+	Event_Count,
 };
+
+struct DebugEventCountMetrics {
+	u32 count[Event_Count + 1];
+};
+
 
 struct DebugEvent {
 	DebugEventType type;
@@ -44,6 +51,7 @@ struct DebugEvent {
 	u32 line;
 	union {
 		DebugId data_DebugId;
+		DebugEvent* data_DebugEvent;
 
 		bool data_bool;
 		u32 data_u32;
@@ -80,6 +88,7 @@ struct DebugProfilerRegionSelection {
 struct DebugFrameInfo {
 	u32 regionsCount;
 	DebugProfilerRegion regions[MAX_STACK_REGIONS];
+	DebugEventCountMetrics eventCount;
 };
 
 struct DebugGlobalState {
@@ -155,6 +164,8 @@ inline DebugId DEBUG_POINTER_ID(void* ptr);
 inline void DEBUG_HIT(DebugId did, Rect2 boundingBox);
 inline bool DEBUG_HIGHLIGHTED(DebugId did, V4* color);
 inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
+internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line);
+
 #define DEBUG_UI_ENABLED 1
 #define DEBUG_BEGIN_DATA_BLOCK(Name, debugid) { \
 	u16 counter##Name = __COUNTER__; \
@@ -165,6 +176,11 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
 #define DEBUG_DATA(type, data) { \
 	RecordDebugEventNoBracket(0, Event_Data_##type, __FILE__, #data, __LINE__); \
 	event->data_##type = data; }
+#define DEFINE_DEBUG_VARIABLE(type, variable) \
+	local_persist DebugEvent variable = *InitializePermanentDebugVariable((variable.data_##type = CONSTANT_##variable, &variable), Event_Data_##type, #variable, __FILE__, __LINE__)
+#define DEBUG_IF(variable) \
+	DEFINE_DEBUG_VARIABLE(bool, variable); \
+	if (variable.data_bool)
 
 #else
 #define TIMED_FUNCTION
@@ -184,6 +200,8 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) { return false; }
 #define DEBUG_BEGIN_DATA_BLOCK(...)
 #define DEBUG_END_DATA_BLOCK
 #define DEBUG_DATA(...)
+#define DEFINE_DEBUG_VARIABLE(...)
+#define DEBUG_IF(...) if (0)
 #endif
 
 struct ManualTimedBlock {

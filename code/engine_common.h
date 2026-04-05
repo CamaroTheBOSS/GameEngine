@@ -31,6 +31,7 @@
 #endif
 #if !defined(internal)
 #define internal static
+#define local_persist static
 #endif
 #define PI 3.14159f
 #define TAU 6.28318f
@@ -89,6 +90,11 @@
 	(node)->prev = sentinel;	\
 	(node)->next->prev = node; \
 	(node)->prev->next = node;
+
+#define DLINKED_LIST_REMOVE(node) \
+	(node)->next->prev = (node)->prev; \
+	(node)->prev->next = (node)->next;
+
 
 typedef uint8_t u8;
 typedef uint16_t u16;
