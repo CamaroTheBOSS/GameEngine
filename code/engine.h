@@ -94,6 +94,7 @@ struct DebugState {
 	u8 threadStacksCount;
 	DebugThreadStack* threadStacks;
 	OpenDebugEvent* openEventFreeList;
+	DebugId selectedId;
 
 	DebugTree UISentinel;
 

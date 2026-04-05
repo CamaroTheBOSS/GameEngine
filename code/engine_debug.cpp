@@ -41,6 +41,43 @@ inline bool WasReleased(Button& button);
 #define DEBUG_COLLATION_SCALE (1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ));
 
 inline
+bool DebugIdsEqual(DebugId id1, DebugId id2) {
+	for (i32 index = 0; index < ArrayCount(id1.val); index++) {
+		if (id1.val[index] != id2.val[index]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+inline
+bool DebugIdIsNull(DebugId id) {
+	for (i32 index = 0; index < ArrayCount(id.val); index++) {
+		if (id.val[index] != 0) {
+			return false;
+		}
+	}
+	return true;
+}
+
+inline
+DebugId GetDebugIdForLink(DebugVariableLink* link) {
+	DebugId id = {};
+	id.val[0] = link;
+	return id;
+}
+
+inline
+bool IsHighlighted(DebugState* state, DebugId did) {
+	return DebugIdsEqual(state->nextHotInteraction.id, did);
+}
+
+inline
+bool IsSelected(DebugState* state, DebugId did) {
+	return DebugIdsEqual(state->selectedId, did);
+}
+
+inline
 u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodepoint) {
 	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
 	u32 firstKerningIndex = font->codepointToLogicalIndex[firstCodepoint];
@@ -388,7 +425,19 @@ void EndDebugVariableGroup(DebugVariableContext& context) {
 //	return link;
 //}
 
-inline 
+inline DebugState* GetDebugState() {
+	if (debugGlobalMemory->debugMemorySize == 0) {
+		return 0;
+	}
+	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
+	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
+	if (!state->isInitialized) {
+		return 0;
+	}
+	return state;
+}
+
+internal 
 DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 	if (debugGlobalMemory->debugMemorySize == 0) {
 		return 0;
@@ -459,7 +508,6 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 	}
 	state->hotFrameIndex = U32_MAX;
 	state->hotRegionIndex = U32_MAX;
-	state->nextHotInteraction = {};
 	return state;
 }
 
@@ -553,6 +601,7 @@ internal
 void DebugCollateEvents(DebugState* debugState) {
 	TIMED_FUNCTION;
 
+	// TODO Make this code more sane
 	EndTempMemory(debugState->frameMemory);
 	debugState->frameMemory = BeginTempMemory(debugState->collationArena);
 	debugState->UISentinel = {};
@@ -561,7 +610,7 @@ void DebugCollateEvents(DebugState* debugState) {
 	*dataTree = {};
 	dataTree->pos = V2{ debugState->overlayBoundaries.min.X, debugState->overlayBoundaries.max.Y };
 	DLINKED_LIST_ADD(&debugState->UISentinel, dataTree);
-	DLINKED_LIST_INIT(&dataTree->root);
+	DLINKED_LIST_INIT(&dataTree->root);	
 	DebugVariableDefinitionContext context = {};
 	context.parentStack[0] = &dataTree->root;
 
@@ -680,15 +729,15 @@ u64 DebugEventToText(DebugEvent* event, char* buffer, u32 size, u32 flags) {
 		}
 	} break;
 	case Event_Data_V2: {
-		at += sprintf_s(at, end - at, "%s%s {%2.f, %2.f}", event->blockName, colon,
+		at += sprintf_s(at, end - at, "%s%s {%f, %f}", event->blockName, colon,
 			event->data_V2.X, event->data_V2.Y);
 	} break;
 	case Event_Data_V3: {
-		at += sprintf_s(at, end - at, "%s%s {%2.f, %2.f, %2.f}", event->blockName, colon,
+		at += sprintf_s(at, end - at, "%s%s {%f, %f, %f}", event->blockName, colon,
 			event->data_V3.X, event->data_V3.Y, event->data_V3.Z);
 	} break;
 	case Event_Data_V4: {
-		at += sprintf_s(at, end - at, "%s%s {%2.f, %2.f, %2.f, %2.f}", event->blockName, colon,
+		at += sprintf_s(at, end - at, "%s%s {%f, %f, %f, %f}", event->blockName, colon,
 			event->data_V4.X, event->data_V4.Y, event->data_V4.Z, event->data_V4.W);
 	} break;
 	case Event_Data_BlockBegin: {
@@ -823,9 +872,12 @@ bool IsVariableHot(DebugState* state, DebugVariableLink* link) {
 
 inline
 void SetNextHotInteraction(DebugState* state, DebugVariableLink* link, Rect2 boundingBox, DebugTree* tree) {
-	state->nextHotInteraction.link = link;
-	state->nextHotInteraction.state.startBoundingBox = boundingBox;
-	state->nextHotInteraction.state.relevantTree = tree;
+	DebugInteraction interaction = {};
+	interaction.id = GetDebugIdForLink(link);
+	interaction.link = link;
+	interaction.startBoundingBox = boundingBox;
+	interaction.relevantTree = tree;
+	state->nextHotInteraction = interaction;
 }
 
 internal
@@ -901,37 +953,44 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	// Set hot interaction
-	if (state->nextHotInteraction.link) {
-		state->nextHotInteraction.state.startMousePos = mousePos;
-		DebugEvent* event = state->nextHotInteraction.link->event;
-		switch (event->type) {
-		case Event_Group:
-		case Event_Data_bool: {
-			if (WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.type = DebugInteract_Toggle;
-				state->nextHotInteraction.state.boolean = &event->data_bool;
-			}
-		} break;
-		case Event_Data_f32: {
-			if (WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.type = DebugInteract_DragIncrease;
-			}
-		} break;
+	if (!DebugIdIsNull(state->nextHotInteraction.id)) {
+		state->nextHotInteraction.startMousePos = mousePos;
+		if (state->nextHotInteraction.link) {
+			DebugEvent* event = state->nextHotInteraction.link->event;
+			switch (event->type) {
+			case Event_Data_bool: {
+				if (WasPressed(controller.B.mouseLeft)) {
+					state->nextHotInteraction.type = DebugInteract_Toggle;
+					state->nextHotInteraction.boolean = &event->data_bool;
+				}
+			} break;
+			case Event_Data_f32: {
+				if (WasPressed(controller.B.mouseLeft)) {
+					state->nextHotInteraction.type = DebugInteract_DragIncrease;
+				}
+			} break;
 #if 0
-		case DebugVarType::CompilationSwitch: {
-			if (WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.type = DebugInteract_Compile;
-			}
-		} break;
+			case DebugVarType::CompilationSwitch: {
+				if (WasPressed(controller.B.mouseLeft)) {
+					state->nextHotInteraction.type = DebugInteract_Compile;
+				}
+			} break;
 #endif
-		case Event_ProfilerUI: {
-			if (WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.type = DebugInteract_Resize;
+			case Event_ProfilerUI: {
+				if (WasPressed(controller.B.mouseLeft)) {
+					state->nextHotInteraction.type = DebugInteract_Resize;
+				}
+			} break;
 			}
-		} break;
+			if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction.type = DebugInteract_Tear;
+			}
 		}
-		if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
-			state->nextHotInteraction.type = DebugInteract_Tear;
+		else {
+			// NOTE: Selecting hot entity
+			if (WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction.type = DebugInteract_Select;
+			}
 		}
 	}
 	state->hotInteraction = state->nextHotInteraction;
@@ -977,29 +1036,30 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	
 	// What to do DURING the interaction (for interactions taking more time than one frame)
 	if (state->interacting && state->interaction.link) {
-		DebugEvent* event = state->interaction.link->event;
-		V2 dMouse = mousePos - state->interaction.state.startMousePos;
+		V2 dMouse = mousePos - state->interaction.startMousePos;
 		switch (state->interaction.type) {
 		case DebugInteract_Compile:
 		case DebugInteract_Toggle: {
 			if (LengthSq(dMouse) > 5.f) {
 				state->interaction.type = DebugInteract_Move;
-				state->interaction.state.startMousePos = mousePos;
-				state->interaction.state.pos.initial = state->interaction.state.relevantTree->pos;
-				state->interaction.state.pos.actual = &state->interaction.state.relevantTree->pos;
+				state->interaction.startMousePos = mousePos;
+				state->interaction.pos.initial = state->interaction.relevantTree->pos;
+				state->interaction.pos.actual = &state->interaction.relevantTree->pos;
 			}
 		} break;
 		case DebugInteract_DragIncrease: {
+			DebugEvent* event = state->interaction.link->event;
 			event->data_f32 += 0.001f * dMouse.Y;
 		} break;
 		case DebugInteract_Resize: {
+			DebugEvent* event = state->interaction.link->event;
 			f32 newMaxX = Maximum(mousePos.X, event->data_Rect2.min.X + 10.f);
 			f32 newMaxY = Maximum(mousePos.Y, event->data_Rect2.min.Y + 10.f);
 			event->data_Rect2.max = V2{ newMaxX, newMaxY };
 		} break;
 		case DebugInteract_Tear:
 		case DebugInteract_Move: {
-			DebugModifiedPosition& pos = state->interaction.state.pos;
+			DebugModifiedPosition& pos = state->interaction.pos;
 			*pos.actual = pos.initial + dMouse;
 		} break;
 		}
@@ -1064,8 +1124,14 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	} break;
 	case DebugInteract_Toggle: {
 		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
-			bool* boolean = state->interaction.state.boolean;
+			bool* boolean = state->interaction.boolean;
 			*boolean = !(*boolean);
+			interactionEnded = true;
+		}
+	} break;
+	case DebugInteract_Select: {
+		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
+			state->selectedId = state->interaction.id;
 			interactionEnded = true;
 		}
 	} break;
@@ -1087,6 +1153,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->interaction = {};
 		state->interacting = false;
 	}
+	state->nextHotInteraction = {};
 }
 
 void DebugDumpStruct(DebugState* state, MemberDefinition* memberArray, u32 memberCount, void* basePtr, u32 indentLevel = 0) {
@@ -1138,7 +1205,51 @@ void DebugDumpStruct(DebugState* state, MemberDefinition* memberArray, u32 membe
 		}
 	}
 	
-}	
+}
+
+inline
+DebugId DEBUG_POINTER_ID(void* ptr) {
+	return { ptr };
+}
+
+inline
+void DEBUG_HIT(DebugId did, Rect2 boundingBox) {
+	DebugState* state = GetDebugState();
+	if (!state) {
+		return;
+	}
+	DebugInteraction interaction = {};
+	interaction.id = did;
+	interaction.startBoundingBox = boundingBox;
+	state->nextHotInteraction = interaction;
+}
+
+inline
+bool DEBUG_HIGHLIGHTED(DebugId did, V4* color) {
+	DebugState* state = GetDebugState();
+	if (!state) {
+		return false;
+	}
+	if (IsSelected(state, did)) {
+		*color = V4{ 1, 1, 0, 1 };
+	}
+	else if (IsHighlighted(state, did)) {
+		*color = V4{ 0, 1, 1, 1 };
+	}
+	else {
+		return false;
+	}
+	return true;
+}
+
+inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) {
+	DebugState* state = GetDebugState();
+	if (!state) {
+		return false;
+	}
+	bool result = IsSelected(state, did) || IsHighlighted(state, did);
+	return result;
+}
 
 void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& input) {
 	TIMED_FUNCTION;
@@ -1209,5 +1320,3 @@ extern "C" DebugFrameInfo* DebugFinishFrame(ProgramMemory* memory, BitmapData& r
 	DebugFrameInfo* result = state->frames + frameWriteIndex;
 	return result;
 }
-
-u32 debugRecordsCount_Main = __COUNTER__;

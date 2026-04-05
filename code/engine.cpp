@@ -1470,50 +1470,50 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (IsFlagSet(*entity, EntityFlag_Movable) && !IsFlagSet(*entity, EntityFlag_NonSpatial)) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
-#if DEBUGUI_ShowEntityHitboxes
-		Controller& controller = input.controllers[KB_CONTROLLER_IDX];
-		EntityBasis basis = {};
-		basis.center = controller.mouse / renderGroup.projection.metersToPixels;
-		basis.size = V2{ 200.0f, 200.0f };
-		Entity* hotEntity = 0;
+		if (DEBUG_UI_ENABLED) {
+			DebugId dId = DEBUG_POINTER_ID(state->world.storageEntities + entity->storageIndex);
+			Controller& controller = input.controllers[KB_CONTROLLER_IDX];
+			EntityBasis basis = {};
+			basis.center = controller.mouse / renderGroup.projection.metersToPixels;
+			basis.size = V2{ 200.0f, 200.0f };
+			for (u32 volumeIndex = 0; volumeIndex < entity->collision->volumeCount; volumeIndex++) {
+				CollisionVolume* volume = entity->collision->volumes + volumeIndex;
+				V3 center = groundLevelPos + volume->offsetPos;
+				Rect2 volumeRect = GetRectFromCenterDim(center.XY, volume->size.XY);
+				f32 distanceZ = groundLevelPos.Z + volume->offsetPos.Z;
+				V2 unprojected = FromPixelSpaceToWorldSpace(renderGroup.projection, controller.mouse, distanceZ);
+				V3 mousePos = ToV3(unprojected, distanceZ);
 
-		for (u32 volumeIndex = 0; volumeIndex < entity->collision->volumeCount; volumeIndex++) {
-			CollisionVolume* volume = entity->collision->volumes + volumeIndex;
-			V3 center = groundLevelPos + volume->offsetPos;
-			Rect2 volumeRect = GetRectFromCenterDim(center.XY, volume->size.XY);
-			f32 distanceZ = groundLevelPos.Z + volume->offsetPos.Z;
-			V2 unprojected = FromPixelSpaceToWorldSpace(renderGroup.projection, controller.mouse, distanceZ);
-			V3 mousePos = ToV3(unprojected, distanceZ);
-
-			V4 color = V4{ 1, 0, 1, layerAlpha };
-			if (IsInRectangle(volumeRect, mousePos.XY)) {
-				color = V4{ 1, 1, 0, layerAlpha };
-				hotEntity = entity;
-			}
-			PushRectBorders(renderGroup, center, volume->size.XY, color, 0.05f);
+				V4 color = V4{ 1, 0, 1, layerAlpha };
+				if (IsInRectangle(volumeRect, mousePos.XY)) {
+					DEBUG_HIT(dId, volumeRect);
+				}
+				if (DEBUG_HIGHLIGHTED(dId, &color)) {
+					PushRectBorders(renderGroup, center, volume->size.XY, color, 0.05f);
+				}
 #if 0
-			PushRect(renderGroup, mousePos, V2{1.f, 1.f}, V2{ 0, 0 }, V4{ 1, 0, 0, 1 });
+				PushRect(renderGroup, mousePos, V2{ 1.f, 1.f }, V2{ 0, 0 }, V4{ 1, 0, 0, 1 });
 #endif
+			}
+			if (DEBUG_DATA_BLOCK_REQUESTED(dId)) {
+				DEBUG_BEGIN_DATA_BLOCK(Entity, dId);
+				DEBUG_DATA(u32, entity->flags);
+				//DEBUG_DATA(hotEntity->collision);
+				DEBUG_DATA(f32, entity->distanceRemaining);
+				DEBUG_DATA(f32, entity->faceDir);
+				DEBUG_DATA(u32, entity->highEntityIndex);
+				//DEBUG_DATA(hotEntity->hitPoints);
+				DEBUG_DATA(V3, entity->pos);
+				DEBUG_DATA(u32, entity->storageIndex);
+				//DEBUG_DATA(hotEntity->sword);
+				DEBUG_DATA(f32, entity->timeRemaining);
+				DEBUG_DATA(u32, entity->type);
+				DEBUG_DATA(V3, entity->vel);
+				DEBUG_DATA(V3, entity->walkableDim);
+				//DEBUG_DATA(hotEntity->worldPos);
+				DEBUG_END_DATA_BLOCK;
+			}
 		}
-		if (hotEntity) {
-			DEBUG_BEGIN_DATA_BLOCK(HotEntity);
-			DEBUG_DATA(u32, hotEntity->flags);
-			//DEBUG_DATA(hotEntity->collision);
-			DEBUG_DATA(f32, hotEntity->distanceRemaining);
-			DEBUG_DATA(f32, hotEntity->faceDir);
-			DEBUG_DATA(u32, hotEntity->highEntityIndex);
-			//DEBUG_DATA(hotEntity->hitPoints);
-			DEBUG_DATA(V3, hotEntity->pos);
-			DEBUG_DATA(u32, hotEntity->storageIndex);
-			//DEBUG_DATA(hotEntity->sword);
-			DEBUG_DATA(f32, hotEntity->timeRemaining);
-			DEBUG_DATA(u32, hotEntity->type);
-			DEBUG_DATA(V3, hotEntity->vel);
-			DEBUG_DATA(V3, hotEntity->walkableDim);
-			//DEBUG_DATA(hotEntity->worldPos);
-			DEBUG_END_DATA_BLOCK;
-		}
-#endif
 	}
 	TIMED_BLOCK_END(UpdateEntities);
 #if 0

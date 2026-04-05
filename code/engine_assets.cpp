@@ -1,7 +1,9 @@
 #include "engine.h"
 
+#if INTERNAL_BUILD
 u32 debugLruCount = 0;
 u32 debugMemBlockCount = 0;
+#endif
 
 inline
 void BeginAssetMemoryLock(Assets& assets) {
@@ -20,7 +22,9 @@ void AddMemoryHeaderToList(Assets& assets, AssetMemoryHeader* header) {
 	header->prev = &assets.lruSentinel;
 	header->next->prev = header;
 	header->prev->next = header;
+#if INTERNAL_BUILD
 	debugLruCount++;
+#endif
 }
 
 inline
@@ -35,7 +39,9 @@ void RemoveMemoryHeaderFromList(AssetMemoryHeader* header) {
 	// NOTE: Needs asset lock
 	header->next->prev = header->prev;
 	header->prev->next = header->next;
+#if INTERNAL_BUILD
 	debugLruCount--;
+#endif
 }
 
 inline
@@ -339,7 +345,9 @@ AssetMemoryBlock* TryMergeMemoryBlocks(AssetMemoryBlock* prev, AssetMemoryBlock*
 	prev->flags |= block->flags;
 	block->prev->next = block->next;
 	block->next->prev = block->prev;
+#if INTERNAL_BUILD
 	debugMemBlockCount--;
+#endif
 	return prev;
 }
 
@@ -412,7 +420,9 @@ void InsertNewMemoryBlock(AssetMemoryBlock* prev, void* memory, u32 size) {
 	block->next = prev->next;
 	block->prev->next = block;
 	block->next->prev = block;
+#if INTERNAL_BUILD
 	debugMemBlockCount++;
+#endif
 }
 
 internal

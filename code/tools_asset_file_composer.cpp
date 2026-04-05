@@ -16,8 +16,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 #if defined(INTERNAL_BUILD)
 ProgramMemory* debugGlobalMemory;
 #endif
-u32 debugRecordsCount_Main;
-u32 debugRecordsCount_Optimized;
 DebugGlobalState* debugGlobalState;
 
 struct Win32FontInfo {

@@ -14,7 +14,6 @@ volatile u32 GLOBAL_THREAD_ID_GEN = 0;
 thread_local u32 THREAD_LOCAL_ID = 0;
 DebugGlobalState debugGlobalState_ = {};
 DebugGlobalState* debugGlobalState = &debugGlobalState_;
-extern u32 DebugRecordsCount_Platform;
 #else
 LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(0);
 #endif
@@ -1328,7 +1327,3 @@ int CALLBACK WinMain(
 	}
 	return 0;
 }
-
-#if INTERNAL_BUILD
-u32 DebugRecordsCount_Platform = __COUNTER__;
-#endif

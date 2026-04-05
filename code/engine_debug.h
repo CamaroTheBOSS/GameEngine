@@ -1,19 +1,16 @@
 #include "engine_common.h"
 
 // ------------------- EVENT PROFILER --------------------
-#if !defined(TRANSLATION_UNIT)
-#define TRANSLATION_UNIT 0
-#endif
 #define MAX_DEBUG_EVENTS 200000
 #define MAX_DEBUG_FRAMES 40
-#define MAX_DEBUG_RECORDS 65535
-#define MAX_TRANSLATION_UNIT 3
 #define MAX_DEBUG_THREADS 64
 #define MAX_STACK_REGIONS 4096
 #define DEBUG_CPU_FREQ (2.9f * 1000 * 1000)
 #define DEBUG_TARGET_REFRESH_MS 16.6666666f
-static_assert(TRANSLATION_UNIT < MAX_TRANSLATION_UNIT);
-static_assert(MAX_DEBUG_RECORDS <= U16_MAX);
+
+struct DebugId {
+	void* val[2];
+};
 
 enum DebugEventType : u8 {
 	Event_Unknown,
@@ -33,7 +30,6 @@ enum DebugEventType : u8 {
 	Event_Data_Rect2,
 	Event_Data_Rect3,
 
-	Event_Group,
 	Event_ProfilerUI,
 };
 
@@ -47,6 +43,8 @@ struct DebugEvent {
 	const char* blockName;
 	u32 line;
 	union {
+		DebugId data_DebugId;
+
 		bool data_bool;
 		u32 data_u32;
 		f32 data_f32;
@@ -93,8 +91,6 @@ struct DebugGlobalState {
 };
 
 #if INTERNAL_BUILD
-extern u32 debugRecordsCount_Main;
-extern u32 debugRecordsCount_Optimized;
 extern DebugGlobalState* debugGlobalState;
 #endif
 
@@ -155,11 +151,15 @@ struct DebugThreadStack {
 	debugGlobalState->debugEventsCount[oldFrameIndex] = oldFrameAndEventIndex & U32_MAX;\
 	MARKUP_FRAME_BEGIN }
 
-#define DEBUG_BEGIN_DATA_BLOCK(Name) { \
+inline DebugId DEBUG_POINTER_ID(void* ptr);
+inline void DEBUG_HIT(DebugId did, Rect2 boundingBox);
+inline bool DEBUG_HIGHLIGHTED(DebugId did, V4* color);
+inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
+#define DEBUG_UI_ENABLED 1
+#define DEBUG_BEGIN_DATA_BLOCK(Name, debugid) { \
 	u16 counter##Name = __COUNTER__; \
 	RecordDebugEventNoBracket(counter##Name, Event_Data_BlockBegin, __FILE__, #Name, __LINE__) \
-}
-	
+	event->data_DebugId = debugid; }
 #define DEBUG_END_DATA_BLOCK { \
 	RecordDebugEventNoBracket(0, Event_Data_BlockEnd, __FILE__, "DataEndBlock", __LINE__) }
 #define DEBUG_DATA(type, data) { \
@@ -172,8 +172,15 @@ struct DebugThreadStack {
 #define TIMED_BLOCK_BEGIN(...)
 #define TIMED_BLOCK_END_(...)
 #define TIMED_BLOCK_END(...)
+
 #define MARKUP_FRAME_BEGIN
 #define MARKUP_FRAME_END
+
+inline DebugId DEBUG_POINTER_ID(void* ptr) { return 0; }
+inline void DEBUG_HIT(DebugId did) {}
+inline bool DEBUG_HIGHLIGHTED(DebugId did) { return false;}
+inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) { return false; }
+#define DEBUG_UI_ENABLED 0
 #define DEBUG_BEGIN_DATA_BLOCK(...)
 #define DEBUG_END_DATA_BLOCK
 #define DEBUG_DATA(...)
@@ -226,6 +233,7 @@ enum DebugInteractionType {
 	DebugInteract_DragIncrease,
 	DebugInteract_Compile,
 	DebugInteract_Tear,
+	DebugInteract_Select,
 };
 
 struct DebugModifiedPosition {
@@ -233,21 +241,19 @@ struct DebugModifiedPosition {
 	V2* actual;
 };
 
-struct DebugInteractionState {
+struct DebugInteraction {
+	DebugId id;
+	DebugInteractionType type;
+
 	V2 startMousePos;
 	Rect2 startBoundingBox;
 	DebugTree* relevantTree;
+	DebugVariableLink* link;
 	union {
 		void* generic;
 		bool* boolean;
 		DebugModifiedPosition pos;
 	};
-};
-
-struct DebugInteraction {
-	DebugInteractionType type;
-	DebugVariableLink* link;
-	DebugInteractionState state;
 };
 
 struct LoadedFont;

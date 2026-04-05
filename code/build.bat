@@ -41,10 +41,10 @@ pushd ..\build
   REM cl %CompilerFlags% ..\code\tools_asset_file_composer.cpp /link -incremental:no gdi32.lib user32.lib %WIN_LIB_FLAGS% 
 
   REM Platform layer + game code
-  cl %CompilerFlags% -O2 -DTRANSLATION_UNIT=1 ..\code\engine_optimized.cpp /c -Foengine_optimized.obj
-  cl %CompilerFlags% -DTRANSLATION_UNIT=0 ..\code\engine.cpp -LD engine_optimized.obj /link %WIN_LIB_FLAGS% -incremental:no -opt:ref -PDB:engine%random%.pdb -EXPORT:GameMainLoopFrame -EXPORT:GameFillSoundBuffer -EXPORT:DebugInit -EXPORT:DebugFinishFrame
+  cl %CompilerFlags% -O2 ..\code\engine_optimized.cpp /c -Foengine_optimized.obj
+  cl %CompilerFlags% ..\code\engine.cpp -LD engine_optimized.obj /link %WIN_LIB_FLAGS% -incremental:no -opt:ref -PDB:engine%random%.pdb -EXPORT:GameMainLoopFrame -EXPORT:GameFillSoundBuffer -EXPORT:DebugInit -EXPORT:DebugFinishFrame
   if "%GameCodeOnly%"=="" (
-	cl %CompilerFlags% -DTRANSLATION_UNIT=2 ..\code\win32_main.cpp /link %LinkerFlags%
+	cl %CompilerFlags% ..\code\win32_main.cpp /link %LinkerFlags%
   )
 popd
 endlocal

@@ -496,5 +496,3 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	}
 	LLVM_MCA_END(opt_render_rect);
 }
-
-u32 debugRecordsCount_Optimized = __COUNTER__;
