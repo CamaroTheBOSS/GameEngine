@@ -929,7 +929,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->selectedRecord = state->hotRecord;
 #endif
 	}
-
 	DEBUG_IF(Debug_ShowInteractions) {
 		char buffer[256];
 		const char* interaction = "Unknown";
@@ -955,7 +954,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		case DebugInteract_Select: {
 			interaction = "Select";
 		} break;
-		}
+		} 
 		V2 dMouse = mousePos - state->interaction.startMousePos;
 		char* at = buffer;
 		char* end = buffer + sizeof(buffer);

@@ -282,7 +282,3 @@ struct FontDrawContext {
 	f32 lineAdvance;
 	LoadedFont* font;
 };
-
-#if 0
-DebugVariable* QueryDebugVariable(DebugVarQueryName query);
-#endif

@@ -1249,8 +1249,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (WasPressed(controller.B.mouseLeft) && IsFlagSet(*entity->sword, EntityFlag_NonSpatial)) {
 			entity->sword->distanceRemaining = 5.f;
 			entity->sword->timeRemaining = 4.f;
-
-			V2 mousePos = controller.mouse;
+			V2 mousePos = FromPixelSpaceToWorldSpace(projection, controller.mouse, 0.f);
 			f32 mouseVecLength = Length(mousePos);
 			f32 projectileSpeed = 5.f;
 			if (mouseVecLength != 0.f) {
@@ -1263,11 +1262,9 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MakeEntitySpatial(*simRegion, state->world, entity->sword->storageIndex, *entity->sword, entity->worldPos);
 		}
 		PlayingSound* first = state->audio.playingSounds;
-		f32 clampedMouseX = Clamp01(controller.mouse.X);
+		f32 clampedMouseX = Clip(controller.mouse.X, 0.f, f4(bitmap.width)) / f4(bitmap.width);
 		ChangeVolume(first, V2{ 1 - clampedMouseX, clampedMouseX }, 0.1f);
 		
-
-
 		playerControls.acceleration.Z = 0.f;
 		if (IsPressed(controller.B.kArrowUp)) {
 			playerControls.acceleration.Z += 10.0f;
@@ -1287,7 +1284,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
 	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, &tranState->assets, MB(4));
 	BeginRendering(renderGroup);
-	renderGroup.projection = GetStandardProjection(bitmap.width, bitmap.height);
+	renderGroup.projection = projection;
 	f32 originalCameraDistance = renderGroup.projection.camera.distanceToTarget;
 	DEBUG_IF(Camera_Zoomout) {
 		DEFINE_DEBUG_VARIABLE(f32, Camera_ZoomoutValue);
