@@ -1465,7 +1465,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
 		if (DEBUG_UI_ENABLED) {
-			DebugId dId = DEBUG_POINTER_ID(state->world.storageEntities + entity->storageIndex);
+			DebugId dId = DEBUG_POINTER_ID(state->world.storageEntities + entity->storageIndex, entity->storageIndex);
 			Controller& controller = input.controllers[KB_CONTROLLER_IDX];
 			EntityBasis basis = {};
 			basis.center = controller.mouse / renderGroup.projection.metersToPixels;
@@ -1493,17 +1493,26 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				DEBUG_BEGIN_DATA_BLOCK(Simulation_Entity, dId);
 				DEBUG_DATA(u32, entity->flags);
 				//DEBUG_DATA(hotEntity->collision);
-				DEBUG_DATA(f32, entity->distanceRemaining);
+
+
+				/*DEBUG_DATA(f32, entity->distanceRemaining);
 				DEBUG_DATA(f32, entity->faceDir);
-				DEBUG_DATA(u32, entity->highEntityIndex);
+				DEBUG_DATA(u32, entity->highEntityIndex);*/
+
+
 				//DEBUG_DATA(hotEntity->hitPoints);
 				DEBUG_DATA(V3, entity->pos);
 				DEBUG_DATA(u32, entity->storageIndex);
 				//DEBUG_DATA(hotEntity->sword);
-				DEBUG_DATA(f32, entity->timeRemaining);
+
+
+				/*DEBUG_DATA(f32, entity->timeRemaining);
 				DEBUG_DATA(u32, entity->type);
 				DEBUG_DATA(V3, entity->vel);
-				DEBUG_DATA(V3, entity->walkableDim);
+				DEBUG_DATA(V3, entity->walkableDim);*/
+
+
+
 				//DEBUG_DATA(hotEntity->worldPos);
 				DEBUG_END_DATA_BLOCK;
 			}

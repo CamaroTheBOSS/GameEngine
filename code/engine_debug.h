@@ -1,7 +1,7 @@
 #include "engine_common.h"
 
 // ------------------- EVENT PROFILER --------------------
-#define MAX_DEBUG_EVENTS 200000
+#define MAX_DEBUG_EVENTS 900000
 #define MAX_DEBUG_FRAMES 40
 #define MAX_DEBUG_THREADS 64
 #define MAX_STACK_REGIONS 4096
@@ -97,6 +97,7 @@ struct DebugVariable {
 	const char* GUID;
 	const char* name;
 	bool permanent;
+	u32 objectId;
 
 	DebugVariable* nextInHash;
 	DebugStoredEvent* oldestEvent;
@@ -175,7 +176,7 @@ struct DebugThreadStack {
 	debugGlobalState->eventsCount[oldFrameIndex] = oldFrameAndEventIndex & U32_MAX;\
 	MARKUP_FRAME_BEGIN }
 
-inline DebugId DEBUG_POINTER_ID(void* ptr);
+inline DebugId DEBUG_POINTER_ID(void* ptr, u32 objId);
 inline void DEBUG_HIT(DebugId did, Rect2 boundingBox);
 inline bool DEBUG_HIGHLIGHTED(DebugId did, V4* color);
 inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
@@ -207,7 +208,7 @@ internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, Debu
 #define MARKUP_FRAME_BEGIN
 #define MARKUP_FRAME_END
 
-inline DebugId DEBUG_POINTER_ID(void* ptr) { return {}; }
+inline DebugId DEBUG_POINTER_ID(void* ptr, u32 objId) { return {}; }
 inline void DEBUG_HIT(DebugId did, Rect2 boundingBox) {}
 inline bool DEBUG_HIGHLIGHTED(DebugId did, V4* color) { return false;}
 inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) { return false; }
@@ -241,9 +242,16 @@ struct DebugVariableGroup {
 	const char* name;
 	u32 nameLength;
 	bool expanded;
+	u32 objectId; // NOTE: for object introspection
+
 	DebugVariableGroup* parentGroup;
 
 	DebugVariableLink* firstLink;
+};
+
+struct DebugVariableTemporaryGroup {
+	DebugVariableGroup group;
+	DebugVariableTemporaryGroup* next;
 };
 
 struct DebugVariableLink {

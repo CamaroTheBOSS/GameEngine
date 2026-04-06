@@ -184,6 +184,14 @@ TemporaryMemory BeginTempMemory(MemoryArena& arena) {
 }
 
 inline
+void CommitTempMemory(TemporaryMemory& memory) {
+	// TODO: Support for nested temp memory by storing tempCount in temp memory
+	Assert(memory.arena->used >= memory.usedFingerprint);
+	Assert(memory.arena->tempCount == 1 && "Commiting temp memory does not support nesting temp memory");
+	memory.arena->tempCount--;
+}
+
+inline
 void EndTempMemory(TemporaryMemory& memory) {
 	Assert(memory.arena->used >= memory.usedFingerprint);
 	Assert(memory.arena->tempCount > 0);

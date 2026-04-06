@@ -105,8 +105,8 @@ inline DebugState* GetDebugState() {
 }
 
 inline
-DebugId DEBUG_POINTER_ID(void* ptr) {
-	return { ptr };
+DebugId DEBUG_POINTER_ID(void* ptr, u32 objId) {
+	return { ptr, ptrcast(void, u64(objId))};
 }
 
 inline
@@ -440,6 +440,17 @@ DebugVariableLink* AddGroupToGroup(DebugState* state, DebugVariableGroup* parent
 	return link;
 }
 
+inline
+void InitializeVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, DebugVariableGroup* group, const char* name, u32 nameLength) {
+	group->expanded = true;
+	group->firstLink = 0;
+	group->name = name;
+	group->nameLength = nameLength;
+	group->parentGroup = parentGroup;
+	group->objectId = 0;
+	AddGroupToGroup(state, parentGroup, group);
+}
+
 internal
 DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, const char* name, u32 nameLength) {
 	DebugVariableGroup* result = 0;
@@ -451,14 +462,14 @@ DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGro
 	}
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariableGroup);
-		result->expanded = true;
-		result->firstLink = 0;
-		result->name = name;
-		result->nameLength = nameLength;
-		result->parentGroup = parentGroup;
-		AddGroupToGroup(state, parentGroup, result);
+		InitializeVariableGroup(state, parentGroup, result, name, nameLength);
 	}
 	return result;
+}
+
+inline
+bool IsGroupTemporary(DebugVariableGroup* group) {
+	return group->objectId > 0;
 }
 
 internal
@@ -466,10 +477,10 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 	DebugStoredEvent* storedEvent) {
 	// TODO: Verify that this is compiled as AND and not as MOD
 	DebugEvent* event = &storedEvent->event;
-	u32 hashSlot = u4(uptr(event->GUID) >> 2) % ArrayCount(state->variableHash);
+	u32 hashSlot = (u4(uptr(event->GUID) >> 2) + 3213 * group->objectId) % ArrayCount(state->variableHash);
 	DebugVariable* result = 0;
 	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-		if (var->GUID == event->GUID) {
+		if (var->GUID == event->GUID && var->objectId == group->objectId) {
 			result = var;
 			break;
 		}
@@ -478,9 +489,12 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 		result = PushStructSize(state->mainArena, DebugVariable);
 		result->GUID = event->GUID;
 		result->name = PushString(state->mainArena, event->GUID, StringLength(event->GUID) + 1);
-		result->oldestEvent = result->newestEvent = storedEvent;
 		result->nextInHash = state->variableHash[hashSlot];
+		result->objectId = group->objectId;
 		state->variableHash[hashSlot] = result;
+		AddVariableToGroup(state, group, result);
+	}
+	else if (IsGroupTemporary(group)) {
 		AddVariableToGroup(state, group, result);
 	}
 	return result;
@@ -601,6 +615,27 @@ DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableG
 }
 
 internal
+DebugVariableGroup* GetGroupForObjectIntrospection(DebugState* state, DebugVariableGroup* group, const char* name, u32 objectId) {
+	DebugVariableGroup* parentGroup = GetGroupForHierachicalName(state, group, name);
+
+	DebugVariableTemporaryGroup* tempGroup = state->temporaryGroupsFreeList;
+	if (tempGroup) {
+		state->temporaryGroupsFreeList = state->temporaryGroupsFreeList->next;
+	}
+	else {
+		tempGroup = PushStructSize(state->mainArena, DebugVariableTemporaryGroup);
+	}
+	DebugVariableGroup* result = &tempGroup->group;
+	const char* tempGroupName = parentGroup->name + parentGroup->nameLength + 1;
+	u32 tempGroupNameLength = StringLength(tempGroupName);
+	InitializeVariableGroup(state, parentGroup, result, tempGroupName, tempGroupNameLength);
+	result->objectId = objectId;
+	tempGroup->next = state->temporaryGroups;
+	state->temporaryGroups = tempGroup;
+	return result;
+}
+
+internal
 void DebugCollateEvents(DebugState* state) {
 	TIMED_FUNCTION;
 
@@ -612,6 +647,7 @@ void DebugCollateEvents(DebugState* state) {
 
 	DebugVariableGroup* rootGroup = &state->UISentinel.next->rootGroup;
 	DebugVariableGroup* currentGroup = rootGroup;
+	state->debugCounter = 0;
 	for (u32 eventIndex = 0;
 		eventIndex < eventsInFrameCount;
 		eventIndex++
@@ -661,13 +697,14 @@ void DebugCollateEvents(DebugState* state) {
 			}
 		} break;
 		case Event_Data_BlockBegin: {
-			//currentGroup = GetGroupForHierachicalName(state, currentGroup, event->blockName);
-			//StoreEvent(state, currentGroup, event, newFrame->frameIndex, true);
+			u32 objectId = u4(u64(event->data_DebugId.val[1]));
+			currentGroup = GetGroupForObjectIntrospection(state, currentGroup, event->blockName, objectId);
+			state->debugCounter++;
+			StoreEvent(state, currentGroup, event, newFrame->frameIndex);
 			PushToEventStack(state, &stack->dataEvents, event);
 		} break;
 		case Event_Data_BlockEnd: {
-			//currentGroup = currentGroup->parentGroup;
-			//StoreEvent(state, currentGroup, event, newFrame->frameIndex, true);
+			currentGroup = rootGroup;
 			PopFromEventStack(state, &stack->dataEvents);
 		} break;
 		case Event_PermanentVariableDeclaration: {
@@ -680,10 +717,11 @@ void DebugCollateEvents(DebugState* state) {
 		case Event_Data_V2:
 		case Event_Data_V3:
 		case Event_Data_V4: {
-			//StoreEvent(state, currentGroup, event, newFrame->frameIndex);
+			StoreEvent(state, currentGroup, event, newFrame->frameIndex);
 		} break;
 		}
 	}
+	f32 xd = 0;
 }
 
 enum DebugVarToTextFlags {
@@ -927,6 +965,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				}
 			}
 			else {
+				// TODO: Merge this code somehow with variable printout!
 				Assert(node->group);
 				char* at = buffer;
 				for (u32 idx = 0; idx < depth; idx++) {
@@ -937,8 +976,13 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				if (isHot) {
 					itemColor = hotItemColor;
 				}
-
-				sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
+				if (!IsGroupTemporary(node->group)) {
+					sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
+				}
+				else {
+					sprintf_s(at, end - at, "%.*s [%d]:", node->group->nameLength, node->group->name, node->group->objectId);
+				}
+				
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
 				if (IsInRectangle(bb, mousePos)) {
 					SetNextHotInteraction(state, node, bb, tree);
@@ -1279,6 +1323,40 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
 }
 
+internal
+void FreeTemporaryGroups(DebugState* state) {
+	DebugVariableTemporaryGroup* tempGroup = state->temporaryGroups;
+	for (; tempGroup; tempGroup = tempGroup->next) {
+		DebugVariableGroup* group = &tempGroup->group;
+		DebugVariableGroup* parentGroup = group->parentGroup;
+		bool found = false;
+		DebugVariableLink* prevLink = 0;
+
+		for (DebugVariableLink* link = parentGroup->firstLink; link; link = link->next) {
+			// TODO: DOUBLE LINKED LIST FOR LINKS TO MAKE IT MORE SANE!
+			if (link->group && IsGroupTemporary(link->group)) {
+				found = true;
+				if (prevLink) {
+					prevLink->next = link->next;
+					prevLink = link;
+				}
+				else {
+					parentGroup->firstLink = parentGroup->firstLink->next;
+					prevLink = 0;
+				}
+			}
+			else {
+				prevLink = link;
+			}
+			
+		}
+		Assert(found);
+		tempGroup->next = state->temporaryGroupsFreeList;
+		state->temporaryGroupsFreeList = tempGroup;
+	}
+	state->temporaryGroups = 0;
+}
+
 extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {
 	return debugGlobalState;
 }
@@ -1296,6 +1374,7 @@ extern "C" void DebugFinishFrame(ProgramMemory* memory, BitmapData& rawBitmap, I
 		return;
 	}
 	DebugRenderOverlay(state, bitmap, input);
+	FreeTemporaryGroups(state);
 	DebugCollateEvents(state);
 	state->totalFrameCount++;
 	return;
