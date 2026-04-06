@@ -258,6 +258,19 @@ u32 StringLength(const char* str) {
 }
 
 inline
+bool StringsAreEqual(const char* A, u32 ALength, const char* B, u32 BLength) {
+	if (ALength != BLength) {
+		return false;
+	}
+	for (u32 idx = 0; idx < ALength; idx++) {
+		if (*A++ != *B++) {
+			return false;
+		}
+	}
+	return true;
+}
+
+inline
 u64 CopyString(const char* src, u64 srcSize, char* dst, u64 dstSize) {
 	u32 copied = 0;
 	while (*src != '\0' && copied < dstSize - 1 && copied < srcSize) {

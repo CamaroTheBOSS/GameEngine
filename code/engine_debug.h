@@ -239,6 +239,7 @@ struct TimedBlock {
 struct DebugVariableLink;
 struct DebugVariableGroup {
 	const char* name;
+	u32 nameLength;
 	bool expanded;
 	DebugVariableGroup* parentGroup;
 
@@ -246,11 +247,11 @@ struct DebugVariableGroup {
 };
 
 struct DebugVariableLink {
-	DebugVariableGroup* parentGroup;
-	DebugVariableLink* next;
-
 	DebugVariableGroup* group;
 	DebugVariable* variable;
+
+	DebugVariableLink* next;
+	DebugVariableGroup* parentGroup;
 };
 
 struct DebugCollationFrame {
@@ -274,6 +275,7 @@ enum DebugInteractionType {
 	DebugInteract_None,
 
 	DebugInteract_Toggle,
+	DebugInteract_ToggleGroup,
 	DebugInteract_Resize,
 	DebugInteract_Move,
 	DebugInteract_DragIncrease,
@@ -298,6 +300,7 @@ struct DebugInteraction {
 	union {
 		void* generic;
 		DebugEvent* event;
+		DebugVariableGroup* group;
 		DebugModifiedPosition pos;
 	};
 };

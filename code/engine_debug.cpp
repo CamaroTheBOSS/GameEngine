@@ -268,6 +268,7 @@ DebugTree* AddTree(DebugState* state, V2 pos) {
 	tree->rootGroup = {};
 	tree->rootGroup.expanded = true;
 	tree->rootGroup.name = "Default";
+	tree->rootGroup.nameLength = StringLength(tree->rootGroup.name);
 	DLINKED_LIST_ADD(&state->UISentinel, tree);
 	return tree;
 }
@@ -429,6 +430,37 @@ DebugVariableLink* AddVariableToGroup(DebugState* state, DebugVariableGroup* gro
 	return link;
 }
 
+DebugVariableLink* AddGroupToGroup(DebugState* state, DebugVariableGroup* parent, DebugVariableGroup* group) {
+	DebugVariableLink* link = PushStructSize(state->mainArena, DebugVariableLink);
+	link->variable = 0;
+	link->parentGroup = parent;
+	link->group = group;
+	link->next = parent->firstLink;
+	parent->firstLink = link;
+	return link;
+}
+
+internal
+DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, const char* name, u32 nameLength) {
+	DebugVariableGroup* result = 0;
+	for (DebugVariableLink* child = parentGroup->firstLink; child; child = child->next) {
+		if (child->group && StringsAreEqual(child->group->name, child->group->nameLength, name, nameLength)) {
+			result = child->group;
+			break;
+		}
+	}
+	if (!result) {
+		result = PushStructSize(state->mainArena, DebugVariableGroup);
+		result->expanded = true;
+		result->firstLink = 0;
+		result->name = name;
+		result->nameLength = nameLength;
+		result->parentGroup = parentGroup;
+		AddGroupToGroup(state, parentGroup, result);
+	}
+	return result;
+}
+
 internal
 DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariableGroup* group, 
 	DebugStoredEvent* storedEvent) {
@@ -549,31 +581,37 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 }
 
 internal
+DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableGroup* group, const char* name) {
+	const char* firstUnderscore = 0;
+	const char* at = name;
+	while (*at != 0) {
+		if (*at == '_') {
+			firstUnderscore = at;
+			break;
+		}
+		at++;
+	}
+	DebugVariableGroup* result = group;
+	if (firstUnderscore) {
+		u32 descentGroupNameLength = u4(firstUnderscore - name);
+		DebugVariableGroup* descentGroup = GetOrCreateVariableGroup(state, group, name, descentGroupNameLength);
+		result = GetGroupForHierachicalName(state, descentGroup, name + descentGroupNameLength + 1);
+	}
+	return result;
+}
+
+internal
 void DebugCollateEvents(DebugState* state) {
 	TIMED_FUNCTION;
 
-	// TODO Make this code more sane
-#if 0
-	DLINKED_LIST_REMOVE(debugState->temporaryVarTree);
-	EndTempMemory(debugState->frameMemory);
-	debugState->frameMemory = BeginTempMemory(debugState->collationArena);
-	debugState->temporaryVarTree = PushStructSize(debugState->collationArena, DebugTree);
-	*debugState->temporaryVarTree = {};
-	debugState->temporaryVarTree->pos = V2{ debugState->overlayBoundaries.min.X, debugState->overlayBoundaries.max.Y };
-	DLINKED_LIST_ADD(&debugState->UISentinel, debugState->temporaryVarTree);
-	DLINKED_LIST_INIT(&debugState->temporaryVarTree->root);
-	DebugVariableDefinitionContext context = {};
-	context.parentStack[0] = &debugState->temporaryVarTree->root;
-	DebugVariableDefinitionContext context2 = {};
-	context2.parentStack[0] = &debugState->permanentVarTree->root;
-#endif
 	u32 frameIndex = !debugGlobalState->currentFrameIndex;
 	f32 scale = DEBUG_COLLATION_SCALE;
 	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];
 	u32 eventsInFrameCount = debugGlobalState->eventsCount[frameIndex];
 	DebugCollationFrame* newFrame = AllocateNewDebugFrame(state);
 
-	DebugVariableGroup* group = &state->UISentinel.next->rootGroup;
+	DebugVariableGroup* rootGroup = &state->UISentinel.next->rootGroup;
+	DebugVariableGroup* currentGroup = rootGroup;
 	for (u32 eventIndex = 0;
 		eventIndex < eventsInFrameCount;
 		eventIndex++
@@ -623,14 +661,17 @@ void DebugCollateEvents(DebugState* state) {
 			}
 		} break;
 		case Event_Data_BlockBegin: {
+			//currentGroup = GetGroupForHierachicalName(state, currentGroup, event->blockName);
+			//StoreEvent(state, currentGroup, event, newFrame->frameIndex, true);
 			PushToEventStack(state, &stack->dataEvents, event);
-			//BeginCollationVariableLinkGroup(debugState, context, event, false);
 		} break;
 		case Event_Data_BlockEnd: {
+			//currentGroup = currentGroup->parentGroup;
+			//StoreEvent(state, currentGroup, event, newFrame->frameIndex, true);
 			PopFromEventStack(state, &stack->dataEvents);
-			//EndCollationVariableLinkGroup(debugState, context);
 		} break;
 		case Event_PermanentVariableDeclaration: {
+			DebugVariableGroup* group = GetGroupForHierachicalName(state, rootGroup, event->blockName);
 			StoreEvent(state, group, event, newFrame->frameIndex, true);
 		} break;
 		case Event_Data_u32:
@@ -639,7 +680,7 @@ void DebugCollateEvents(DebugState* state) {
 		case Event_Data_V2:
 		case Event_Data_V3:
 		case Event_Data_V4: {
-			StoreEvent(state, group, event, newFrame->frameIndex);
+			//StoreEvent(state, currentGroup, event, newFrame->frameIndex);
 		} break;
 		}
 	}
@@ -892,17 +933,21 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 					*at++ = ' ';
 					*at++ = ' ';
 				}
-				sprintf_s(at, end - at, "%s:", node->group->name);
-				DebugRenderLine(state, buffer, fontContext, itemColor);
-				// TODO: Interactions on DebugVariableGroup
+				bool isHot = IsVariableHot(state, node);
+				if (isHot) {
+					itemColor = hotItemColor;
+				}
 
-				/*Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
+				sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
+				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
 				if (IsInRectangle(bb, mousePos)) {
 					SetNextHotInteraction(state, node, bb, tree);
-				}*/
+				}
+				PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
+				DebugRenderLine(state, buffer, fontContext, itemColor);
 			}
 			if (node) {
-				if (node->group) {
+				if (node->group && node->group->expanded) {
 					// TODO: Display group names
 					parent[++depth] = node;
 					node = parent[depth]->group->firstLink;
@@ -912,7 +957,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				}
 			}
 			while (!node && depth > 0) {
-				node = parent[--depth];
+				node = parent[depth--];
 				if (node) {
 					node = node->next;
 				}
@@ -926,38 +971,42 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	if (!DebugIdIsNull(state->nextHotInteraction.id)) {
 		state->nextHotInteraction.startMousePos = mousePos;
 		if (state->nextHotInteraction.link) {
-			DebugEvent* event = &state->nextHotInteraction.link->variable->newestEvent->event;
-			if (event->type == Event_PermanentVariableDeclaration) {
-				event = event->data_DebugEvent;
+			DebugVariable* var = state->nextHotInteraction.link->variable;
+			if (var) {
+				DebugEvent* event = &var->newestEvent->event;
+				if (event->type == Event_PermanentVariableDeclaration) {
+					event = event->data_DebugEvent;
+				}
+				switch (event->type) {
+				case Event_Data_bool: {
+					if (WasPressed(controller.B.mouseLeft)) {
+						state->nextHotInteraction.type = DebugInteract_Toggle;
+						state->nextHotInteraction.event = event;
+					}
+				} break;
+				case Event_Data_f32: {
+					if (WasPressed(controller.B.mouseLeft)) {
+						state->nextHotInteraction.type = DebugInteract_DragIncrease;
+						state->nextHotInteraction.event = event;
+					}
+				} break;
+				case Event_ProfilerUI: {
+					if (WasPressed(controller.B.mouseLeft)) {
+						state->nextHotInteraction.type = DebugInteract_Resize;
+					}
+				} break;
+				}
+				if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
+					state->nextHotInteraction.type = DebugInteract_Tear;
+				}
 			}
-			switch (event->type) {
-			case Event_Data_bool: {
+			else {
+				DebugVariableGroup* group = state->nextHotInteraction.link->group;
+				Assert(group);
 				if (WasPressed(controller.B.mouseLeft)) {
-					state->nextHotInteraction.type = DebugInteract_Toggle;
-					state->nextHotInteraction.event = event;
+					state->nextHotInteraction.type = DebugInteract_ToggleGroup;
+					state->nextHotInteraction.group = group;
 				}
-			} break;
-			case Event_Data_f32: {
-				if (WasPressed(controller.B.mouseLeft)) {
-					state->nextHotInteraction.type = DebugInteract_DragIncrease;
-					state->nextHotInteraction.event = event;
-				}
-			} break;
-#if 0
-			case DebugVarType::CompilationSwitch: {
-				if (WasPressed(controller.B.mouseLeft)) {
-					state->nextHotInteraction.type = DebugInteract_Compile;
-				}
-			} break;
-#endif
-			case Event_ProfilerUI: {
-				if (WasPressed(controller.B.mouseLeft)) {
-					state->nextHotInteraction.type = DebugInteract_Resize;
-				}
-			} break;
-			}
-			if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.type = DebugInteract_Tear;
 			}
 		}
 		else {
@@ -1057,6 +1106,9 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		case DebugInteract_None: {
 			interaction = "None";
 		} break;
+		case DebugInteract_ToggleGroup: {
+			interaction = "ToggleGroup";
+		} break;
 		case DebugInteract_Toggle: {
 			interaction = "Toggle";
 		} break;
@@ -1079,8 +1131,12 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		V2 dMouse = mousePos - state->interaction.startMousePos;
 		char* at = buffer;
 		char* end = buffer + sizeof(buffer);
-		if (state->interaction.link) {
+		if (state->interaction.link && state->interaction.link->variable) {
 			at += sprintf_s(at, end - at, "%s with %s", interaction, state->interaction.link->variable->newestEvent->event.blockName);
+		}
+		else if (state->interaction.link && state->interaction.link->group) {
+			DebugVariableGroup* group = state->interaction.link->group;
+			at += sprintf_s(at, end - at, "%s with %.*s", interaction, group->nameLength, group->name);
 		}
 		else if (!DebugIdIsNull(state->interaction.id)) {
 			at += sprintf_s(at, end - at, "%s with debug id %p", interaction, state->interaction.id.val[0]);
@@ -1103,6 +1159,13 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	case DebugInteract_Toggle: {
 		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
 			bool* boolean = &state->interaction.event->data_bool;
+			*boolean = !(*boolean);
+			interactionEnded = true;
+		}
+	} break;
+	case DebugInteract_ToggleGroup: {
+		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
+			bool* boolean = &state->interaction.group->expanded;
 			*boolean = !(*boolean);
 			interactionEnded = true;
 		}
