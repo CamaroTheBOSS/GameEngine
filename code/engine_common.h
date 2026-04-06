@@ -115,6 +115,8 @@ typedef double f64;
 #include "engine_intrinsics.h"
 #include "engine_math.h"
 
+#define DEFAULT_ALIGNMENT 4
+
 struct MemoryArena {
 	u8* data;
 	u64 capacity;
@@ -159,6 +161,14 @@ u64 GetAlignmentOffset(MemoryArena& arena, u64 alignment) {
 }
 
 inline
+bool HasArenaSpaceFor(MemoryArena& arena, u64 size, u64 alignment = DEFAULT_ALIGNMENT) {
+	u64 alignmentOffset = GetAlignmentOffset(arena, alignment);
+	size += alignmentOffset;
+	bool result = (arena.used + size) <= arena.capacity;
+	return result;
+}
+
+inline
 u64 GetArenaFreeSpaceSize(MemoryArena& arena) {
 	u64 result = arena.capacity - arena.used;
 	return result;
@@ -182,7 +192,7 @@ void EndTempMemory(TemporaryMemory& memory) {
 }
 
 inline
-void* PushSize_(MemoryArena & arena, u64 size, u64 alignment = 4) {
+void* PushSize_(MemoryArena & arena, u64 size, u64 alignment = DEFAULT_ALIGNMENT) {
 	u64 alignmentOffset = GetAlignmentOffset(arena, alignment);
 	size += alignmentOffset;
 	if (arena.used + size > arena.capacity) {
@@ -195,7 +205,7 @@ void* PushSize_(MemoryArena & arena, u64 size, u64 alignment = 4) {
 }
 
 inline
-void SubArena(MemoryArena& subArena, MemoryArena& arena, u64 size, u64 alignment = 4) {
+void SubArena(MemoryArena& subArena, MemoryArena& arena, u64 size, u64 alignment = DEFAULT_ALIGNMENT) {
 	Assert(subArena.capacity == 0);
 	void* data = PushSize_(arena, size, alignment);
 	InitializeArena(subArena, data, size);

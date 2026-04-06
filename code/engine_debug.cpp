@@ -77,9 +77,10 @@ bool IsSelected(DebugState* state, DebugId did) {
 	return DebugIdsEqual(state->selectedId, did);
 }
 
-internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line) {
+internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line, const char* GUID) {
 	RecordDebugEventNoBracket(0, Event_PermanentVariableDeclaration, file, name, line);
 	event->data_DebugEvent = subevent;
+	event->GUID = GUID;
 	subevent->blockName = name;
 	subevent->coreId = 0;
 	subevent->cycles = 0;
@@ -87,6 +88,7 @@ internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, Debu
 	subevent->type = type;
 	subevent->file = file;
 	subevent->line = line;
+	subevent->GUID = GUID;
 	return subevent;
 }
 
@@ -259,6 +261,17 @@ FontDrawContext InitializeStandardFontDrawContext(DebugState* state, V2 topline)
 	return InitializeFontDrawContext(state->font, scale, lineAdvance, topline);
 }
 
+internal
+DebugTree* AddTree(DebugState* state, V2 pos) {
+	DebugTree* tree = PushStructSize(state->mainArena, DebugTree);
+	tree->pos = pos;
+	tree->rootGroup = {};
+	tree->rootGroup.expanded = true;
+	tree->rootGroup.name = "Default";
+	DLINKED_LIST_ADD(&state->UISentinel, tree);
+	return tree;
+}
+
 internal 
 DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 	if (debugGlobalMemory->debugMemorySize == 0) {
@@ -274,14 +287,21 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 			ptrcast(u8, debugGlobalMemory->debugMemory) + sizeof(DebugState),
 			debugGlobalMemory->debugMemorySize - sizeof(DebugState)
 		);
+#if 0
 		SubArena(state->collationFrameArena, state->mainArena, MB(16));
+#else
+		SubArena(state->collationFrameArena, state->mainArena, kB(128));
+#endif
 		state->renderGroup = AllocateRenderGroup(state->mainArena, &tranState->assets, MB(4), false);
 		state->highPriorityQueue = tranState->highPriorityQueue;
 		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
 		state->threadStacks = PushArray(state->mainArena, MAX_DEBUG_THREADS, DebugThreadStack);
 		DLINKED_LIST_INIT(&state->UISentinel);
-#if 0
+
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
+		AddTree(state, leftTopCorner);
+#if 0
+		
 		state->temporaryVarTree = PushStructSize(state->collationArena, DebugTree);	
 		state->permanentVarTree = PushStructSize(state->mainArena, DebugTree);
 		state->permanentVarTree->pos = leftTopCorner + V2{200, 0};
@@ -399,7 +419,137 @@ void EndCollationVariableLinkGroup(DebugState* state, DebugVariableDefinitionCon
 #endif
 
 internal
-void DebugCollateEvents(DebugState* debugState) {
+DebugVariableLink* AddVariableToGroup(DebugState* state, DebugVariableGroup* group, DebugVariable* var) {
+	DebugVariableLink* link = PushStructSize(state->mainArena, DebugVariableLink);
+	link->variable = var;
+	link->parentGroup = group;
+	link->group = 0;
+	link->next = group->firstLink;
+	group->firstLink = link;
+	return link;
+}
+
+internal
+DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariableGroup* group, 
+	DebugStoredEvent* storedEvent) {
+	// TODO: Verify that this is compiled as AND and not as MOD
+	DebugEvent* event = &storedEvent->event;
+	u32 hashSlot = u4(uptr(event->GUID) >> 2) % ArrayCount(state->variableHash);
+	DebugVariable* result = 0;
+	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
+		if (var->GUID == event->GUID) {
+			result = var;
+			break;
+		}
+	}
+	if (!result) {
+		result = PushStructSize(state->mainArena, DebugVariable);
+		result->GUID = event->GUID;
+		result->name = PushString(state->mainArena, event->GUID, StringLength(event->GUID) + 1);
+		result->oldestEvent = result->newestEvent = storedEvent;
+		result->nextInHash = state->variableHash[hashSlot];
+		state->variableHash[hashSlot] = result;
+		AddVariableToGroup(state, group, result);
+	}
+	return result;
+}
+
+internal
+void FreeOldestFrame(DebugState* state) {
+	DebugCollationFrame* frame = state->oldestFrame;
+	for (u32 hashSlot = 0; hashSlot < ArrayCount(state->variableHash); hashSlot++) {
+		for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
+			if (var->permanent) {
+				continue;
+			}
+			DebugStoredEvent* lastEventToRemove = var->oldestEvent;
+			while (lastEventToRemove && lastEventToRemove->captureFrameIndex <= frame->frameIndex) {
+				lastEventToRemove = lastEventToRemove->next;
+			}
+			DebugStoredEvent* newOldest = 0;
+			if (lastEventToRemove) {
+				newOldest = lastEventToRemove->next;
+				lastEventToRemove->next = state->freeStoredEventList;
+				state->freeStoredEventList = var->oldestEvent;
+
+			}
+			if (newOldest) {
+				var->oldestEvent = newOldest;
+				Assert(var->newestEvent->captureFrameIndex >= newOldest->captureFrameIndex);
+			}
+			else {
+				var->oldestEvent = var->newestEvent = 0;
+			}
+		}
+	}
+	state->oldestFrame = frame->next;
+	frame->next = state->freeFrameList;
+	state->freeFrameList = frame;
+}
+
+internal
+DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableGroup* group, DebugEvent* event,
+	u32 captureFrameIndex, bool permanent = false) {
+	DebugStoredEvent* storedEvent = 0;
+	while (!storedEvent) {
+		storedEvent = state->freeStoredEventList;
+		if (storedEvent) {
+			state->freeStoredEventList = state->freeStoredEventList->next;
+		}
+		else if (HasArenaSpaceFor(state->collationFrameArena, sizeof(DebugStoredEvent))) {
+			storedEvent = PushStructSize(state->collationFrameArena, DebugStoredEvent);
+		}
+		else {
+			FreeOldestFrame(state);
+		}
+	}
+	storedEvent->event = *event;
+	storedEvent->next = 0;
+	storedEvent->captureFrameIndex = captureFrameIndex;
+
+	DebugVariable* var = GetOrCreateDebugVariableForEvent(state, group, storedEvent);
+	var->permanent = permanent;
+	if (!var->oldestEvent) {
+		var->oldestEvent = var->newestEvent = storedEvent;
+	}
+	else {
+		var->newestEvent = var->newestEvent->next = storedEvent;
+	}
+	return storedEvent;
+}
+
+internal
+DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
+	DebugCollationFrame* newFrame = 0;
+	while (!newFrame) {
+		newFrame = state->freeFrameList;
+		if (newFrame) {
+			state->freeFrameList = state->freeFrameList->next;
+		}
+		else if (HasArenaSpaceFor(state->collationFrameArena, sizeof(DebugCollationFrame))) {
+			newFrame = PushStructSize(state->collationFrameArena, DebugCollationFrame);
+		}
+		else {
+			FreeOldestFrame(state);
+		}
+	}
+	u32 frameIndex = !debugGlobalState->currentFrameIndex;
+	newFrame->eventsCount = debugGlobalState->eventsCount[frameIndex];
+	newFrame->startCycles = debugGlobalState->frameStartCycles[frameIndex];
+	newFrame->rootGroup = {};
+	newFrame->next = 0;
+	newFrame->frameIndex = state->totalFrameCount;
+	if (!state->oldestFrame) {
+		state->oldestFrame = state->newestFrame = newFrame;
+	}
+	else {
+		state->newestFrame = state->newestFrame->next = newFrame;
+	}
+	return newFrame;
+}
+
+internal
+void DebugCollateEvents(DebugState* state) {
 	TIMED_FUNCTION;
 
 	// TODO Make this code more sane
@@ -421,16 +571,18 @@ void DebugCollateEvents(DebugState* debugState) {
 	f32 scale = DEBUG_COLLATION_SCALE;
 	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];
 	u32 eventsInFrameCount = debugGlobalState->eventsCount[frameIndex];
-	u64 startCycles = debugGlobalState->frameStartCycles[frameIndex];
+	DebugCollationFrame* newFrame = AllocateNewDebugFrame(state);
+
+	DebugVariableGroup* group = &state->UISentinel.next->rootGroup;
 	for (u32 eventIndex = 0;
 		eventIndex < eventsInFrameCount;
 		eventIndex++
 		) {
 		DebugEvent* event = eventsInFrame + eventIndex;
-		DebugThreadStack* stack = GetDebugStackForThread(debugState, event->threadId);
+		DebugThreadStack* stack = GetDebugStackForThread(state, event->threadId);
 		switch (event->type) {
 		case Event_Time_BlockBegin: {
-			PushToEventStack(debugState, &stack->timeEvents, event);
+			PushToEventStack(state, &stack->timeEvents, event);
 		} break;
 		case Event_Time_BlockEnd: {
 			OpenDebugEvent* block = stack->timeEvents;
@@ -438,8 +590,8 @@ void DebugCollateEvents(DebugState* debugState) {
 			DebugEvent* openEvent = block->event;
 			if (openEvent) {
 				if (openEvent->threadId == event->threadId) {
-					f32 minT = f4(openEvent->cycles - startCycles) * scale;
-					f32 maxT = f4(event->cycles - startCycles) * scale;
+					f32 minT = f4(openEvent->cycles - newFrame->startCycles) * scale;
+					f32 maxT = f4(event->cycles - newFrame->startCycles) * scale;
 					f32 thresholdT = 0.01f;
 					if ((maxT - minT) > thresholdT) {
 #if 0
@@ -466,20 +618,20 @@ void DebugCollateEvents(DebugState* debugState) {
 						}
 #endif
 					}
-					PopFromEventStack(debugState, &stack->timeEvents);
+					PopFromEventStack(state, &stack->timeEvents);
 				}
 			}
 		} break;
 		case Event_Data_BlockBegin: {
-			PushToEventStack(debugState, &stack->dataEvents, event);
+			PushToEventStack(state, &stack->dataEvents, event);
 			//BeginCollationVariableLinkGroup(debugState, context, event, false);
 		} break;
 		case Event_Data_BlockEnd: {
-			PopFromEventStack(debugState, &stack->dataEvents);
+			PopFromEventStack(state, &stack->dataEvents);
 			//EndCollationVariableLinkGroup(debugState, context);
 		} break;
 		case Event_PermanentVariableDeclaration: {
-			//AddCollationVariableLink(debugState, context2, event->data_DebugEvent, true);
+			StoreEvent(state, group, event, newFrame->frameIndex, true);
 		} break;
 		case Event_Data_u32:
 		case Event_Data_i32:
@@ -487,7 +639,7 @@ void DebugCollateEvents(DebugState* debugState) {
 		case Event_Data_V2:
 		case Event_Data_V3:
 		case Event_Data_V4: {
-			//AddCollationVariableLink(debugState, context, event, false);
+			StoreEvent(state, group, event, newFrame->frameIndex);
 		} break;
 		}
 	}
@@ -538,6 +690,14 @@ u64 DebugEventToText(DebugEvent* event, char* buffer, u32 size, u32 flags) {
 	} break;
 	case Event_Data_BlockBegin: {
 		at += sprintf_s(at, end - at, "%s%s", event->blockName, colon);
+	} break;
+	case Event_PermanentVariableDeclaration: {
+		u32 newFlags = flags;
+		flags &= (~DebugVarToText_ConfigPrefix | DebugVarToText_AddNewLine);
+		DebugEventToText(event->data_DebugEvent, at, u4(end - at), newFlags);
+	} break;
+	default: {
+		at += sprintf_s(at, end - at, "Unknown: %s", event->blockName);
 	} break;
 	}
 	if (flags & DebugVarToText_AddNewLine && (end - at) > 0) {
@@ -681,82 +841,83 @@ void SetNextHotInteraction(DebugState* state, DebugVariableLink* link, Rect2 bou
 internal
 void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	for (DebugTree* tree = state->UISentinel.next; tree != &state->UISentinel; tree = tree->next) {
-		//FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->pos);
-		//DebugVariableGroup* parent = &tree->rootGroup;
+		FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->pos);
+		DebugVariableLink* node = tree->rootGroup.firstLink;
+		u32 depth = 0;
+		DebugVariableLink* parent[64] = {};
+		while (node) {
+			char buffer[256] = {};
+			char* end = buffer + sizeof(buffer);
+			V4 itemColor = V4{ 1, 1, 1, 1 };
+			V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
+			
+			if (node->variable) {
+				if (node->variable->newestEvent) {
+					DebugEvent* event = &node->variable->newestEvent->event;
+					bool isHot = IsVariableHot(state, node);
+					if (isHot) {
+						itemColor = hotItemColor;
+					}
 
-		//DebugVariableLink* node = parent->firstLink;
-		//u32 depth = 0;
-		//while (node) {
-		//	char buffer[256] = {};
-		//	char* end = buffer + sizeof(buffer);
-		//	V4 itemColor = V4{ 1, 1, 1, 1 };
-		//	V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
-		//	
-		//	if (node->variable) {
-		//		DebugEvent* event = &node->variable->newestEvent->event;
-		//		bool isHot = IsVariableHot(state, node);
-		//		if (isHot) {
-		//			itemColor = hotItemColor;
-		//		}
+					if (event->type == Event_ProfilerUI) {
+						Rect2 boundaries = event->data_Rect2;
+						DebugRenderProfilerUI(state, boundaries, mousePos);
+						Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
+						// TODO: Should this condition be included in SetNextHotInteraction?
+						if (IsInRectangle(resizeAnchor, mousePos)) {
+							SetNextHotInteraction(state, node, resizeAnchor, tree);
+						}
+						PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
+					}
+					else {
+						char* at = buffer;
+						for (u32 idx = 0; idx < depth; idx++) {
+							*at++ = ' ';
+							*at++ = ' ';
+						}
+						DebugEventToText(event, at, u4(end - at), DebugVarToText_AddColon);
+						Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
+						if (IsInRectangle(bb, mousePos)) {
+							SetNextHotInteraction(state, node, bb, tree);
+						}
+						PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
+						DebugRenderLine(state, buffer, fontContext, itemColor);
+					}
+				}
+			}
+			else {
+				Assert(node->group);
+				char* at = buffer;
+				for (u32 idx = 0; idx < depth; idx++) {
+					*at++ = ' ';
+					*at++ = ' ';
+				}
+				sprintf_s(at, end - at, "%s:", node->group->name);
+				DebugRenderLine(state, buffer, fontContext, itemColor);
+				// TODO: Interactions on DebugVariableGroup
 
-		//		if (event->type == Event_ProfilerUI) {
-		//			Rect2 boundaries = event->data_Rect2;
-		//			DebugRenderProfilerUI(state, boundaries, mousePos);
-		//			Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
-		//			// TODO: Should this condition be included in SetNextHotInteraction?
-		//			if (IsInRectangle(resizeAnchor, mousePos)) {
-		//				SetNextHotInteraction(state, node, resizeAnchor, tree);
-		//			}
-		//			PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
-		//		}
-		//		else {
-		//			char* at = buffer;
-		//			for (u32 idx = 0; idx < depth; idx++) {
-		//				*at++ = ' ';
-		//				*at++ = ' ';
-		//			}
-		//			DebugEventToText(event, at, u4(end - at), DebugVarToText_AddColon);
-		//			Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
-		//			if (IsInRectangle(bb, mousePos)) {
-		//				SetNextHotInteraction(state, node, bb, tree);
-		//			}
-		//			PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
-		//			DebugRenderLine(state, buffer, fontContext, itemColor);
-		//		}
-		//	}
-		//	else {
-		//		Assert(node->group);
-		//		sprintf_s(buffer, sizeof(buffer), "%s:", node->group->name);
-		//		DebugRenderLine(state, buffer, fontContext, itemColor);
-		//		// TODO: Interactions on DebugVariableGroup
-
-		//		/*Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
-		//		if (IsInRectangle(bb, mousePos)) {
-		//			SetNextHotInteraction(state, node, bb, tree);
-		//		}*/
-		//	}
-		//	
-		//	if (node->group) {
-		//		// TODO: Display group names
-		//		parent = node->group;
-		//		node = parent->firstLink;
-		//		depth++;
-		//	}
-		//	else if (node) {
-		//		node = node->next;
-		//	}
-		//	while (!node && parent) {
-		//		node = parent->parentGroup->;
-		//		parent = node->parent;
-		//		if (parent) {
-		//			sentinel = parent->children;
-		//		}
-		//		depth -= 1;
-		//	}
-		//	if (!parent) {
-		//		break;
-		//	}
-		//}
+				/*Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
+				if (IsInRectangle(bb, mousePos)) {
+					SetNextHotInteraction(state, node, bb, tree);
+				}*/
+			}
+			if (node) {
+				if (node->group) {
+					// TODO: Display group names
+					parent[++depth] = node;
+					node = parent[depth]->group->firstLink;
+				}
+				else {
+					node = node->next;
+				}
+			}
+			while (!node && depth > 0) {
+				node = parent[--depth];
+				if (node) {
+					node = node->next;
+				}
+			}
+		}
 	}
 }
 
@@ -766,16 +927,20 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->nextHotInteraction.startMousePos = mousePos;
 		if (state->nextHotInteraction.link) {
 			DebugEvent* event = &state->nextHotInteraction.link->variable->newestEvent->event;
+			if (event->type == Event_PermanentVariableDeclaration) {
+				event = event->data_DebugEvent;
+			}
 			switch (event->type) {
 			case Event_Data_bool: {
 				if (WasPressed(controller.B.mouseLeft)) {
 					state->nextHotInteraction.type = DebugInteract_Toggle;
-					state->nextHotInteraction.boolean = &event->data_bool;
+					state->nextHotInteraction.event = event;
 				}
 			} break;
 			case Event_Data_f32: {
 				if (WasPressed(controller.B.mouseLeft)) {
 					state->nextHotInteraction.type = DebugInteract_DragIncrease;
+					state->nextHotInteraction.event = event;
 				}
 			} break;
 #if 0
@@ -857,7 +1022,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		case DebugInteract_DragIncrease: {
-			DebugEvent* event = &state->interaction.link->variable->newestEvent->event;
+			DebugEvent* event = state->interaction.event;
 			event->data_f32 += 0.001f * dMouse.Y;
 		} break;
 		case DebugInteract_Resize: {
@@ -937,7 +1102,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	} break;
 	case DebugInteract_Toggle: {
 		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
-			bool* boolean = state->interaction.boolean;
+			bool* boolean = &state->interaction.event->data_bool;
 			*boolean = !(*boolean);
 			interactionEnded = true;
 		}
@@ -1043,6 +1208,9 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 		}
 #endif
+		u64 arenaRemainingSize = GetArenaFreeSpaceSize(state->collationFrameArena) / 1024;
+		sprintf_s(buffer, 256, "Arena remaining size: %lldkB", arenaRemainingSize);
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 	}
 
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
@@ -1066,5 +1234,6 @@ extern "C" void DebugFinishFrame(ProgramMemory* memory, BitmapData& rawBitmap, I
 	}
 	DebugRenderOverlay(state, bitmap, input);
 	DebugCollateEvents(state);
+	state->totalFrameCount++;
 	return;
 }

@@ -46,6 +46,7 @@ struct DebugEvent {
 	u16 reserved;
 	u16 threadId;
 	u64 cycles;
+	const char* GUID;
 	const char* file;
 	const char* blockName;
 	u32 line;
@@ -86,20 +87,20 @@ struct DebugProfilerRegionSelection {
 };
 
 struct DebugStoredEvent {
+	u32 captureFrameIndex;
+
 	DebugEvent event;
-	DebugEvent* next;
+	DebugStoredEvent* next;
 };
 
 struct DebugVariable {
-	void* GUID;
+	const char* GUID;
 	const char* name;
+	bool permanent;
 
+	DebugVariable* nextInHash;
 	DebugStoredEvent* oldestEvent;
 	DebugStoredEvent* newestEvent;
-};
-
-struct DebugCollationFrame {
-
 };
 
 struct DebugGlobalState {
@@ -127,6 +128,9 @@ struct DebugThreadStack {
 	OpenDebugEvent* dataEvents;
 };
 
+#define UniqueGUID__(file, line, counter) file ":" #line " (" #counter ")"
+#define UniqueGUID_(file, line, counter) UniqueGUID__(file, line, counter)
+#define UniqueGUID UniqueGUID_(__FILE__, __LINE__, __COUNTER__)
 #define RecordDebugEventNoBracket_(counter, eventtype, filename, blockname, linenumber) \
 	u64 frameAndEventIndex = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);\
 	u32 frameIndex = frameAndEventIndex >> 32;\
@@ -138,6 +142,7 @@ struct DebugThreadStack {
 	event->coreId = u8(coreId);\
 	event->type = eventtype;\
 	event->file = filename;	\
+	event->GUID = UniqueGUID; \
 	event->blockName = blockname; \
 	event->line = linenumber;	\
 	event->threadId = u2(GetFastThreadId());
@@ -174,7 +179,7 @@ inline DebugId DEBUG_POINTER_ID(void* ptr);
 inline void DEBUG_HIT(DebugId did, Rect2 boundingBox);
 inline bool DEBUG_HIGHLIGHTED(DebugId did, V4* color);
 inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
-internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line);
+internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line, const char* GUID);
 
 #define DEBUG_UI_ENABLED 1
 #define DEBUG_BEGIN_DATA_BLOCK(Name, debugid) { \
@@ -187,7 +192,7 @@ internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, Debu
 	RecordDebugEventNoBracket(0, Event_Data_##type, __FILE__, #data, __LINE__); \
 	event->data_##type = data; }
 #define DEFINE_DEBUG_VARIABLE(type, variable) \
-	local_persist DebugEvent variable = *InitializePermanentDebugVariable((variable.data_##type = CONSTANT_##variable, &variable), Event_Data_##type, #variable, __FILE__, __LINE__)
+	local_persist DebugEvent variable = *InitializePermanentDebugVariable((variable.data_##type = CONSTANT_##variable, &variable), Event_Data_##type, #variable, __FILE__, __LINE__, UniqueGUID)
 #define DEBUG_IF(variable) \
 	DEFINE_DEBUG_VARIABLE(bool, variable); \
 	if (variable.data_bool)
@@ -231,8 +236,6 @@ struct TimedBlock {
 	}
 };
 
-// ------------------- DEBUG VARIABLES --------------------
-
 struct DebugVariableLink;
 struct DebugVariableGroup {
 	const char* name;
@@ -241,12 +244,22 @@ struct DebugVariableGroup {
 
 	DebugVariableLink* firstLink;
 };
+
 struct DebugVariableLink {
 	DebugVariableGroup* parentGroup;
 	DebugVariableLink* next;
 
 	DebugVariableGroup* group;
 	DebugVariable* variable;
+};
+
+struct DebugCollationFrame {
+	u64 startCycles;
+	u32 eventsCount;
+	u32 frameIndex;
+
+	DebugVariableGroup rootGroup;
+	DebugCollationFrame* next;
 };
 
 struct DebugTree {
@@ -284,7 +297,7 @@ struct DebugInteraction {
 	DebugVariableLink* link;
 	union {
 		void* generic;
-		bool* boolean;
+		DebugEvent* event;
 		DebugModifiedPosition pos;
 	};
 };

@@ -92,7 +92,12 @@ struct DebugState {
 	DebugThreadStack* threadStacks;
 	MemoryArena collationFrameArena;
 	OpenDebugEvent* openEventFreeList;
+	u32 totalFrameCount;
+	DebugCollationFrame* oldestFrame;
+	DebugCollationFrame* newestFrame;
 	DebugCollationFrame* frames;
+	DebugCollationFrame* freeFrameList;
+	DebugStoredEvent* freeStoredEventList;
 	DebugVariable* variableHash[512];
 	
 	// UI
