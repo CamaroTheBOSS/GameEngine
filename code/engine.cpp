@@ -1632,5 +1632,5 @@ extern "C" void GameFillSoundBuffer(ProgramMemory& memory, SoundData& soundData)
 #include "engine_debug.cpp"
 #else
 extern "C" DEBUG_INIT(DebugInit) { return 0; }
-extern "C" DEBUG_FINISH_FRAME(DebugFinishFrame) { return 0; };
+extern "C" DEBUG_FINISH_FRAME(DebugFinishFrame) { return; };
 #endif

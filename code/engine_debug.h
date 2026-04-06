@@ -85,28 +85,38 @@ struct DebugProfilerRegionSelection {
 	u16 recordIndex;	
 };
 
-struct DebugFrameInfo {
-	u32 regionsCount;
-	DebugProfilerRegion regions[MAX_STACK_REGIONS];
-	DebugEventCountMetrics eventCount;
+struct DebugStoredEvent {
+	DebugEvent event;
+	DebugEvent* next;
+};
+
+struct DebugVariable {
+	void* GUID;
+	const char* name;
+
+	DebugStoredEvent* oldestEvent;
+	DebugStoredEvent* newestEvent;
+};
+
+struct DebugCollationFrame {
+
 };
 
 struct DebugGlobalState {
-	DebugEvent debugEvents[MAX_DEBUG_FRAMES][MAX_DEBUG_EVENTS];
-	u32 debugEventsCount[MAX_DEBUG_FRAMES];
-
-	u64 frameStartCycles[MAX_DEBUG_FRAMES];
+	DebugEvent events[2][MAX_DEBUG_EVENTS];
+	u32 eventsCount[2];
+	u64 frameStartCycles[2];
+	u32 currentFrameIndex;
 	volatile u64 frameAndEventIndex;
 };
 
-#if INTERNAL_BUILD
+// TODO: Move it down below
+#if INTERNAL_BUILD 
 extern DebugGlobalState* debugGlobalState;
 #endif
 
 struct OpenDebugEvent {
 	DebugEvent* event;
-	u32 childRegionCount;
-	u16 childRegionIndexes[32];
 	OpenDebugEvent* next;
 };
 
@@ -122,7 +132,7 @@ struct DebugThreadStack {
 	u32 frameIndex = frameAndEventIndex >> 32;\
 	u32 eventIndex = frameAndEventIndex & U32_MAX;\
 	Assert(eventIndex < MAX_DEBUG_EVENTS);\
-	DebugEvent* event = debugGlobalState->debugEvents[frameIndex] + eventIndex;\
+	DebugEvent* event = debugGlobalState->events[frameIndex] + eventIndex;\
 	u32 coreId;\
 	event->cycles = __rdtscp(&coreId);\
 	event->coreId = u8(coreId);\
@@ -152,12 +162,12 @@ struct DebugThreadStack {
 	TIMED_BLOCK_END_(counter##blockName)
 
 #define MARKUP_FRAME_BEGIN \
-	debugGlobalState->frameStartCycles[debugGlobalState->frameAndEventIndex >> 32] = __rdtsc();
+	debugGlobalState->frameStartCycles[debugGlobalState->currentFrameIndex] = __rdtsc();
 #define MARKUP_FRAME_END { \
-	u32 newFrameIndex = ((debugGlobalState->frameAndEventIndex >> 32) + 1) % MAX_DEBUG_FRAMES;						\
-	u64 oldFrameAndEventIndex = AtomicExchangeU64(&debugGlobalState->frameAndEventIndex, u64(newFrameIndex) << 32); \
-	u32 oldFrameIndex = oldFrameAndEventIndex >> 32;\
-	debugGlobalState->debugEventsCount[oldFrameIndex] = oldFrameAndEventIndex & U32_MAX;\
+	u32 oldFrameIndex = debugGlobalState->currentFrameIndex; \
+	debugGlobalState->currentFrameIndex = !debugGlobalState->currentFrameIndex;	\
+	u64 oldFrameAndEventIndex = AtomicExchangeU64(&debugGlobalState->frameAndEventIndex, u64(debugGlobalState->currentFrameIndex) << 32); \
+	debugGlobalState->eventsCount[oldFrameIndex] = oldFrameAndEventIndex & U32_MAX;\
 	MARKUP_FRAME_BEGIN }
 
 inline DebugId DEBUG_POINTER_ID(void* ptr);
@@ -223,20 +233,25 @@ struct TimedBlock {
 
 // ------------------- DEBUG VARIABLES --------------------
 
-struct DebugEvent;
-struct DebugVariableGroup;
-struct DebugVariableLink {
-	DebugEvent* event;
+struct DebugVariableLink;
+struct DebugVariableGroup {
+	const char* name;
+	bool expanded;
+	DebugVariableGroup* parentGroup;
 
+	DebugVariableLink* firstLink;
+};
+struct DebugVariableLink {
+	DebugVariableGroup* parentGroup;
 	DebugVariableLink* next;
-	DebugVariableLink* prev;
-	DebugVariableLink* parent;
-	DebugVariableLink* children;
+
+	DebugVariableGroup* group;
+	DebugVariable* variable;
 };
 
 struct DebugTree {
 	V2 pos;
-	DebugVariableLink root;
+	DebugVariableGroup rootGroup;
 
 	DebugTree* next;
 	DebugTree* prev;

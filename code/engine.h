@@ -85,37 +85,29 @@ struct TransientState {
 
 struct DebugState {
 	MemoryArena mainArena;
-	MemoryArena collationArena;
-	TemporaryMemory frameMemory;
-	RenderGroup renderGroup;
 	PlatformQueue* highPriorityQueue;
 
 	// Event Collation
 	u8 threadStacksCount;
 	DebugThreadStack* threadStacks;
+	MemoryArena collationFrameArena;
 	OpenDebugEvent* openEventFreeList;
+	DebugCollationFrame* frames;
+	DebugVariable* variableHash[512];
+	
+	// UI
 	DebugId selectedId;
-
 	DebugTree UISentinel;
 	DebugTree* permanentVarTree;
 	DebugTree* temporaryVarTree;
 
-	// Profiler
-	u32 frameReadIndex;
-	u32 frameWriteIndex;
-	DebugFrameInfo* frames;
-	const char* hotRegionName;
-	u32 hotRegionIndex;
-	u32 hotFrameIndex;
-	const char* selectedEventId;
-	u32 selectedRegionIndex;
-	u32 selectedFrameIndex;
-	DebugVariableLink* profilerPause;
-
+	// Drawing
+	RenderGroup renderGroup;
 	FontDrawContext fontContext;
 	Rect2 overlayBoundaries;
 	LoadedFont* font;
 
+	// Interactions
 	DebugInteraction interaction;
 	DebugInteraction hotInteraction;
 	DebugInteraction nextHotInteraction;

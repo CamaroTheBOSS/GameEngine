@@ -31,7 +31,7 @@ extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub) {
 	}
 }
 extern "C" DEBUG_INIT(DebugInitStub) { return 0; }
-extern "C" DEBUG_FINISH_FRAME(DebugFinishFrameStub) { return 0; };
+extern "C" DEBUG_FINISH_FRAME(DebugFinishFrameStub) { return; };
 
 struct SoundRenderData {
 	IMMDevice* device;
@@ -1180,23 +1180,18 @@ int CALLBACK WinMain(
 	GetClientRect(window, &rect);
 	MoveWindow(window, rect.left, rect.top, 1024, 600, true);
 
-	// PART: Initializing program memory
-	// // TODO change globalWin32State to win32State
-	// Win32State win32State = {};
-	globalWin32State.window = window;
-	globalWin32State.bltOffsetX = 10;
-	globalWin32State.bltOffsetY = 10;
-	globalWin32State.displayWidth = globalBitmapWidth;
-	globalWin32State.displayHeight = globalBitmapHeight;
 	ProgramMemory programMemory = Win32InitProgramMemory(globalWin32State);
 	if (!programMemory.memoryBlock) {
 		// TODO: Logging
 		return 0;
 	}
 	Win32GameCode gameCode = {};
-	SoundData soundData = {};
-	InputData inputData = {};
-
+	// // TODO change globalWin32State to win32State
+	globalWin32State.window = window;
+	globalWin32State.bltOffsetX = 10;
+	globalWin32State.bltOffsetY = 10;
+	globalWin32State.displayWidth = globalBitmapWidth;
+	globalWin32State.displayHeight = globalBitmapHeight;
 	DWORD length = GetModuleFileNameA(0, globalWin32State.exeFilePath, MY_MAX_PATH);
 	char* tmpChar = globalWin32State.exeFilePath;
 	for (u32 charIndex = 0; charIndex < length; charIndex++) {
@@ -1211,6 +1206,13 @@ int CALLBACK WinMain(
 	ConcatenateString(globalWin32State.exeDirectory, MY_MAX_PATH, tmpStr, MY_MAX_PATH, gameCode.pathToDll, MY_MAX_PATH);
 	CopyString(gameCode.pathToTempDll, MY_MAX_PATH, tmpStr, MY_MAX_PATH);
 	ConcatenateString(globalWin32State.exeDirectory, MY_MAX_PATH, tmpStr, MY_MAX_PATH, gameCode.pathToTempDll, MY_MAX_PATH);
+	Win32ReloadGameCode(gameCode);
+#if INTERNAL_BUILD
+	debugGlobalState = gameCode.DebugInit(programMemory);
+#endif
+	MARKUP_FRAME_BEGIN;
+	SoundData soundData = {};
+	InputData inputData = {};
 
 	// NOTE: We can use one devicecontext because we specified CS_OWNDC so we dont share context with anyone
 	HDC deviceContext = GetDC(window);
@@ -1235,7 +1237,6 @@ int CALLBACK WinMain(
 
 	u64 frameStartTime = Win32GetCurrentTimestamp();
 	u64 rdtscStart = __rdtsc();
-	MARKUP_FRAME_BEGIN;
 	while (globalRunning) {
 		TIMED_BLOCK_BEGIN(InputProcessing);
 		Win32ReloadGameCode(gameCode);
