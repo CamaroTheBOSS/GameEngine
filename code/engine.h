@@ -98,15 +98,11 @@ struct DebugState {
 	DebugCollationFrame* frames;
 	DebugCollationFrame* freeFrameList;
 	DebugStoredEvent* freeStoredEventList;
-	DebugVariableTemporaryGroup* temporaryGroups;
-	DebugVariableTemporaryGroup* temporaryGroupsFreeList;
 	DebugVariable* variableHash[512];
 	
 	// UI
 	DebugId selectedId;
 	DebugTree UISentinel;
-	DebugTree* permanentVarTree;
-	DebugTree* temporaryVarTree;
 
 	// Drawing
 	RenderGroup renderGroup;
@@ -121,8 +117,6 @@ struct DebugState {
 	bool interacting;
 
 	bool isInitialized;
-
-	u32 debugCounter = 0;
 };
 
 inline

@@ -9,7 +9,8 @@
 #define DEBUG_TARGET_REFRESH_MS 16.6666666f
 
 struct DebugId {
-	void* val[2];
+	void* ptr;
+	u32 index;
 };
 
 enum DebugEventType : u8 {
@@ -97,7 +98,6 @@ struct DebugVariable {
 	const char* GUID;
 	const char* name;
 	bool permanent;
-	u32 objectId;
 
 	DebugVariable* nextInHash;
 	DebugStoredEvent* oldestEvent;
@@ -242,7 +242,6 @@ struct DebugVariableGroup {
 	const char* name;
 	u32 nameLength;
 	bool expanded;
-	u32 objectId; // NOTE: for object introspection
 
 	DebugVariableGroup* parentGroup;
 

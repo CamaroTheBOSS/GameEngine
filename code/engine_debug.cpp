@@ -41,40 +41,35 @@ inline bool WasReleased(Button& button);
 #define DEBUG_COLLATION_SCALE (1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ));
 
 inline
-bool DebugIdsEqual(DebugId id1, DebugId id2) {
-	for (i32 index = 0; index < ArrayCount(id1.val); index++) {
-		if (id1.val[index] != id2.val[index]) {
-			return false;
-		}
-	}
-	return true;
+bool AreDebugIdsEqual(DebugId id1, DebugId id2) {
+	bool result = id1.ptr == id2.ptr &&
+		id1.index == id2.index;
+	return result;
 }
 
 inline
-bool DebugIdIsNull(DebugId id) {
-	for (i32 index = 0; index < ArrayCount(id.val); index++) {
-		if (id.val[index] != 0) {
-			return false;
-		}
-	}
-	return true;
+bool IsDebugIdNull(DebugId id) {
+	bool result = id.ptr == 0 &&
+		id.index == 0;
+	return result;
 }
 
 inline
 DebugId GetDebugIdForLink(DebugVariableLink* link) {
 	DebugId id = {};
-	id.val[0] = link;
+	id.ptr = link;
 	return id;
 }
 
+
 inline
 bool IsHighlighted(DebugState* state, DebugId did) {
-	return DebugIdsEqual(state->nextHotInteraction.id, did);
+	return AreDebugIdsEqual(state->nextHotInteraction.id, did);
 }
 
 inline
 bool IsSelected(DebugState* state, DebugId did) {
-	return DebugIdsEqual(state->selectedId, did);
+	return AreDebugIdsEqual(state->selectedId, did);
 }
 
 internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line, const char* GUID) {
@@ -106,7 +101,7 @@ inline DebugState* GetDebugState() {
 
 inline
 DebugId DEBUG_POINTER_ID(void* ptr, u32 objId) {
-	return { ptr, ptrcast(void, u64(objId))};
+	return { ptr, objId };
 }
 
 inline
@@ -447,7 +442,6 @@ void InitializeVariableGroup(DebugState* state, DebugVariableGroup* parentGroup,
 	group->name = name;
 	group->nameLength = nameLength;
 	group->parentGroup = parentGroup;
-	group->objectId = 0;
 	AddGroupToGroup(state, parentGroup, group);
 }
 
@@ -467,20 +461,15 @@ DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGro
 	return result;
 }
 
-inline
-bool IsGroupTemporary(DebugVariableGroup* group) {
-	return group->objectId > 0;
-}
-
 internal
 DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariableGroup* group, 
 	DebugStoredEvent* storedEvent) {
 	// TODO: Verify that this is compiled as AND and not as MOD
 	DebugEvent* event = &storedEvent->event;
-	u32 hashSlot = (u4(uptr(event->GUID) >> 2) + 3213 * group->objectId) % ArrayCount(state->variableHash);
+	u32 hashSlot = (u4(uptr(event->GUID) >> 2)) % ArrayCount(state->variableHash);
 	DebugVariable* result = 0;
 	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-		if (var->GUID == event->GUID && var->objectId == group->objectId) {
+		if (var->GUID == event->GUID) {
 			result = var;
 			break;
 		}
@@ -490,11 +479,7 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 		result->GUID = event->GUID;
 		result->name = PushString(state->mainArena, event->GUID, StringLength(event->GUID) + 1);
 		result->nextInHash = state->variableHash[hashSlot];
-		result->objectId = group->objectId;
 		state->variableHash[hashSlot] = result;
-		AddVariableToGroup(state, group, result);
-	}
-	else if (IsGroupTemporary(group)) {
 		AddVariableToGroup(state, group, result);
 	}
 	return result;
@@ -615,9 +600,9 @@ DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableG
 }
 
 internal
-DebugVariableGroup* GetGroupForObjectIntrospection(DebugState* state, DebugVariableGroup* group, const char* name, u32 objectId) {
+DebugVariableGroup* GetGroupForObjectIntrospection(DebugState* state, DebugVariableGroup* group, const char* name) {
 	DebugVariableGroup* parentGroup = GetGroupForHierachicalName(state, group, name);
-
+#if 0
 	DebugVariableTemporaryGroup* tempGroup = state->temporaryGroupsFreeList;
 	if (tempGroup) {
 		state->temporaryGroupsFreeList = state->temporaryGroupsFreeList->next;
@@ -629,10 +614,16 @@ DebugVariableGroup* GetGroupForObjectIntrospection(DebugState* state, DebugVaria
 	const char* tempGroupName = parentGroup->name + parentGroup->nameLength + 1;
 	u32 tempGroupNameLength = StringLength(tempGroupName);
 	InitializeVariableGroup(state, parentGroup, result, tempGroupName, tempGroupNameLength);
-	result->objectId = objectId;
 	tempGroup->next = state->temporaryGroups;
 	state->temporaryGroups = tempGroup;
+
 	return result;
+#else
+	const char* lastGroupName = parentGroup->name + parentGroup->nameLength + 1;
+	u32 lastGroupNameLength = StringLength(lastGroupName);
+	DebugVariableGroup* result = GetOrCreateVariableGroup(state, parentGroup, lastGroupName, lastGroupNameLength);
+	return result;
+#endif
 }
 
 internal
@@ -644,10 +635,9 @@ void DebugCollateEvents(DebugState* state) {
 	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];
 	u32 eventsInFrameCount = debugGlobalState->eventsCount[frameIndex];
 	DebugCollationFrame* newFrame = AllocateNewDebugFrame(state);
-
+	i32 stackCount = 0;
 	DebugVariableGroup* rootGroup = &state->UISentinel.next->rootGroup;
 	DebugVariableGroup* currentGroup = rootGroup;
-	state->debugCounter = 0;
 	for (u32 eventIndex = 0;
 		eventIndex < eventsInFrameCount;
 		eventIndex++
@@ -697,10 +687,7 @@ void DebugCollateEvents(DebugState* state) {
 			}
 		} break;
 		case Event_Data_BlockBegin: {
-			u32 objectId = u4(u64(event->data_DebugId.val[1]));
-			currentGroup = GetGroupForObjectIntrospection(state, currentGroup, event->blockName, objectId);
-			state->debugCounter++;
-			StoreEvent(state, currentGroup, event, newFrame->frameIndex);
+			currentGroup = GetGroupForObjectIntrospection(state, currentGroup, event->blockName);
 			PushToEventStack(state, &stack->dataEvents, event);
 		} break;
 		case Event_Data_BlockEnd: {
@@ -976,13 +963,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				if (isHot) {
 					itemColor = hotItemColor;
 				}
-				if (!IsGroupTemporary(node->group)) {
-					sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
-				}
-				else {
-					sprintf_s(at, end - at, "%.*s [%d]:", node->group->nameLength, node->group->name, node->group->objectId);
-				}
-				
+				sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
 				if (IsInRectangle(bb, mousePos)) {
 					SetNextHotInteraction(state, node, bb, tree);
@@ -1012,7 +993,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	// Set hot interaction
-	if (!DebugIdIsNull(state->nextHotInteraction.id)) {
+	if (!IsDebugIdNull(state->nextHotInteraction.id)) {
 		state->nextHotInteraction.startMousePos = mousePos;
 		if (state->nextHotInteraction.link) {
 			DebugVariable* var = state->nextHotInteraction.link->variable;
@@ -1182,8 +1163,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			DebugVariableGroup* group = state->interaction.link->group;
 			at += sprintf_s(at, end - at, "%s with %.*s", interaction, group->nameLength, group->name);
 		}
-		else if (!DebugIdIsNull(state->interaction.id)) {
-			at += sprintf_s(at, end - at, "%s with debug id %p", interaction, state->interaction.id.val[0]);
+		else if (!IsDebugIdNull(state->interaction.id)) {
+			at += sprintf_s(at, end - at, "%s with debug id %d", interaction, state->interaction.id.index);
 		}
 		else {
 			at += sprintf_s(at, end - at, "%s with none", interaction);
@@ -1315,14 +1296,20 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 		}
 #endif
-		u64 arenaRemainingSize = GetArenaFreeSpaceSize(state->collationFrameArena) / 1024;
-		sprintf_s(buffer, 256, "Arena remaining size: %lldkB", arenaRemainingSize);
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		MemoryArena* arenas[] = { &state->collationFrameArena, &state->mainArena };
+		const char* arenaNames[] = { "CollationFrame", "Main" };
+		for (u32 arenaIndex = 0; arenaIndex < ArrayCount(arenas); arenaIndex++) {
+			u64 arenaRemainingSize = GetArenaFreeSpaceSize(*arenas[arenaIndex]) / 1024;
+			sprintf_s(buffer, 256, "%sArena remaining size: %lldkB", arenaNames[arenaIndex], arenaRemainingSize);
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		}
+		
 	}
 
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
 }
 
+#if 0
 internal
 void FreeTemporaryGroups(DebugState* state) {
 	DebugVariableTemporaryGroup* tempGroup = state->temporaryGroups;
@@ -1356,6 +1343,7 @@ void FreeTemporaryGroups(DebugState* state) {
 	}
 	state->temporaryGroups = 0;
 }
+#endif
 
 extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {
 	return debugGlobalState;
@@ -1374,7 +1362,7 @@ extern "C" void DebugFinishFrame(ProgramMemory* memory, BitmapData& rawBitmap, I
 		return;
 	}
 	DebugRenderOverlay(state, bitmap, input);
-	FreeTemporaryGroups(state);
+	//FreeTemporaryGroups(state);
 	DebugCollateEvents(state);
 	state->totalFrameCount++;
 	return;
