@@ -69,7 +69,7 @@ bool IsHighlighted(DebugState* state, DebugId did) {
 
 inline
 bool IsSelected(DebugState* state, DebugId did) {
-	return AreDebugIdsEqual(state->selectedId, did);
+	return !IsDebugIdNull(state->selectedId) && AreDebugIdsEqual(state->selectedId, did);
 }
 
 internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line, const char* GUID) {
@@ -662,6 +662,7 @@ void DebugCollateEvents(DebugState* state) {
 			u32 inFrameEntityIndex = IsSelected(state, event->data_DebugId) ? 99 : state->entityIntrospectionCountInFrame;
 			currentGroup = GetGroupForObjectIntrospection(state, currentGroup, event->blockName, inFrameEntityIndex);
 			currentGroup->introspectionDataReceived = true;
+			currentGroup->introspectionId = event->data_DebugId;
 			PushToEventStack(state, &stack->dataEvents, event);
 		} break;
 		case Event_Data_BlockEnd: {
@@ -934,7 +935,11 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 						if (IsInRectangle(bb, mousePos)) {
 							SetNextHotInteraction(state, node, bb, tree);
 						}
-						PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
+						V4 bbColor = V4{ 0.5f, 0, 0, 1 };
+						if (IsSelected(state, node->parentGroup->introspectionId)) {
+							bbColor = V4{ 0.5f, 0.5f, 0, 1 };
+						}
+						PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, bbColor);
 						DebugRenderLine(state, buffer, fontContext, itemColor);
 					}
 					elementRendered = true;
@@ -958,7 +963,11 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 					if (IsInRectangle(bb, mousePos)) {
 						SetNextHotInteraction(state, node, bb, tree);
 					}
-					PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
+					V4 bbColor = V4{ 0.5f, 0, 0, 1 };
+					if (IsSelected(state, node->group->introspectionId)) {
+						bbColor = V4{ 0.5f, 0.5f, 0, 1 };
+					}
+					PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, bbColor);
 					DebugRenderLine(state, buffer, fontContext, itemColor);
 					node->group->introspectionDataReceived = false;
 					elementRendered = true;

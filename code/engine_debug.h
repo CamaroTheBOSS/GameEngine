@@ -249,8 +249,10 @@ struct DebugVariableGroup {
 	const char* name;
 	u32 nameLength;
 	bool expanded;
+
 	u32 introspectionObjectIndex;
 	bool introspectionDataReceived;
+	DebugId introspectionId;
 
 	DebugVariableGroup* parentGroup;
 
