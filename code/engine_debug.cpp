@@ -278,11 +278,19 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 	if (!state->isInitialized) {
 		TransientState* tranState = ptrcast(TransientState, debugGlobalMemory->transientMemory);
 		Assert(tranState->isInitialized);
+#if 1
 		InitializeArena(
 			state->mainArena,
 			ptrcast(u8, debugGlobalMemory->debugMemory) + sizeof(DebugState),
 			debugGlobalMemory->debugMemorySize - sizeof(DebugState)
 		);
+#else
+		InitializeArena(
+			state->mainArena,
+			ptrcast(u8, debugGlobalMemory->debugMemory) + sizeof(DebugState),
+			kB(4237)
+		);
+#endif 
 #if 0
 		SubArena(state->collationFrameArena, state->mainArena, MB(16));
 #else
@@ -312,6 +320,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 	}
 	EndRendering(state->renderGroup);
 	BeginRendering(state->renderGroup);
+	state->entityIntrospectionCountInFrame = 0;
 	state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
 	state->renderGroup.pushBufferSize = 0;
 	state->renderGroup.projection = GetOrtographicProjection(screenBitmap.width, screenBitmap.height, 1);
@@ -374,46 +383,6 @@ struct DebugVariableDefinitionContext {
 	DebugVariableLink* parentStack[64];
 };
 
-#if 0
-internal
-DebugVariableLink* AddCollationVariableLink(DebugState* state, DebugVariableDefinitionContext& context, DebugEvent* event, bool permanent) {
-	DebugVariableLink* link = PushStructSize(permanent ? state->mainArena : state->collationArena, DebugVariableLink);
-	DebugVariableLink* parent = context.parentStack[context.stackDepth];
-	ZeroStruct(*link);
-	link->parent = parent;
-	link->event = event;
-	Assert(event);
-	DLINKED_LIST_INIT(link);
-	if (parent) {
-		if (!parent->children) {
-			parent->children = PushStructSize(permanent ? state->mainArena : state->collationArena, DebugVariableLink);
-			ZeroStruct(*parent->children);
-			DLINKED_LIST_INIT(parent->children);
-		}
-		DLINKED_LIST_ADD(parent->children, link);
-	}
-	return link;
-}
-
-internal
-DebugVariableLink* BeginCollationVariableLinkGroup(DebugState* state, DebugVariableDefinitionContext& context, DebugEvent* event, bool permanent) {
-	Assert(context.stackDepth < ArrayCount(context.parentStack) - 1);
-	DebugVariableLink* link = AddCollationVariableLink(state, context, event, permanent);
-	context.parentStack[++context.stackDepth] = link;
-	return link;
-}
-
-internal
-void EndCollationVariableLinkGroup(DebugState* state, DebugVariableDefinitionContext& context) {
-	Assert(context.stackDepth > 0 || !"Tried to enclose group when none were opened");
-	context.stackDepth--;
-
-	if (context.stackDepth == 0) {
-
-	}
-}
-#endif
-
 internal
 DebugVariableLink* AddVariableToGroup(DebugState* state, DebugVariableGroup* group, DebugVariable* var) {
 	DebugVariableLink* link = PushStructSize(state->mainArena, DebugVariableLink);
@@ -436,27 +405,28 @@ DebugVariableLink* AddGroupToGroup(DebugState* state, DebugVariableGroup* parent
 }
 
 inline
-void InitializeVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, DebugVariableGroup* group, const char* name, u32 nameLength) {
+void InitializeVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, DebugVariableGroup* group, const char* name, u32 nameLength, u32 introspectionObjectIndex) {
 	group->expanded = true;
 	group->firstLink = 0;
 	group->name = name;
 	group->nameLength = nameLength;
 	group->parentGroup = parentGroup;
+	group->introspectionObjectIndex = introspectionObjectIndex;
 	AddGroupToGroup(state, parentGroup, group);
 }
 
 internal
-DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, const char* name, u32 nameLength) {
+DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, const char* name, u32 nameLength, u32 introspectionObjectIndex = 0) {
 	DebugVariableGroup* result = 0;
 	for (DebugVariableLink* child = parentGroup->firstLink; child; child = child->next) {
-		if (child->group && StringsAreEqual(child->group->name, child->group->nameLength, name, nameLength)) {
+		if (child->group && child->group->introspectionObjectIndex == introspectionObjectIndex && StringsAreEqual(child->group->name, child->group->nameLength, name, nameLength)) {
 			result = child->group;
 			break;
 		}
 	}
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariableGroup);
-		InitializeVariableGroup(state, parentGroup, result, name, nameLength);
+		InitializeVariableGroup(state, parentGroup, result, name, nameLength, introspectionObjectIndex);
 	}
 	return result;
 }
@@ -466,10 +436,10 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 	DebugStoredEvent* storedEvent) {
 	// TODO: Verify that this is compiled as AND and not as MOD
 	DebugEvent* event = &storedEvent->event;
-	u32 hashSlot = (u4(uptr(event->GUID) >> 2)) % ArrayCount(state->variableHash);
+	u32 hashSlot = (u4(uptr(event->GUID) >> 2) + 13 * group->introspectionObjectIndex) % ArrayCount(state->variableHash);
 	DebugVariable* result = 0;
 	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-		if (var->GUID == event->GUID) {
+		if (var->GUID == event->GUID && var->introspectionObjectIndex == group->introspectionObjectIndex) {
 			result = var;
 			break;
 		}
@@ -479,6 +449,7 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 		result->GUID = event->GUID;
 		result->name = PushString(state->mainArena, event->GUID, StringLength(event->GUID) + 1);
 		result->nextInHash = state->variableHash[hashSlot];
+		result->introspectionObjectIndex = group->introspectionObjectIndex;
 		state->variableHash[hashSlot] = result;
 		AddVariableToGroup(state, group, result);
 	}
@@ -580,7 +551,7 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 }
 
 internal
-DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableGroup* group, const char* name) {
+DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableGroup* group, const char* name, u32 introspectionObjectIndex = 0) {
 	const char* firstUnderscore = 0;
 	const char* at = name;
 	while (*at != 0) {
@@ -593,14 +564,14 @@ DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableG
 	DebugVariableGroup* result = group;
 	if (firstUnderscore) {
 		u32 descentGroupNameLength = u4(firstUnderscore - name);
-		DebugVariableGroup* descentGroup = GetOrCreateVariableGroup(state, group, name, descentGroupNameLength);
-		result = GetGroupForHierachicalName(state, descentGroup, name + descentGroupNameLength + 1);
+		DebugVariableGroup* descentGroup = GetOrCreateVariableGroup(state, group, name, descentGroupNameLength, introspectionObjectIndex);
+		result = GetGroupForHierachicalName(state, descentGroup, name + descentGroupNameLength + 1, introspectionObjectIndex);
 	}
 	return result;
 }
 
 internal
-DebugVariableGroup* GetGroupForObjectIntrospection(DebugState* state, DebugVariableGroup* group, const char* name) {
+DebugVariableGroup* GetGroupForObjectIntrospection(DebugState* state, DebugVariableGroup* group, const char* name, u32 introspectionObjectIndex) {
 	DebugVariableGroup* parentGroup = GetGroupForHierachicalName(state, group, name);
 #if 0
 	DebugVariableTemporaryGroup* tempGroup = state->temporaryGroupsFreeList;
@@ -621,7 +592,7 @@ DebugVariableGroup* GetGroupForObjectIntrospection(DebugState* state, DebugVaria
 #else
 	const char* lastGroupName = parentGroup->name + parentGroup->nameLength + 1;
 	u32 lastGroupNameLength = StringLength(lastGroupName);
-	DebugVariableGroup* result = GetOrCreateVariableGroup(state, parentGroup, lastGroupName, lastGroupNameLength);
+	DebugVariableGroup* result = GetOrCreateVariableGroup(state, parentGroup, lastGroupName, lastGroupNameLength, introspectionObjectIndex);
 	return result;
 #endif
 }
@@ -687,7 +658,10 @@ void DebugCollateEvents(DebugState* state) {
 			}
 		} break;
 		case Event_Data_BlockBegin: {
-			currentGroup = GetGroupForObjectIntrospection(state, currentGroup, event->blockName);
+			state->entityIntrospectionCountInFrame++;
+			u32 inFrameEntityIndex = IsSelected(state, event->data_DebugId) ? 99 : state->entityIntrospectionCountInFrame;
+			currentGroup = GetGroupForObjectIntrospection(state, currentGroup, event->blockName, inFrameEntityIndex);
+			currentGroup->introspectionDataReceived = true;
 			PushToEventStack(state, &stack->dataEvents, event);
 		} break;
 		case Event_Data_BlockEnd: {
@@ -696,7 +670,13 @@ void DebugCollateEvents(DebugState* state) {
 		} break;
 		case Event_PermanentVariableDeclaration: {
 			DebugVariableGroup* group = GetGroupForHierachicalName(state, rootGroup, event->blockName);
-			StoreEvent(state, group, event, newFrame->frameIndex, true);
+			DebugStoredEvent* storedEvent = StoreEvent(state, group, event, newFrame->frameIndex);
+			DebugVariable* var = GetOrCreateDebugVariableForEvent(state, group, storedEvent);
+			PermanentDebugVariable* permVar = PushStructSize(state->mainArena, PermanentDebugVariable);
+			permVar->blockName = storedEvent->event.blockName;
+			permVar->var = var;
+			permVar->next = state->permanentVariables;
+			state->permanentVariables = permVar;
 		} break;
 		case Event_Data_u32:
 		case Event_Data_i32:
@@ -708,7 +688,10 @@ void DebugCollateEvents(DebugState* state) {
 		} break;
 		}
 	}
-	f32 xd = 0;
+	for (PermanentDebugVariable* permVar = state->permanentVariables; permVar; permVar = permVar->next) {
+		DebugVariableGroup* group = GetGroupForHierachicalName(state, rootGroup, permVar->blockName);
+		StoreEvent(state, group, &permVar->var->newestEvent->event, newFrame->frameIndex);
+	}
 }
 
 enum DebugVarToTextFlags {
@@ -904,6 +887,11 @@ void SetNextHotInteraction(DebugState* state, DebugVariableLink* link, Rect2 bou
 	state->nextHotInteraction = interaction;
 }
 
+inline
+bool GroupShouldBeRendered(DebugVariableGroup* group) {
+	return group->introspectionObjectIndex == 0 || group->introspectionDataReceived;
+}
+
 internal
 void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	for (DebugTree* tree = state->UISentinel.next; tree != &state->UISentinel; tree = tree->next) {
@@ -916,7 +904,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 			char* end = buffer + sizeof(buffer);
 			V4 itemColor = V4{ 1, 1, 1, 1 };
 			V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
-			
+			bool elementRendered = false;
 			if (node->variable) {
 				if (node->variable->newestEvent) {
 					DebugEvent* event = &node->variable->newestEvent->event;
@@ -949,30 +937,36 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 						PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
 						DebugRenderLine(state, buffer, fontContext, itemColor);
 					}
+					elementRendered = true;
 				}
 			}
 			else {
 				// TODO: Merge this code somehow with variable printout!
 				Assert(node->group);
-				char* at = buffer;
-				for (u32 idx = 0; idx < depth; idx++) {
-					*at++ = ' ';
-					*at++ = ' ';
+				if (GroupShouldBeRendered(node->group)) {
+					char* at = buffer;
+					for (u32 idx = 0; idx < depth; idx++) {
+						*at++ = ' ';
+						*at++ = ' ';
+					}
+					bool isHot = IsVariableHot(state, node);
+					if (isHot) {
+						itemColor = hotItemColor;
+					}
+					sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
+					Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
+					if (IsInRectangle(bb, mousePos)) {
+						SetNextHotInteraction(state, node, bb, tree);
+					}
+					PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
+					DebugRenderLine(state, buffer, fontContext, itemColor);
+					node->group->introspectionDataReceived = false;
+					elementRendered = true;
 				}
-				bool isHot = IsVariableHot(state, node);
-				if (isHot) {
-					itemColor = hotItemColor;
-				}
-				sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
-				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
-				if (IsInRectangle(bb, mousePos)) {
-					SetNextHotInteraction(state, node, bb, tree);
-				}
-				PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, V4{ 0.5f, 0, 0, 1 });
-				DebugRenderLine(state, buffer, fontContext, itemColor);
+				
 			}
 			if (node) {
-				if (node->group && node->group->expanded) {
+				if (node->group && node->group->expanded && elementRendered) {
 					// TODO: Display group names
 					parent[++depth] = node;
 					node = parent[depth]->group->firstLink;

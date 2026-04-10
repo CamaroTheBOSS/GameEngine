@@ -99,6 +99,8 @@ struct DebugState {
 	DebugCollationFrame* freeFrameList;
 	DebugStoredEvent* freeStoredEventList;
 	DebugVariable* variableHash[512];
+	PermanentDebugVariable* permanentVariables;
+	u32 entityIntrospectionCountInFrame;
 	
 	// UI
 	DebugId selectedId;

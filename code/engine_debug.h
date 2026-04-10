@@ -98,10 +98,17 @@ struct DebugVariable {
 	const char* GUID;
 	const char* name;
 	bool permanent;
+	u32 introspectionObjectIndex;
 
 	DebugVariable* nextInHash;
 	DebugStoredEvent* oldestEvent;
 	DebugStoredEvent* newestEvent;
+};
+
+struct PermanentDebugVariable {
+	DebugVariable* var;
+	const char* blockName;
+	PermanentDebugVariable* next;
 };
 
 struct DebugGlobalState {
@@ -242,15 +249,12 @@ struct DebugVariableGroup {
 	const char* name;
 	u32 nameLength;
 	bool expanded;
+	u32 introspectionObjectIndex;
+	bool introspectionDataReceived;
 
 	DebugVariableGroup* parentGroup;
 
 	DebugVariableLink* firstLink;
-};
-
-struct DebugVariableTemporaryGroup {
-	DebugVariableGroup group;
-	DebugVariableTemporaryGroup* next;
 };
 
 struct DebugVariableLink {
