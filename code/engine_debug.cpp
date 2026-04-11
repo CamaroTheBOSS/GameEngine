@@ -91,11 +91,12 @@ bool IsIntrospectionGroup(DebugVariableGroup* group) {
 }
 
 inline 
-DebugInteraction GetMoveInteraction(V2 mousePos, DebugTree* tree) {
+DebugInteraction GetMoveInteraction(V2 mousePos, DebugTree* tree, V2 treeInitialPos) {
 	DebugInteraction interaction = {};
 	interaction.type = DebugInteract_Move;
 	interaction.objType = DebugInteractObject_Pos;
 	interaction.startMousePos = mousePos;
+	tree->pos = treeInitialPos;
 	interaction.pos.initial = tree->pos;
 	interaction.pos.actual = &tree->pos;
 	return interaction;
@@ -1040,8 +1041,10 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		switch (nextInteractionObjType) {
 		case DebugInteractObject_LinkInTree: {
 			DebugVariableGroup* group = state->nextHotInteraction.linkInTree.link->group;
+			bool isIntrospectGroup = group && IsIntrospectionGroup(group);
+			bool isSelectedGroup = group && IsSelected(state, group->introspectionId);
 			if (group) {
-				if (IsSelected(state, group->introspectionId) &&
+				if ((!isIntrospectGroup || isSelectedGroup) &&
 					WasPressed(controller.B.mouseLeft))
 				{
 					state->nextHotInteraction.type = DebugInteract_Toggle;
@@ -1067,6 +1070,11 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				} break;
 				}
 			}
+			if (!group || !isIntrospectGroup || isSelectedGroup) {
+				if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
+					state->nextHotInteraction.type = DebugInteract_Tear;
+				}
+			}
 		} break;
 		case DebugInteractObject_Id: {
 			if (WasPressed(controller.B.mouseLeft)) {
@@ -1074,16 +1082,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		}
-		if (nextInteractionObjType == DebugInteractObject_LinkInTree) {
-			DebugVariableGroup* group = state->nextHotInteraction.linkInTree.link->group;
-			if (!group || IsSelected(state, group->introspectionId)) {
-				if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
-					state->nextHotInteraction.type = DebugInteract_Tear;
-				}
-			}
-			
-		}
-		
 	}
 	state->hotInteraction = state->nextHotInteraction;
 
@@ -1118,7 +1116,9 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				tearPoint->next = 0;
 				tearPoint->parentGroup = &dstTree->rootGroup;
 			}
-			state->interaction = GetMoveInteraction(mousePos, dstTree);
+			Rect2& bbox = state->interaction.startBoundingBox;
+			V2 treePos = V2{ bbox.min.X, bbox.max.Y };
+			state->interaction = GetMoveInteraction(mousePos, dstTree, treePos);
 #endif
 		}
 	}
@@ -1131,7 +1131,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			Assert(state->interaction.objType == DebugInteractObject_LinkInTree);
 			DebugTree* tree = state->interaction.linkInTree.tree;
 			if (LengthSq(dMouse) > 5.f) {
-				state->interaction = GetMoveInteraction(mousePos, tree);
+				state->interaction = GetMoveInteraction(mousePos, tree, tree->pos);
 			}
 		} break;
 		case DebugInteract_DragIncrease: {
