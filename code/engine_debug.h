@@ -242,6 +242,7 @@ struct DebugVariableGroup {
 
 	DebugVariableGroup* parentGroup;
 
+	DebugVariableLink* containingLink;
 	DebugVariableLink* firstLink;
 };
 
@@ -298,7 +299,6 @@ enum DebugInteractionObject {
 	DebugInteractObject_None,
 
 	DebugInteractObject_LinkInTree,
-	DebugInteractObject_GroupInTree,
 	DebugInteractObject_Span,
 	DebugInteractObject_Pos,
 	DebugInteractObject_Mod_f32,

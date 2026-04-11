@@ -84,6 +84,12 @@ bool IsSelected(DebugState* state, DebugId did, u32* outIndex = 0) {
 	return false;
 }
 
+inline
+bool IsIntrospectionGroup(DebugVariableGroup* group) {
+	bool result = group->introspectionObjectIndex > 0;
+	return result;
+}
+
 inline 
 DebugInteraction GetMoveInteraction(V2 mousePos, DebugTree* tree) {
 	DebugInteraction interaction = {};
@@ -110,16 +116,6 @@ DebugInteraction InteractionWithLink(DebugState* state, Rect2 boundingBox, Debug
 	interaction.objType = DebugInteractObject_LinkInTree;
 	interaction.linkInTree.link = link;
 	interaction.linkInTree.tree = tree;
-	interaction.startBoundingBox = boundingBox;
-	return interaction;
-}
-
-inline
-DebugInteraction InteractionWithGroup(DebugState* state, Rect2 boundingBox, DebugTree* tree, DebugVariableGroup* group) {
-	DebugInteraction interaction = {};
-	interaction.objType = DebugInteractObject_GroupInTree;
-	interaction.groupInTree.group = group;
-	interaction.groupInTree.tree = tree;
 	interaction.startBoundingBox = boundingBox;
 	return interaction;
 }
@@ -308,13 +304,20 @@ FontDrawContext InitializeStandardFontDrawContext(DebugState* state, V2 topline)
 }
 
 internal
-DebugTree* AddTree(DebugState* state, V2 pos) {
+DebugTree* AddTree(DebugState* state, V2 pos, const char* name) {
 	DebugTree* tree = PushStructSize(state->mainArena, DebugTree);
+	DebugVariableLink* link = PushStructSize(state->mainArena, DebugVariableLink);
+	link->group = &tree->rootGroup;
+	link->next = 0;
+	link->parentGroup = 0;
+	link->variable = 0;
+
 	tree->pos = pos;
 	tree->rootGroup = {};
 	tree->rootGroup.expanded = true;
-	tree->rootGroup.name = "Default";
+	tree->rootGroup.name = name;
 	tree->rootGroup.nameLength = StringLength(tree->rootGroup.name);
+	tree->rootGroup.containingLink = link;
 	DLINKED_LIST_ADD(&state->UISentinel, tree);
 	return tree;
 }
@@ -356,8 +359,8 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 		V2 rightTopCorner = V2{ state->overlayBoundaries.max.X - 400.f, state->overlayBoundaries.max.Y };
-		state->mainTree = AddTree(state, leftTopCorner);
-		state->introspectionTree = AddTree(state, rightTopCorner);
+		state->mainTree = AddTree(state, leftTopCorner, "Debugging");
+		state->introspectionTree = AddTree(state, rightTopCorner, "Introspection");
 
 		BeginRendering(state->renderGroup);
 		state->isInitialized = true;
@@ -444,6 +447,7 @@ DebugVariableLink* AddGroupToGroup(DebugState* state, DebugVariableGroup* parent
 	link->variable = 0;
 	link->parentGroup = parent;
 	link->group = group;
+	group->containingLink = link;
 	link->next = parent->firstLink;
 	parent->firstLink = link;
 	return link;
@@ -859,7 +863,7 @@ void DebugRenderCpuProfiler(DebugState* state, V2 mousePos) {
 	Rect2 boundaries = {};
 	boundaries.min = state->overlayBoundaries.min + V2{ 30.f, 30.f };
 	boundaries.max = V2{ state->overlayBoundaries.max.X - 30.f, boundaries.min.Y + 250.f };
-#if 1
+#if 0
 	f32 profilerPosY = boundaries.min.Y;
 	f32 profilerPosX = boundaries.min.X;
 	V2 profilerDim = GetDim(boundaries);
@@ -941,13 +945,6 @@ bool IsVariableHot(DebugState* state, DebugVariableLink* link) {
 }
 
 inline
-bool IsVariableHot(DebugState* state, DebugVariableGroup* group) {
-	bool result = state->hotInteraction.objType == DebugInteractObject_GroupInTree &&
-		state->hotInteraction.groupInTree.group == group;
-	return result;
-}
-
-inline
 bool GroupShouldBeRendered(DebugState* state, DebugVariableGroup* group, DebugTree* tree) {
 	bool result = group && (group->introspectionObjectIndex == 0 ||
 							group->introspectionDataReceived ||
@@ -959,7 +956,7 @@ internal
 void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	for (DebugTree* tree = state->UISentinel.next; tree != &state->UISentinel; tree = tree->next) {
 		FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->pos);
-		DebugVariableLink* node = tree->rootGroup.firstLink;
+		DebugVariableLink* node = tree->rootGroup.containingLink;
 		u32 depth = 0;
 		DebugVariableLink* parent[64] = {};
 		while (node) {
@@ -971,9 +968,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 
 			bool isGroup = node->group != 0;
 			if ((!isGroup && node->variable->newestEvent) || GroupShouldBeRendered(state, node->group, tree)) {
-				bool isHot = isGroup ?
-					IsVariableHot(state, node->group) :
-					IsVariableHot(state, node);
+				bool isHot = IsVariableHot(state, isGroup ? node->group->containingLink : node);
 				if (isHot) {
 					itemColor = hotItemColor;
 				}
@@ -984,7 +979,12 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 					*at++ = ' ';
 				}
 				if (isGroup) {
-					sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
+					at += sprintf_s(at, end - at, "%.*s", node->group->nameLength, node->group->name);
+					if (IsIntrospectionGroup(node->group)) {
+						at += sprintf_s(at, end - at, " [%d]", node->group->introspectionObjectIndex);
+					}
+					*at++ = ':';
+					*at++ = 0;
 					node->group->introspectionDataReceived = false;
 				}
 				else {
@@ -994,9 +994,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
 				if (IsInRectangle(bb, mousePos)) {
-					state->nextHotInteraction = isGroup ?
-						InteractionWithGroup(state, bb, tree, node->group) :
-						InteractionWithLink(state, bb, tree, node);
+					state->nextHotInteraction = InteractionWithLink(state, bb, tree, isGroup ? node->group->containingLink : node);
 				}
 				DebugVariableGroup* selectedGroup = isGroup ? node->group : node->parentGroup;
 				V4 bbColor = V4{ 0.5f, 0, 0, 1 };
@@ -1029,12 +1027,6 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	}
 }
 
-inline
-bool IsIntrospectionGroup(DebugVariableGroup* group) {
-	bool result = group->introspectionObjectIndex > 0;
-	return result;
-}
-
 internal
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	if (WasPressed(controller.B.kEsc)) {
@@ -1047,28 +1039,33 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->nextHotInteraction.startMousePos = mousePos;
 		switch (nextInteractionObjType) {
 		case DebugInteractObject_LinkInTree: {
-			DebugEvent* event = &state->nextHotInteraction.linkInTree.link->variable->newestEvent->event;
-			if (event->type == Event_PermanentVariableDeclaration) {
-				event = event->data_DebugEvent;
-			}
-			switch (event->type) {
-			case Event_Data_bool: {
-				if (WasPressed(controller.B.mouseLeft)) {
+			DebugVariableGroup* group = state->nextHotInteraction.linkInTree.link->group;
+			if (group) {
+				if (IsSelected(state, group->introspectionId) &&
+					WasPressed(controller.B.mouseLeft))
+				{
 					state->nextHotInteraction.type = DebugInteract_Toggle;
 				}
-			} break;
-			case Event_Data_f32: {
-				if (WasPressed(controller.B.mouseLeft)) {
-					state->nextHotInteraction.type = DebugInteract_DragIncrease;
-					state->nextHotInteraction.fl32.initial = event->data_f32;
-					state->nextHotInteraction.fl32.actual = &event->data_f32;
-				}
-			} break;
 			}
-		} break;
-		case DebugInteractObject_GroupInTree: {
-			if (WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.type = DebugInteract_Toggle;
+			else {
+				DebugEvent* event = &state->nextHotInteraction.linkInTree.link->variable->newestEvent->event;
+				if (event->type == Event_PermanentVariableDeclaration) {
+					event = event->data_DebugEvent;
+				}
+				switch (event->type) {
+				case Event_Data_bool: {
+					if (WasPressed(controller.B.mouseLeft)) {
+						state->nextHotInteraction.type = DebugInteract_Toggle;
+					}
+				} break;
+				case Event_Data_f32: {
+					if (WasPressed(controller.B.mouseLeft)) {
+						state->nextHotInteraction.type = DebugInteract_DragIncrease;
+						state->nextHotInteraction.fl32.initial = event->data_f32;
+						state->nextHotInteraction.fl32.actual = &event->data_f32;
+					}
+				} break;
+				}
 			}
 		} break;
 		case DebugInteractObject_Id: {
@@ -1077,11 +1074,14 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		}
-		if (nextInteractionObjType == DebugInteractObject_LinkInTree ||
-			nextInteractionObjType == DebugInteractObject_GroupInTree) {
-			if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.type = DebugInteract_Tear;
+		if (nextInteractionObjType == DebugInteractObject_LinkInTree) {
+			DebugVariableGroup* group = state->nextHotInteraction.linkInTree.link->group;
+			if (!group || IsSelected(state, group->introspectionId)) {
+				if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
+					state->nextHotInteraction.type = DebugInteract_Tear;
+				}
 			}
+			
 		}
 		
 	}
@@ -1093,60 +1093,32 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->interacting = true;
 		if (state->interaction.type == DebugInteract_Tear) {
 #if 1
-			if (state->interaction.objType == DebugInteractObject_GroupInTree) {
-				DebugVariableGroup* tearPoint = state->interaction.groupInTree.group;
-				DebugVariableGroup* oldParentGroup = tearPoint->parentGroup;
-				DebugTree* dstTree = state->interaction.linkInTree.tree;
-				if (oldParentGroup) {
-					DebugVariableLink* prevChild = 0;
-					DebugVariableLink* groupLink = 0;
-					for (groupLink = oldParentGroup->firstLink; groupLink; groupLink = groupLink->next) {
-						if (groupLink->group == tearPoint) {
-							if (prevChild) {
-								prevChild->next = groupLink->next;
-							}
-							else {
-								oldParentGroup->firstLink = oldParentGroup->firstLink->next;
-							}
-							break;
-						}
-						prevChild = groupLink;
-					}
-					Assert(groupLink->group == tearPoint);
-					dstTree = AddTree(state, dstTree->pos);
-					dstTree->rootGroup.firstLink = groupLink;
-					groupLink->next = 0;
-					groupLink->parentGroup = &dstTree->rootGroup;
-					tearPoint->parentGroup = &dstTree->rootGroup;
-				}
-				state->interaction = GetMoveInteraction(mousePos, dstTree);
+			DebugVariableLink* tearPoint = state->interaction.groupInTree.group->containingLink;
+			if (state->interaction.objType == DebugInteractObject_LinkInTree) {
+				tearPoint = state->interaction.linkInTree.link;
 			}
-			else {
-				DebugVariableLink* tearPoint = state->interaction.linkInTree.link;
-				DebugVariableGroup* oldParentGroup = tearPoint->parentGroup;
-				DebugTree* dstTree = state->interaction.linkInTree.tree;
-				if (oldParentGroup) {
-					DebugVariableLink* prevChild = 0;
-					for (DebugVariableLink* child = oldParentGroup->firstLink; child; child = child->next) {
-						if (child == tearPoint) {
-							if (prevChild) {
-								prevChild->next = child->next;
-							}
-							else {
-								oldParentGroup->firstLink = oldParentGroup->firstLink->next;
-							}
-							break;
+			DebugVariableGroup* oldParentGroup = tearPoint->parentGroup;
+			DebugTree* dstTree = state->interaction.linkInTree.tree;
+			if (oldParentGroup) {
+				DebugVariableLink* prevChild = 0;
+				for (DebugVariableLink* child = oldParentGroup->firstLink; child; child = child->next) {
+					if (child == tearPoint) {
+						if (prevChild) {
+							prevChild->next = child->next;
 						}
-						prevChild = child;
+						else {
+							oldParentGroup->firstLink = oldParentGroup->firstLink->next;
+						}
+						break;
 					}
-					dstTree = AddTree(state, dstTree->pos);
-					dstTree->rootGroup.firstLink = tearPoint;
-					tearPoint->next = 0;
-					tearPoint->parentGroup = &dstTree->rootGroup;
+					prevChild = child;
 				}
-				state->interaction = GetMoveInteraction(mousePos, dstTree);
+				dstTree = AddTree(state, dstTree->pos, "NewUserGroup");
+				dstTree->rootGroup.firstLink = tearPoint;
+				tearPoint->next = 0;
+				tearPoint->parentGroup = &dstTree->rootGroup;
 			}
-			
+			state->interaction = GetMoveInteraction(mousePos, dstTree);
 #endif
 		}
 	}
@@ -1156,12 +1128,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		V2 dMouse = mousePos - state->interaction.startMousePos;
 		switch (state->interaction.type) {
 		case DebugInteract_Toggle: {
-			Assert(state->interaction.objType == DebugInteractObject_GroupInTree ||
-				state->interaction.objType == DebugInteractObject_LinkInTree);
+			Assert(state->interaction.objType == DebugInteractObject_LinkInTree);
 			DebugTree* tree = state->interaction.linkInTree.tree;
-			if (state->interaction.objType == DebugInteractObject_GroupInTree) {
-				tree = state->interaction.groupInTree.tree;
-			}
 			if (LengthSq(dMouse) > 5.f) {
 				state->interaction = GetMoveInteraction(mousePos, tree);
 			}
@@ -1221,19 +1189,18 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		interactionEnded = !IsPressed(controller.B.mouseLeft);
 	} break;
 	case DebugInteract_Toggle: {
-		Assert(state->interaction.objType == DebugInteractObject_GroupInTree ||
-			state->interaction.objType == DebugInteractObject_LinkInTree);
+		Assert(state->interaction.objType == DebugInteractObject_LinkInTree);
 		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
 			bool* boolean = 0;
-			if (state->interaction.objType == DebugInteractObject_LinkInTree) {
+			if (state->interaction.linkInTree.link->group) {
+				boolean = &state->interaction.linkInTree.link->group->expanded;
+			}
+			else {
 				DebugEvent* event = &state->interaction.linkInTree.link->variable->newestEvent->event;
 				if (event->type == Event_PermanentVariableDeclaration) {
 					event = event->data_DebugEvent;
 				}
 				boolean = &event->data_bool;
-			}
-			else if (state->interaction.objType == DebugInteractObject_GroupInTree) {
-				boolean = &state->interaction.groupInTree.group->expanded;
 			}
 			if (boolean) {
 				*boolean = !(*boolean);
