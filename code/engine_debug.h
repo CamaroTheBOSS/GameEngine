@@ -31,7 +31,6 @@ enum DebugEventType : u8 {
 	Event_Data_Rect2,
 	Event_Data_Rect3,
 	
-	Event_ProfilerUI,
 	Event_PermanentVariableDeclaration,
 	Event_Count,
 };
@@ -272,6 +271,7 @@ struct DebugCollationFrame {
 	u8 threadCount;
 	DebugProfilerSpan cpuSpansPerThread[32];
 	DebugCollationFrame* next;
+	DebugCollationFrame* prev;
 };
 
 struct DebugTree {

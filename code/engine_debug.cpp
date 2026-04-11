@@ -306,7 +306,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 #if 0
 		SubArena(state->collationFrameArena, state->mainArena, MB(16));
 #else
-		SubArena(state->collationFrameArena, state->mainArena, kB(256));
+		SubArena(state->collationFrameArena, state->mainArena, kB(1024));
 #endif
 		state->renderGroup = AllocateRenderGroup(state->mainArena, &tranState->assets, MB(4), false);
 		state->highPriorityQueue = tranState->highPriorityQueue;
@@ -787,11 +787,15 @@ void WriteDebugConfig(DebugState* state) {
 }
 #endif
 
-void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
-#if 0
+void DebugRenderCpuProfiler(DebugState* state, V2 mousePos) {
+	Rect2 boundaries = {};
+	boundaries.min = state->overlayBoundaries.min + V2{ 30.f, 30.f };
+	boundaries.max = V2{ state->overlayBoundaries.max.X - 30.f, boundaries.min.Y + 250.f };
+#if 1
 	f32 profilerPosY = boundaries.min.Y;
 	f32 profilerPosX = boundaries.min.X;
-	f32 profilerHeight = GetDim(boundaries).Y;
+	V2 profilerDim = GetDim(boundaries);
+	f32 currentWidth = 0;
 	f32 threadLaneWidth = 8.f;
 	f32 threadLaneSpace = 2.f;
 	f32 threadLaneTotalWidth = threadLaneWidth + threadLaneSpace;
@@ -805,85 +809,69 @@ void DebugRenderProfilerUI(DebugState* state, Rect2 boundaries, V2 mousePos) {
 		V4{1, 1, 0, 1},
 		V4{1, 0.5f, 0.5f, 1},
 	};
-	u32 frameIndexForDrawing = 0;
 	f32 frameWidth = f4(state->threadStacksCount) * threadLaneTotalWidth + frameLaneSpace;
 	f32 collationScale = DEBUG_COLLATION_SCALE;
 	PushRect(state->renderGroup, boundaries, 0, V2{ 0, 0 }, V4{ 0.03f, 0.03f, 0.03f, 1 });
-	u32 firstFrameIndex = state->frameWriteIndex + 1;
-	for (u32 frameIndex = firstFrameIndex;;) {
-		frameIndex = (frameIndex + 1) % MAX_DEBUG_FRAMES;
-		if (frameIndex == state->frameWriteIndex) {
-			break;
-		}
+	
+	DebugCollationFrame* frame = state->oldestFrame;
+	while (currentWidth < profilerDim.X && frame) {
 		bool breakAfterThisFrame = false;
-		DebugFrameInfo* frameInfo = state->frames + frameIndex;
-		for (u32 regionIndex = 0; regionIndex < frameInfo->regionsCount; regionIndex++) {
-			DebugProfilerRegion* region = frameInfo->regions + regionIndex;
-			if (state->selectedEventId != region->parentEventId) {
-				continue;
-			}
-			if (state->selectedFrameIndex != U32_MAX &&
-				(state->selectedRegionIndex != region->parentRegionIndex ||
-					state->selectedFrameIndex != frameIndex)) {
-				continue;
-			}
-			f32 minT = region->minT;
-			f32 maxT = region->maxT;
-			V3 spanCenter = {
-				profilerPosX + frameIndexForDrawing * frameWidth + (f4(region->laneId) + 0.5f) * threadLaneTotalWidth,
-				profilerPosY + 0.5f * (maxT + minT) * profilerHeight,
-				0
-			};
-			V2 spanSize = {
-				threadLaneWidth,
-				(maxT - minT) * profilerHeight
-			};
-			Rect2 rectangle = GetRectFromCenterDim(spanCenter.XY, spanSize);
-			u32 colorIndex = u4(13 * reinterpret_cast<uptr>(region->regionName)) % ArrayCount(colors);
-			bool isHovered = IsInRectangle(rectangle, mousePos);
-			if (isHovered) {
-				if (region->regionName) {
-					char buffer[256];
-					sprintf_s(buffer, "%s", region->regionName);
-					V4 color = V4{ 1, 1, 1, 1 };
-					f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
-					V2 textPos = mousePos + V2{ 0, lineAdvance };
-					DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
-					textPos += V2{ 0, lineAdvance };
-					sprintf_s(buffer, "t<%4f,%4f>, ec(%d)",
-						minT,
-						maxT,
-						region->durationCycles
-					);
-					DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
+		for (u32 thread = 0; thread < frame->threadCount; thread++) {
+			DebugProfilerSpan* span = (frame->cpuSpansPerThread + thread)->firstChild;
+			while (span) {
+				V3 spanCenter = {
+					profilerPosX + currentWidth + (f4(thread) + 0.5f) * threadLaneTotalWidth,
+					profilerPosY + 0.5f * (span->maxT + span->minT) * profilerDim.Y,
+					0
+				};
+				V2 spanSize = {
+					threadLaneWidth,
+					(span->maxT - span->minT) * profilerDim.Y
+				};
+
+				Rect2 rectangle = GetRectFromCenterDim(spanCenter.XY, spanSize);
+				u32 colorIndex = u4(uptr(span->name) >> 2) % ArrayCount(colors);
+				bool isHovered = IsInRectangle(rectangle, mousePos);
+				if (isHovered) {
+					if (span->name) {
+						char buffer[256];
+						sprintf_s(buffer, "%s", span->name);
+						V4 color = V4{ 1, 1, 1, 1 };
+						f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
+						V2 textPos = mousePos + V2{ 0, lineAdvance };
+						DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
+						textPos += V2{ 0, lineAdvance };
+						sprintf_s(buffer, "t<%4f,%4f>", span->minT, span->maxT);
+						DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
+					}
+					//state->hotRegionName = region->regionName;
+					//state->hotRegionIndex = regionIndex;
+					//state->hotFrameIndex = frameIndex;
 				}
-				state->hotRegionName = region->regionName;
-				state->hotRegionIndex = regionIndex;
-				state->hotFrameIndex = frameIndex;
-			}
 #if 1
-			rectangle.max.X = Clip(rectangle.max.X, boundaries.min.X, boundaries.max.X);
-			if (IsValid(rectangle)) {
-				if (frameIndexForDrawing >= 10) {
-					int breakhere = 0;
+				rectangle.max.X = Clip(rectangle.max.X, boundaries.min.X, boundaries.max.X);
+				if (IsValid(rectangle)) {
+					PushRect(state->renderGroup, rectangle, 0, V2{ 0, 0 }, isHovered ? V4{ 1, 1, 1, 1 } : colors[colorIndex]);
 				}
-				PushRect(state->renderGroup, rectangle, 0, V2{ 0, 0 }, isHovered ? V4{ 1, 1, 1, 1 } : colors[colorIndex]);
-			}
-			else {
-				if (rectangle.min.X > 1000.f || rectangle.min.X < -1000.f) {
-					int breakhere = 5;
+				else {
+					breakAfterThisFrame = true;
 				}
-				breakAfterThisFrame = true;
-			}
 #else
-			PushRect(state->renderGroup, rectangle, 0, V2{ 0, 0 }, isHovered ? V4{ 1, 1, 1, 1 } : colors[colorIndex]);
+				PushRect(state->renderGroup, rectangle, 0, V2{ 0, 0 }, isHovered ? V4{ 1, 1, 1, 1 } : colors[colorIndex]);
 #endif
+
+				span = span->next;
+			}
 		}
-		frameIndexForDrawing++;
-		if (breakAfterThisFrame) {
-			break;
-		}
+		frame = frame->next;
+		currentWidth += frameWidth;
 	}
+	//Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
+	//// TODO: Should this condition be included in SetNextHotInteraction?
+	//if (IsInRectangle(resizeAnchor, mousePos)) {
+	//	SetNextHotInteraction(state, node, resizeAnchor, tree);
+	//}
+	//PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
 #endif
 }
 
@@ -928,34 +916,22 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 						itemColor = hotItemColor;
 					}
 
-					if (event->type == Event_ProfilerUI) {
-						Rect2 boundaries = event->data_Rect2;
-						DebugRenderProfilerUI(state, boundaries, mousePos);
-						Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
-						// TODO: Should this condition be included in SetNextHotInteraction?
-						if (IsInRectangle(resizeAnchor, mousePos)) {
-							SetNextHotInteraction(state, node, resizeAnchor, tree);
-						}
-						PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
+					char* at = buffer;
+					for (u32 idx = 0; idx < depth; idx++) {
+						*at++ = ' ';
+						*at++ = ' ';
 					}
-					else {
-						char* at = buffer;
-						for (u32 idx = 0; idx < depth; idx++) {
-							*at++ = ' ';
-							*at++ = ' ';
-						}
-						DebugEventToText(event, at, u4(end - at), DebugVarToText_AddColon);
-						Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
-						if (IsInRectangle(bb, mousePos)) {
-							SetNextHotInteraction(state, node, bb, tree);
-						}
-						V4 bbColor = V4{ 0.5f, 0, 0, 1 };
-						if (IsSelected(state, node->parentGroup->introspectionId)) {
-							bbColor = V4{ 0.5f, 0.5f, 0, 1 };
-						}
-						PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, bbColor);
-						DebugRenderLine(state, buffer, fontContext, itemColor);
+					DebugEventToText(event, at, u4(end - at), DebugVarToText_AddColon);
+					Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
+					if (IsInRectangle(bb, mousePos)) {
+						SetNextHotInteraction(state, node, bb, tree);
 					}
+					V4 bbColor = V4{ 0.5f, 0, 0, 1 };
+					if (IsSelected(state, node->parentGroup->introspectionId)) {
+						bbColor = V4{ 0.5f, 0.5f, 0, 1 };
+					}
+					PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, bbColor);
+					DebugRenderLine(state, buffer, fontContext, itemColor);
 					elementRendered = true;
 				}
 			}
@@ -1036,11 +1012,13 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 						state->nextHotInteraction.event = event;
 					}
 				} break;
+#if 0
 				case Event_ProfilerUI: {
 					if (WasPressed(controller.B.mouseLeft)) {
 						state->nextHotInteraction.type = DebugInteract_Resize;
 					}
 				} break;
+#endif
 				}
 				if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
 					state->nextHotInteraction.type = DebugInteract_Tear;
@@ -1300,6 +1278,7 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 	Controller& controller = input.controllers[KB_CONTROLLER_IDX];
 	V2 mousePos = FromPixelSpaceToWorldSpace(state->renderGroup.projection, controller.mouse, 0.f);
 	DebugRenderVariablesMenu(state, mousePos);
+	DebugRenderCpuProfiler(state, mousePos);
 	DebugInteract(state, mousePos, controller);
 
 	DEBUG_IF(Debug_ShowEventsCount) {
