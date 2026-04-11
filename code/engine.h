@@ -104,6 +104,8 @@ struct DebugState {
 	u32 selectedCount;
 	DebugId selectedId[8];
 	DebugTree UISentinel;
+	DebugTree* mainTree;
+	DebugTree* introspectionTree;
 
 	// Drawing
 	RenderGroup renderGroup;

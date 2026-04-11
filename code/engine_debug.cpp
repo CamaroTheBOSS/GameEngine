@@ -199,7 +199,7 @@ u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodep
 	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
 	u32 firstKerningIndex = font->codepointToLogicalIndex[firstCodepoint];
 	u32 secondKerningIndex = font->codepointToLogicalIndex[secondCodepoint];
-	//Assert((firstKerningIndex != 0 || firstCodepoint == 0) && secondKerningIndex != 0);
+	Assert((firstKerningIndex != 0 || firstCodepoint == 0) && secondKerningIndex != 0);
 	return font->kerningTable[firstKerningIndex * font->onePastMaxLogicalIndex + secondKerningIndex];
 }
 
@@ -355,7 +355,9 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 		DLINKED_LIST_INIT(&state->framesSentinel);
 
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
-		AddTree(state, leftTopCorner);
+		V2 rightTopCorner = V2{ state->overlayBoundaries.max.X - 400.f, state->overlayBoundaries.max.Y };
+		state->mainTree = AddTree(state, leftTopCorner);
+		state->introspectionTree = AddTree(state, rightTopCorner);
 
 		BeginRendering(state->renderGroup);
 		state->isInitialized = true;
@@ -670,8 +672,7 @@ void DebugCollateEvents(DebugState* state) {
 	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];
 	u32 eventsInFrameCount = debugGlobalState->eventsCount[frameIndex];
 	DebugCollationFrame* newFrame = AllocateNewDebugFrame(state);
-	DebugVariableGroup* rootGroup = &state->UISentinel.next->rootGroup;
-	DebugVariableGroup* currentGroup = rootGroup;
+	DebugVariableGroup* introspectionGroup = &state->introspectionTree->rootGroup;
 	for (u32 eventIndex = 0;
 		eventIndex < eventsInFrameCount;
 		eventIndex++
@@ -718,17 +719,17 @@ void DebugCollateEvents(DebugState* state) {
 			state->entityIntrospectionCountInFrame++;
 			u32 selectedIndex = 0;
 			u32 inFrameEntityIndex = IsSelected(state, event->data_DebugId, &selectedIndex) ? 99 + selectedIndex : state->entityIntrospectionCountInFrame;
-			currentGroup = GetGroupForObjectIntrospection(state, currentGroup, event->blockName, inFrameEntityIndex);
-			currentGroup->introspectionDataReceived = true;
-			currentGroup->introspectionId = event->data_DebugId;
+			introspectionGroup = GetGroupForObjectIntrospection(state, introspectionGroup, event->blockName, inFrameEntityIndex);
+			introspectionGroup->introspectionDataReceived = true;
+			introspectionGroup->introspectionId = event->data_DebugId;
 			PushToEventStack(state, &stack->dataEvents, event);
 		} break;
 		case Event_Data_BlockEnd: {
-			currentGroup = rootGroup;
+			introspectionGroup = &state->introspectionTree->rootGroup;
 			PopFromEventStack(state, &stack->dataEvents);
 		} break;
 		case Event_PermanentVariableDeclaration: {
-			DebugVariableGroup* group = GetGroupForHierachicalName(state, rootGroup, event->blockName);
+			DebugVariableGroup* group = GetGroupForHierachicalName(state, &state->mainTree->rootGroup, event->blockName);
 			DebugStoredEvent* storedEvent = StoreEvent(state, group, event, newFrame->frameIndex, true);
 		} break;
 		case Event_Data_u32:
@@ -737,7 +738,7 @@ void DebugCollateEvents(DebugState* state) {
 		case Event_Data_V2:
 		case Event_Data_V3:
 		case Event_Data_V4: {
-			StoreEvent(state, currentGroup, event, newFrame->frameIndex);
+			StoreEvent(state, introspectionGroup, event, newFrame->frameIndex);
 		} break;
 		}
 	}
@@ -1022,7 +1023,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 			}
 #else
 			bool isGroup = node->group != 0;
-			if (!isGroup || GroupShouldBeRendered(node->group)) {
+			if ((!isGroup && node->variable->newestEvent) || GroupShouldBeRendered(node->group)) {
 				bool isHot = isGroup ?
 					IsVariableHot(state, node->group) :
 					IsVariableHot(state, node);
@@ -1040,7 +1041,6 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 					node->group->introspectionDataReceived = false;
 				}
 				else {
-					Assert(node->variable->newestEvent);
 					DebugEvent* event = &node->variable->newestEvent->event;
 					DebugEventToText(event, at, u4(end - at), DebugVarToText_AddColon);
 				}
@@ -1084,6 +1084,13 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 	}
 }
 
+inline
+bool IsIntrospectionGroup(DebugVariableGroup* group) {
+	bool result = group->introspectionObjectIndex > 0;
+	return result;
+}
+
+internal
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	if (WasPressed(controller.B.kEsc)) {
 		state->selectedCount = 0;
@@ -1113,14 +1120,11 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				}
 			} break;
 			}
-#if 0
-			if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.type = DebugInteract_Tear;
-			}
-#endif
 		} break;
 		case DebugInteractObject_GroupInTree: {
-			if (WasPressed(controller.B.mouseLeft)) {
+			if (WasPressed(controller.B.mouseLeft) && 
+				!IsIntrospectionGroup(state->nextHotInteraction.groupInTree.group)) 
+			{
 				state->nextHotInteraction.type = DebugInteract_Toggle;
 			}
 		} break;
@@ -1130,6 +1134,13 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		}
+		if (nextInteractionObjType == DebugInteractObject_LinkInTree ||
+			nextInteractionObjType == DebugInteractObject_GroupInTree) {
+			if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction.type = DebugInteract_Tear;
+			}
+		}
+		
 	}
 	state->hotInteraction = state->nextHotInteraction;
 
@@ -1138,36 +1149,61 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->interaction = state->hotInteraction;
 		state->interacting = true;
 		if (state->interaction.type == DebugInteract_Tear) {
-#if 0
-			DebugVariableLink* tearPoint = state->interaction.link;
-			DebugVariableLink* oldParent = tearPoint->parent;
-			V2* treePosition = &state->interaction.state.relevantTree->pos;
-			if (oldParent) {
-				DebugVariableLink* prevChild = 0;
-				for (DebugVariableLink* child = oldParent->var->group.firstChild; child; child = child->next) {
-					if (child == tearPoint) {
-						if (prevChild) {
-							prevChild->next = child->next;
+#if 1
+			if (state->interaction.objType == DebugInteractObject_GroupInTree) {
+				DebugVariableGroup* tearPoint = state->interaction.groupInTree.group;
+				DebugVariableGroup* oldParentGroup = tearPoint->parentGroup;
+				DebugTree* dstTree = state->interaction.linkInTree.tree;
+				if (oldParentGroup) {
+					DebugVariableLink* prevChild = 0;
+					DebugVariableLink* groupLink = 0;
+					for (groupLink = oldParentGroup->firstLink; groupLink; groupLink = groupLink->next) {
+						if (groupLink->group == tearPoint) {
+							if (prevChild) {
+								prevChild->next = groupLink->next;
+							}
+							else {
+								oldParentGroup->firstLink = oldParentGroup->firstLink->next;
+							}
+							break;
 						}
-						else {
-							oldParent->var->group.firstChild = oldParent->var->group.firstChild->next;
-						}
-						break;
+						prevChild = groupLink;
 					}
-					prevChild = child;
+					Assert(groupLink->group == tearPoint);
+					dstTree = AddTree(state, dstTree->pos);
+					dstTree->rootGroup.firstLink = groupLink;
+					groupLink->next = 0;
+					groupLink->parentGroup = &dstTree->rootGroup;
+					tearPoint->parentGroup = &dstTree->rootGroup;
 				}
-				DebugVariableContext context = BeginDebugVariableTree(state, state->mainArena, "NewUserTree", mousePos);
-				DebugTree* dst = context.tree;
-				dst->root = tearPoint;
-				tearPoint->next = 0;
-				tearPoint->parent = 0;
-				treePosition = &dst->pos;
+				state->interaction = GetMoveInteraction(mousePos, dstTree);
 			}
-			state->interaction.state.pos.initial = V2{ 
-				state->interaction.state.startBoundingBox.min.X, 
-				state->interaction.state.startBoundingBox.max.Y 
-			};
-			state->interaction.state.pos.actual = treePosition;
+			else {
+				DebugVariableLink* tearPoint = state->interaction.linkInTree.link;
+				DebugVariableGroup* oldParentGroup = tearPoint->parentGroup;
+				DebugTree* dstTree = state->interaction.linkInTree.tree;
+				if (oldParentGroup) {
+					DebugVariableLink* prevChild = 0;
+					for (DebugVariableLink* child = oldParentGroup->firstLink; child; child = child->next) {
+						if (child == tearPoint) {
+							if (prevChild) {
+								prevChild->next = child->next;
+							}
+							else {
+								oldParentGroup->firstLink = oldParentGroup->firstLink->next;
+							}
+							break;
+						}
+						prevChild = child;
+					}
+					dstTree = AddTree(state, dstTree->pos);
+					dstTree->rootGroup.firstLink = tearPoint;
+					tearPoint->next = 0;
+					tearPoint->parentGroup = &dstTree->rootGroup;
+				}
+				state->interaction = GetMoveInteraction(mousePos, dstTree);
+			}
+			
 #endif
 		}
 	}
@@ -1197,7 +1233,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			f32 newMaxY = Maximum(mousePos.Y, pos.initial.Y + 10.f);
 			*pos.actual = V2{ newMaxX, newMaxY };
 		} break;
-		case DebugInteract_Tear:
 		case DebugInteract_Move: {
 			DebugModifiedV2& pos = state->interaction.pos;
 			*pos.actual = pos.initial + dMouse;
@@ -1239,8 +1274,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	switch (state->interaction.type) {
 	case DebugInteract_Resize:
 	case DebugInteract_DragIncrease:
-	case DebugInteract_Move:
-	case DebugInteract_Tear: {
+	case DebugInteract_Move: {
 		interactionEnded = !IsPressed(controller.B.mouseLeft);
 	} break;
 	case DebugInteract_Toggle: {
@@ -1292,6 +1326,9 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		}
 	} break;
 #endif
+	default: {
+		interactionEnded = true;
+	} break;
 	}
 	if (interactionEnded) {
 		state->interaction = {};
