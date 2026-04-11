@@ -93,9 +93,7 @@ struct DebugState {
 	MemoryArena collationFrameArena;
 	OpenDebugEvent* openEventFreeList;
 	u32 totalFrameCount;
-	DebugCollationFrame* oldestFrame;
-	DebugCollationFrame* newestFrame;
-	DebugCollationFrame* frames;
+	DebugCollationFrame framesSentinel;
 	DebugCollationFrame* freeFrameList;
 	DebugStoredEvent* freeStoredEventList;
 	DebugProfilerSpan* spanFreeList;

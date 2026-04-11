@@ -286,34 +286,57 @@ enum DebugInteractionType {
 	DebugInteract_None,
 
 	DebugInteract_Toggle,
-	DebugInteract_ToggleGroup,
 	DebugInteract_Resize,
 	DebugInteract_Move,
 	DebugInteract_DragIncrease,
-	DebugInteract_Compile,
 	DebugInteract_Tear,
 	DebugInteract_Select,
 };
 
-struct DebugModifiedPosition {
+enum DebugInteractionObject {
+	DebugInteractObject_None,
+
+	DebugInteractObject_LinkInTree,
+	DebugInteractObject_GroupInTree,
+	DebugInteractObject_Span,
+	DebugInteractObject_Pos,
+	DebugInteractObject_Mod_f32,
+	DebugInteractObject_Id,
+};
+
+struct DebugModifiedV2 {
 	V2 initial;
 	V2* actual;
 };
 
-struct DebugInteraction {
-	DebugId id;
-	DebugInteractionType type;
+struct DebugModifiedFloat {
+	f32 initial;
+	f32* actual;
+};
 
-	V2 startMousePos;
-	Rect2 startBoundingBox;
-	DebugTree* relevantTree;
+struct DebugVariableLinkInTree {
 	DebugVariableLink* link;
+	DebugTree* tree;
+};
+
+struct DebugVariableGroupInTree {
+	DebugVariableGroup* group;
+	DebugTree* tree;
+};
+
+struct DebugInteraction {
+	DebugInteractionType type;
+	DebugInteractionObject objType;
 	union {
 		void* generic;
-		DebugEvent* event;
-		DebugVariableGroup* group;
-		DebugModifiedPosition pos;
+		DebugId id;
+		DebugVariableLinkInTree linkInTree;
+		DebugVariableGroupInTree groupInTree;
+		DebugModifiedV2 pos;
+		DebugModifiedFloat fl32;
 	};
+	V2 startMousePos;
+	Rect2 startBoundingBox;
 };
 
 struct LoadedFont;
