@@ -67,26 +67,6 @@ struct DebugEvent {
 	};
 };
 
-struct DebugProfilerRegion {
-	u8 laneId;
-	u32 parentRegionIndex;
-
-	u32 durationCycles;
-	u32 reserved2;
-	f32 minT;
-	f32 maxT;
-
-	const char* regionName;
-	const char* parentEventId;
-};
-
-struct DebugProfilerRegionSelection {
-	bool selecting;
-	u8 laneId;
-	u8 translationUnit;
-	u16 recordIndex;	
-};
-
 struct DebugStoredEvent {
 	u32 captureFrameIndex;
 
@@ -124,8 +104,14 @@ struct DebugGlobalState {
 extern DebugGlobalState* debugGlobalState;
 #endif
 
+struct DebugProfilerSpan;
 struct OpenDebugEvent {
-	DebugEvent* event;
+	DebugEvent event;
+
+	union {
+		DebugProfilerSpan* firstChildSpan;
+	};
+
 	OpenDebugEvent* next;
 };
 
@@ -267,12 +253,24 @@ struct DebugVariableLink {
 	DebugVariableGroup* parentGroup;
 };
 
+struct DebugProfilerSpan {
+	f32 minT;
+	f32 maxT;
+	u8 thread;
+	const char* name;
+
+	DebugProfilerSpan* next;
+	DebugProfilerSpan* firstChild;
+};
+
+
 struct DebugCollationFrame {
 	u64 startCycles;
 	u32 eventsCount;
 	u32 frameIndex;
 
-	DebugVariableGroup rootGroup;
+	u8 threadCount;
+	DebugProfilerSpan cpuSpansPerThread[32];
 	DebugCollationFrame* next;
 };
 

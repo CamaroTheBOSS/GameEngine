@@ -98,12 +98,14 @@ struct DebugState {
 	DebugCollationFrame* frames;
 	DebugCollationFrame* freeFrameList;
 	DebugStoredEvent* freeStoredEventList;
+	DebugProfilerSpan* spanFreeList;
 	DebugVariable* variableHash[512];
 	PermanentDebugVariable* permanentVariables;
 	u32 entityIntrospectionCountInFrame;
 	
 	// UI
-	DebugId selectedId;
+	u32 selectedCount;
+	DebugId selectedId[8];
 	DebugTree UISentinel;
 
 	// Drawing
@@ -119,6 +121,9 @@ struct DebugState {
 	bool interacting;
 
 	bool isInitialized;
+
+	u32 debugSpanAllocationsCount;
+	u32 debugSpanFreed;
 };
 
 inline

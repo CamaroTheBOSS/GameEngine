@@ -68,8 +68,20 @@ bool IsHighlighted(DebugState* state, DebugId did) {
 }
 
 inline
-bool IsSelected(DebugState* state, DebugId did) {
-	return !IsDebugIdNull(state->selectedId) && AreDebugIdsEqual(state->selectedId, did);
+bool IsSelected(DebugState* state, DebugId did, u32* outIndex = 0) {
+	if (IsDebugIdNull(did)) {
+		return false;
+	}
+	for (u32 index = 0; index < state->selectedCount; index++) {
+		DebugId id = state->selectedId[index];
+		if (AreDebugIdsEqual(id, did)) {
+			if (outIndex) {
+				*outIndex = index;
+			}
+			return true;
+		}
+	}
+	return false;
 }
 
 internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line, const char* GUID) {
@@ -294,7 +306,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 #if 0
 		SubArena(state->collationFrameArena, state->mainArena, MB(16));
 #else
-		SubArena(state->collationFrameArena, state->mainArena, kB(128));
+		SubArena(state->collationFrameArena, state->mainArena, kB(256));
 #endif
 		state->renderGroup = AllocateRenderGroup(state->mainArena, &tranState->assets, MB(4), false);
 		state->highPriorityQueue = tranState->highPriorityQueue;
@@ -350,8 +362,8 @@ DebugThreadStack* GetDebugStackForThread(DebugState* state, u16 threadId) {
 	DebugThreadStack* stack = state->threadStacks + state->threadStacksCount++;
 	stack->threadId = threadId;
 	stack->laneId = state->threadStacksCount - 1;
-	stack->timeEvents = PushStructSize(state->mainArena, OpenDebugEvent);
-	stack->dataEvents = PushStructSize(state->mainArena, OpenDebugEvent);
+	stack->timeEvents = 0;
+	stack->dataEvents = 0;
 	return stack;
 }
 
@@ -364,8 +376,9 @@ OpenDebugEvent* PushToEventStack(DebugState* state, OpenDebugEvent** stack, Debu
 	else {
 		newBlock = PushStructSize(state->mainArena, OpenDebugEvent);
 	}
+	*newBlock = {};
 	newBlock->next = *stack;
-	newBlock->event = event;
+	newBlock->event = *event;
 	*stack = newBlock;
 	return newBlock;
 }
@@ -458,23 +471,21 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 
 internal
 void FreeOldestFrame(DebugState* state) {
+	Assert(state->oldestFrame);
 	DebugCollationFrame* frame = state->oldestFrame;
 	for (u32 hashSlot = 0; hashSlot < ArrayCount(state->variableHash); hashSlot++) {
 		for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-			if (var->permanent) {
+			if (var->permanent || !var->oldestEvent || 
+				var->oldestEvent->captureFrameIndex > frame->frameIndex) {
 				continue;
 			}
 			DebugStoredEvent* lastEventToRemove = var->oldestEvent;
-			while (lastEventToRemove && lastEventToRemove->captureFrameIndex <= frame->frameIndex) {
+			while (lastEventToRemove->next && lastEventToRemove->captureFrameIndex <= frame->frameIndex) {
 				lastEventToRemove = lastEventToRemove->next;
 			}
-			DebugStoredEvent* newOldest = 0;
-			if (lastEventToRemove) {
-				newOldest = lastEventToRemove->next;
-				lastEventToRemove->next = state->freeStoredEventList;
-				state->freeStoredEventList = var->oldestEvent;
-
-			}
+			DebugStoredEvent* newOldest = lastEventToRemove->next;
+			lastEventToRemove->next = state->freeStoredEventList;
+			state->freeStoredEventList = var->oldestEvent;
 			if (newOldest) {
 				var->oldestEvent = newOldest;
 				Assert(var->newestEvent->captureFrameIndex >= newOldest->captureFrameIndex);
@@ -482,6 +493,45 @@ void FreeOldestFrame(DebugState* state) {
 			else {
 				var->oldestEvent = var->newestEvent = 0;
 			}
+		}
+	}
+
+
+	for (u32 thread = 0; thread < frame->threadCount; thread++) {
+		DebugProfilerSpan* span = (frame->cpuSpansPerThread + thread)->firstChild;
+		DebugProfilerSpan* spanStack[64] = {};
+		u32 spanStackCount = 0;
+		while (span) {
+#if 0
+			if (span->next) {
+				spanStack[++spanStackCount] = span->next;
+			}
+			if (span->firstChild) {
+				spanStack[++spanStackCount] = span->firstChild;
+			}
+			state->debugSpanFreed++;
+			span->next = state->spanFreeList;
+			state->spanFreeList = span;
+
+			span = spanStack[spanStackCount--];
+#else
+			DebugProfilerSpan* next = span;
+			while (next) {
+				state->debugSpanFreed++;
+				if (next->firstChild) {
+					Assert(spanStackCount < ArrayCount(spanStack) - 1);
+					spanStack[++spanStackCount] = next->firstChild;
+				}
+				if (!next->next) {
+					break;
+				}
+				next = next->next;
+			}
+			next->next = state->spanFreeList;
+			state->spanFreeList = span;
+
+			span = spanStack[spanStackCount--];
+#endif
 		}
 	}
 	state->oldestFrame = frame->next;
@@ -520,6 +570,28 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableGroup* group, Debug
 	return storedEvent;
 }
 
+internal 
+DebugProfilerSpan* AllocateSpan(DebugState* state) {
+	DebugProfilerSpan* span = 0;
+	while (!span) {
+		span = state->spanFreeList;
+		if (span) {
+			state->spanFreeList = state->spanFreeList->next;
+		}
+		else if (HasArenaSpaceFor(state->collationFrameArena, sizeof(DebugProfilerSpan))) {
+			span = PushStructSize(state->collationFrameArena, DebugProfilerSpan);
+		}
+		else {
+			FreeOldestFrame(state);
+		}
+	}
+	span->firstChild = 0;
+	span->next = 0;
+	span->maxT = 0;
+	span->minT = 0;
+	return span;
+}
+
 internal
 DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 	DebugCollationFrame* newFrame = 0;
@@ -538,7 +610,7 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 	u32 frameIndex = !debugGlobalState->currentFrameIndex;
 	newFrame->eventsCount = debugGlobalState->eventsCount[frameIndex];
 	newFrame->startCycles = debugGlobalState->frameStartCycles[frameIndex];
-	newFrame->rootGroup = {};
+	ZeroStruct(newFrame->cpuSpansPerThread);
 	newFrame->next = 0;
 	newFrame->frameIndex = state->totalFrameCount;
 	if (!state->oldestFrame) {
@@ -609,6 +681,8 @@ void DebugCollateEvents(DebugState* state) {
 	i32 stackCount = 0;
 	DebugVariableGroup* rootGroup = &state->UISentinel.next->rootGroup;
 	DebugVariableGroup* currentGroup = rootGroup;
+	state->debugSpanAllocationsCount = 0;
+	state->debugSpanFreed = 0;
 	for (u32 eventIndex = 0;
 		eventIndex < eventsInFrameCount;
 		eventIndex++
@@ -622,44 +696,40 @@ void DebugCollateEvents(DebugState* state) {
 		case Event_Time_BlockEnd: {
 			OpenDebugEvent* block = stack->timeEvents;
 			OpenDebugEvent* parentBlock = block->next;
-			DebugEvent* openEvent = block->event;
-			if (openEvent) {
-				if (openEvent->threadId == event->threadId) {
-					f32 minT = f4(openEvent->cycles - newFrame->startCycles) * scale;
-					f32 maxT = f4(event->cycles - newFrame->startCycles) * scale;
-					f32 thresholdT = 0.01f;
-					if ((maxT - minT) > thresholdT) {
-#if 0
-						Assert(frameInfo->regionsCount < ArrayCount(frameInfo->regions));
-						u16 regionIndex = u2(frameInfo->regionsCount++);
-						DebugProfilerRegion* region = frameInfo->regions + regionIndex;
-						// TODO: If minT < 0 -> that means openEvent started on one of the previous frames.
-						// Do something about it!
-						region->laneId = stack->laneId;
-						region->parentEventId = 0;
-						if (parentBlock->event) {
-							region->parentEventId = parentBlock->event->blockName;
-							Assert(parentBlock->childRegionCount < ArrayCount(parentBlock->childRegionIndexes));
-							parentBlock->childRegionIndexes[parentBlock->childRegionCount++] = regionIndex;
-						}
-						region->regionName = block->event->blockName;
-						region->minT = minT;
-						region->maxT = maxT;
-						region->durationCycles = u4(openEvent->cycles - event->cycles);
-						region->parentRegionIndex = U32_MAX;
-						for (u32 index = 0; index < block->childRegionCount; index++) {
-							DebugProfilerRegion* childRegion = frameInfo->regions + block->childRegionIndexes[index];
-							childRegion->parentRegionIndex = regionIndex;
-						}
-#endif
+			DebugEvent* openEvent = &block->event;
+			Assert(openEvent);
+			Assert(openEvent->threadId == event->threadId);
+			f32 minT = f4(openEvent->cycles - newFrame->startCycles) * scale;
+			f32 maxT = f4(event->cycles - newFrame->startCycles) * scale;
+			f32 thresholdT = 0.01f;
+			if ((maxT - minT) > thresholdT) {
+				DebugProfilerSpan* span = AllocateSpan(state);
+				state->debugSpanAllocationsCount++;
+				span->minT = minT;
+				span->maxT = maxT;
+				span->thread = stack->laneId;
+				span->name = openEvent->blockName;
+				span->firstChild = block->firstChildSpan;
+				if (parentBlock) {
+					span->next = parentBlock->firstChildSpan;
+					parentBlock->firstChildSpan = span;
+				}
+				else {
+					Assert(stack->laneId < ArrayCount(newFrame->cpuSpansPerThread));
+					DebugProfilerSpan* threadRoot = newFrame->cpuSpansPerThread + stack->laneId;
+					span->next = threadRoot->firstChild;
+					threadRoot->firstChild = span;
+					if (newFrame->threadCount < stack->laneId + 1) {
+						newFrame->threadCount = stack->laneId + 1;
 					}
-					PopFromEventStack(state, &stack->timeEvents);
 				}
 			}
+			PopFromEventStack(state, &stack->timeEvents);
 		} break;
 		case Event_Data_BlockBegin: {
 			state->entityIntrospectionCountInFrame++;
-			u32 inFrameEntityIndex = IsSelected(state, event->data_DebugId) ? 99 : state->entityIntrospectionCountInFrame;
+			u32 selectedIndex = 0;
+			u32 inFrameEntityIndex = IsSelected(state, event->data_DebugId, &selectedIndex) ? 99 + selectedIndex : state->entityIntrospectionCountInFrame;
 			currentGroup = GetGroupForObjectIntrospection(state, currentGroup, event->blockName, inFrameEntityIndex);
 			currentGroup->introspectionDataReceived = true;
 			currentGroup->introspectionId = event->data_DebugId;
@@ -671,6 +741,8 @@ void DebugCollateEvents(DebugState* state) {
 		} break;
 		case Event_PermanentVariableDeclaration: {
 			DebugVariableGroup* group = GetGroupForHierachicalName(state, rootGroup, event->blockName);
+			
+#if 0
 			DebugStoredEvent* storedEvent = StoreEvent(state, group, event, newFrame->frameIndex);
 			DebugVariable* var = GetOrCreateDebugVariableForEvent(state, group, storedEvent);
 			PermanentDebugVariable* permVar = PushStructSize(state->mainArena, PermanentDebugVariable);
@@ -678,6 +750,9 @@ void DebugCollateEvents(DebugState* state) {
 			permVar->var = var;
 			permVar->next = state->permanentVariables;
 			state->permanentVariables = permVar;
+#else
+			DebugStoredEvent* storedEvent = StoreEvent(state, group, event, newFrame->frameIndex, true);
+#endif
 		} break;
 		case Event_Data_u32:
 		case Event_Data_i32:
@@ -689,10 +764,10 @@ void DebugCollateEvents(DebugState* state) {
 		} break;
 		}
 	}
-	for (PermanentDebugVariable* permVar = state->permanentVariables; permVar; permVar = permVar->next) {
+	/*for (PermanentDebugVariable* permVar = state->permanentVariables; permVar; permVar = permVar->next) {
 		DebugVariableGroup* group = GetGroupForHierachicalName(state, rootGroup, permVar->blockName);
 		StoreEvent(state, group, &permVar->var->newestEvent->event, newFrame->frameIndex);
-	}
+	}*/
 }
 
 enum DebugVarToTextFlags {
@@ -995,6 +1070,10 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 }
 
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
+	if (WasPressed(controller.B.kEsc)) {
+		state->selectedCount = 0;
+	}
+
 	// Set hot interaction
 	if (!IsDebugIdNull(state->nextHotInteraction.id)) {
 		state->nextHotInteraction.startMousePos = mousePos;
@@ -1200,7 +1279,16 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	} break;
 	case DebugInteract_Select: {
 		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
-			state->selectedId = state->interaction.id;
+			if (IsPressed(controller.B.kShift)) {
+				u32 index = state->selectedCount++;
+				state->selectedCount = state->selectedCount % ArrayCount(state->selectedId);
+				state->selectedId[index] = state->interaction.id;
+			}
+			else {
+				state->selectedCount = 1;
+				state->selectedId[0] = state->interaction.id;
+			}
+			
 			interactionEnded = true;
 		}
 	} break;
