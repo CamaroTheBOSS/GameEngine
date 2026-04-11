@@ -98,6 +98,7 @@ struct DebugState {
 	DebugStoredEvent* freeStoredEventList;
 	DebugProfilerSpan* spanFreeList;
 	DebugVariable* variableHash[512];
+	DebugVariableGroup* groupHash[128];
 	u32 entityIntrospectionCountInFrame;
 	
 	// UI

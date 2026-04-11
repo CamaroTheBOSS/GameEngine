@@ -238,6 +238,7 @@ struct DebugVariableGroup {
 	u32 introspectionObjectIndex;
 	bool introspectionDataReceived;
 	DebugId introspectionId;
+	DebugVariableGroup* nextInHash;
 
 	DebugVariableGroup* parentGroup;
 

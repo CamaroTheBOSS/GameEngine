@@ -450,28 +450,46 @@ DebugVariableLink* AddGroupToGroup(DebugState* state, DebugVariableGroup* parent
 }
 
 inline
-void InitializeVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, DebugVariableGroup* group, const char* name, u32 nameLength, u32 introspectionObjectIndex) {
-	group->expanded = true;
-	group->firstLink = 0;
-	group->name = name;
-	group->nameLength = nameLength;
-	group->parentGroup = parentGroup;
-	group->introspectionObjectIndex = introspectionObjectIndex;
-	AddGroupToGroup(state, parentGroup, group);
+u32 GetStringHash(const char* string, u32 length) {
+	// TODO: Better hash function!
+	u32 hash = 0;
+	internal u32 primes[] = {
+		3, 5, 7, 11, 13, 17, 19, 23, 29, 31,37,	41,	43,	47,	53,	59,	61,	
+		67,	71, 73,	79,	83,	89,	97,	101,103,107,109,113,127,131,137
+	};
+	Assert(length < ArrayCount(primes))
+	for (u32 idx = 0; idx < length; idx++) {
+		hash += primes[idx] * (string[idx] - 'a');
+		hash ^= 524287;
+	}
+	return hash;
 }
 
 internal
 DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, const char* name, u32 nameLength, u32 introspectionObjectIndex = 0) {
+	TIMED_FUNCTION;
+	// TODO: Could I avoid hashing string?
+	u32 hashSlot = (GetStringHash(name, nameLength) + 13 * introspectionObjectIndex) % ArrayCount(state->groupHash);
 	DebugVariableGroup* result = 0;
-	for (DebugVariableLink* child = parentGroup->firstLink; child; child = child->next) {
-		if (child->group && child->group->introspectionObjectIndex == introspectionObjectIndex && StringsAreEqual(child->group->name, child->group->nameLength, name, nameLength)) {
-			result = child->group;
+	for (DebugVariableGroup* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
+		if (StringsAreEqual(group->name, group->nameLength, name, nameLength) && 
+			introspectionObjectIndex == group->introspectionObjectIndex) 
+		{
+			result = group;
 			break;
 		}
 	}
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariableGroup);
-		InitializeVariableGroup(state, parentGroup, result, name, nameLength, introspectionObjectIndex);
+		result->expanded = true;
+		result->firstLink = 0;
+		result->name = name;
+		result->nameLength = nameLength;
+		result->parentGroup = parentGroup;
+		result->introspectionObjectIndex = introspectionObjectIndex;
+		AddGroupToGroup(state, parentGroup, result);
+		result->nextInHash = state->groupHash[hashSlot];
+		state->groupHash[hashSlot] = result;
 	}
 	return result;
 }
@@ -930,8 +948,11 @@ bool IsVariableHot(DebugState* state, DebugVariableGroup* group) {
 }
 
 inline
-bool GroupShouldBeRendered(DebugVariableGroup* group) {
-	return group->introspectionObjectIndex == 0 || group->introspectionDataReceived;
+bool GroupShouldBeRendered(DebugState* state, DebugVariableGroup* group, DebugTree* tree) {
+	bool result = group && (group->introspectionObjectIndex == 0 ||
+							group->introspectionDataReceived ||
+							tree != state->introspectionTree);
+	return result;
 }
 
 internal
@@ -947,83 +968,9 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 			V4 itemColor = V4{ 1, 1, 1, 1 };
 			V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
 			bool elementRendered = false;
-#if 0
-			if (node->variable) {
-				if (node->variable->newestEvent) {
-					
 
-
-					bool isHot = IsVariableHot(state, node);
-					if (isHot) {
-						itemColor = hotItemColor;
-					}
-					char* at = buffer;
-					for (u32 idx = 0; idx < depth; idx++) {
-						*at++ = ' ';
-						*at++ = ' ';
-					}
-
-					DebugEvent* event = &node->variable->newestEvent->event;
-					DebugEventToText(event, at, u4(end - at), DebugVarToText_AddColon);
-
-					Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
-					if (IsInRectangle(bb, mousePos)) {
-						state->nextHotInteraction = InteractionWithLink(state, bb, tree, node);
-					}
-
-					V4 bbColor = V4{ 0.5f, 0, 0, 1 };
-					if (IsSelected(state, node->parentGroup->introspectionId)) {
-						bbColor = V4{ 0.5f, 0.5f, 0, 1 };
-					}
-
-
-					PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, bbColor);
-					DebugRenderLine(state, buffer, fontContext, itemColor);
-					elementRendered = true;
-				}
-			}
-			else {
-				// TODO: Merge this code somehow with variable printout!
-				Assert(node->group);
-				if (GroupShouldBeRendered(node->group)) {
-
-					char* at = buffer;
-					for (u32 idx = 0; idx < depth; idx++) {
-						*at++ = ' ';
-						*at++ = ' ';
-					}
-					bool isHot = IsVariableHot(state, node->group);
-					if (isHot) {
-						itemColor = hotItemColor;
-					}
-
-
-					sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
-
-
-
-					Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
-					if (IsInRectangle(bb, mousePos)) {
-						state->nextHotInteraction = InteractionWithGroup(state, bb, tree, node->group);
-					}
-
-
-					V4 bbColor = V4{ 0.5f, 0, 0, 1 };
-					if (IsSelected(state, node->group->introspectionId)) {
-						bbColor = V4{ 0.5f, 0.5f, 0, 1 };
-					}
-
-
-					PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, bbColor);
-					DebugRenderLine(state, buffer, fontContext, itemColor);
-					node->group->introspectionDataReceived = false;
-					elementRendered = true;
-				}
-				
-			}
-#else
 			bool isGroup = node->group != 0;
-			if ((!isGroup && node->variable->newestEvent) || GroupShouldBeRendered(node->group)) {
+			if ((!isGroup && node->variable->newestEvent) || GroupShouldBeRendered(state, node->group, tree)) {
 				bool isHot = isGroup ?
 					IsVariableHot(state, node->group) :
 					IsVariableHot(state, node);
@@ -1062,8 +1009,6 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				elementRendered = true;
 			}
 
-			
-#endif
 			if (node) {
 				if (node->group && node->group->expanded && elementRendered) {
 					// TODO: Display group names
@@ -1122,9 +1067,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		case DebugInteractObject_GroupInTree: {
-			if (WasPressed(controller.B.mouseLeft) && 
-				!IsIntrospectionGroup(state->nextHotInteraction.groupInTree.group)) 
-			{
+			if (WasPressed(controller.B.mouseLeft)) {
 				state->nextHotInteraction.type = DebugInteract_Toggle;
 			}
 		} break;
