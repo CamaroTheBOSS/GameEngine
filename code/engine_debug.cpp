@@ -316,16 +316,6 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 		AddTree(state, leftTopCorner);
-#if 0
-		
-		state->temporaryVarTree = PushStructSize(state->collationArena, DebugTree);	
-		state->permanentVarTree = PushStructSize(state->mainArena, DebugTree);
-		state->permanentVarTree->pos = leftTopCorner + V2{200, 0};
-		DLINKED_LIST_INIT(&state->permanentVarTree->root);
-		
-		DLINKED_LIST_ADD(&state->UISentinel, state->temporaryVarTree);
-		DLINKED_LIST_ADD(&state->UISentinel, state->permanentVarTree);
-#endif
 
 		BeginRendering(state->renderGroup);
 		state->isInitialized = true;
@@ -471,6 +461,7 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 
 internal
 void FreeOldestFrame(DebugState* state) {
+	TIMED_FUNCTION;
 	Assert(state->oldestFrame);
 	DebugCollationFrame* frame = state->oldestFrame;
 	for (u32 hashSlot = 0; hashSlot < ArrayCount(state->variableHash); hashSlot++) {
@@ -502,22 +493,8 @@ void FreeOldestFrame(DebugState* state) {
 		DebugProfilerSpan* spanStack[64] = {};
 		u32 spanStackCount = 0;
 		while (span) {
-#if 0
-			if (span->next) {
-				spanStack[++spanStackCount] = span->next;
-			}
-			if (span->firstChild) {
-				spanStack[++spanStackCount] = span->firstChild;
-			}
-			state->debugSpanFreed++;
-			span->next = state->spanFreeList;
-			state->spanFreeList = span;
-
-			span = spanStack[spanStackCount--];
-#else
 			DebugProfilerSpan* next = span;
 			while (next) {
-				state->debugSpanFreed++;
 				if (next->firstChild) {
 					Assert(spanStackCount < ArrayCount(spanStack) - 1);
 					spanStack[++spanStackCount] = next->firstChild;
@@ -531,7 +508,6 @@ void FreeOldestFrame(DebugState* state) {
 			state->spanFreeList = span;
 
 			span = spanStack[spanStackCount--];
-#endif
 		}
 	}
 	state->oldestFrame = frame->next;
@@ -645,28 +621,10 @@ DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableG
 internal
 DebugVariableGroup* GetGroupForObjectIntrospection(DebugState* state, DebugVariableGroup* group, const char* name, u32 introspectionObjectIndex) {
 	DebugVariableGroup* parentGroup = GetGroupForHierachicalName(state, group, name);
-#if 0
-	DebugVariableTemporaryGroup* tempGroup = state->temporaryGroupsFreeList;
-	if (tempGroup) {
-		state->temporaryGroupsFreeList = state->temporaryGroupsFreeList->next;
-	}
-	else {
-		tempGroup = PushStructSize(state->mainArena, DebugVariableTemporaryGroup);
-	}
-	DebugVariableGroup* result = &tempGroup->group;
-	const char* tempGroupName = parentGroup->name + parentGroup->nameLength + 1;
-	u32 tempGroupNameLength = StringLength(tempGroupName);
-	InitializeVariableGroup(state, parentGroup, result, tempGroupName, tempGroupNameLength);
-	tempGroup->next = state->temporaryGroups;
-	state->temporaryGroups = tempGroup;
-
-	return result;
-#else
 	const char* lastGroupName = parentGroup->name + parentGroup->nameLength + 1;
 	u32 lastGroupNameLength = StringLength(lastGroupName);
 	DebugVariableGroup* result = GetOrCreateVariableGroup(state, parentGroup, lastGroupName, lastGroupNameLength, introspectionObjectIndex);
 	return result;
-#endif
 }
 
 internal
@@ -678,11 +636,8 @@ void DebugCollateEvents(DebugState* state) {
 	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];
 	u32 eventsInFrameCount = debugGlobalState->eventsCount[frameIndex];
 	DebugCollationFrame* newFrame = AllocateNewDebugFrame(state);
-	i32 stackCount = 0;
 	DebugVariableGroup* rootGroup = &state->UISentinel.next->rootGroup;
 	DebugVariableGroup* currentGroup = rootGroup;
-	state->debugSpanAllocationsCount = 0;
-	state->debugSpanFreed = 0;
 	for (u32 eventIndex = 0;
 		eventIndex < eventsInFrameCount;
 		eventIndex++
@@ -704,7 +659,6 @@ void DebugCollateEvents(DebugState* state) {
 			f32 thresholdT = 0.01f;
 			if ((maxT - minT) > thresholdT) {
 				DebugProfilerSpan* span = AllocateSpan(state);
-				state->debugSpanAllocationsCount++;
 				span->minT = minT;
 				span->maxT = maxT;
 				span->thread = stack->laneId;
@@ -741,18 +695,7 @@ void DebugCollateEvents(DebugState* state) {
 		} break;
 		case Event_PermanentVariableDeclaration: {
 			DebugVariableGroup* group = GetGroupForHierachicalName(state, rootGroup, event->blockName);
-			
-#if 0
-			DebugStoredEvent* storedEvent = StoreEvent(state, group, event, newFrame->frameIndex);
-			DebugVariable* var = GetOrCreateDebugVariableForEvent(state, group, storedEvent);
-			PermanentDebugVariable* permVar = PushStructSize(state->mainArena, PermanentDebugVariable);
-			permVar->blockName = storedEvent->event.blockName;
-			permVar->var = var;
-			permVar->next = state->permanentVariables;
-			state->permanentVariables = permVar;
-#else
 			DebugStoredEvent* storedEvent = StoreEvent(state, group, event, newFrame->frameIndex, true);
-#endif
 		} break;
 		case Event_Data_u32:
 		case Event_Data_i32:
@@ -764,10 +707,6 @@ void DebugCollateEvents(DebugState* state) {
 		} break;
 		}
 	}
-	/*for (PermanentDebugVariable* permVar = state->permanentVariables; permVar; permVar = permVar->next) {
-		DebugVariableGroup* group = GetGroupForHierachicalName(state, rootGroup, permVar->blockName);
-		StoreEvent(state, group, &permVar->var->newestEvent->event, newFrame->frameIndex);
-	}*/
 }
 
 enum DebugVarToTextFlags {
@@ -1194,18 +1133,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		} break;
 		}
 	}
-	if (WasPressed(controller.B.mouseLeft)) {
-#if 0
-		state->selected = state->hotRecord;
-#endif
-	}
-	if (WasPressed(controller.B.mouseMiddle)) {
-#if 0
-		state->selectedRegionIndex = state->hotRegionIndex;
-		state->selectedFrameIndex = state->hotFrameIndex;
-		state->selectedRecord = state->hotRecord;
-#endif
-	}
+
 	DEBUG_IF(Debug_ShowInteractions) {
 		char buffer[256];
 		const char* interaction = "Unknown";
@@ -1400,42 +1328,6 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& i
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
 }
 
-#if 0
-internal
-void FreeTemporaryGroups(DebugState* state) {
-	DebugVariableTemporaryGroup* tempGroup = state->temporaryGroups;
-	for (; tempGroup; tempGroup = tempGroup->next) {
-		DebugVariableGroup* group = &tempGroup->group;
-		DebugVariableGroup* parentGroup = group->parentGroup;
-		bool found = false;
-		DebugVariableLink* prevLink = 0;
-
-		for (DebugVariableLink* link = parentGroup->firstLink; link; link = link->next) {
-			// TODO: DOUBLE LINKED LIST FOR LINKS TO MAKE IT MORE SANE!
-			if (link->group && IsGroupTemporary(link->group)) {
-				found = true;
-				if (prevLink) {
-					prevLink->next = link->next;
-					prevLink = link;
-				}
-				else {
-					parentGroup->firstLink = parentGroup->firstLink->next;
-					prevLink = 0;
-				}
-			}
-			else {
-				prevLink = link;
-			}
-			
-		}
-		Assert(found);
-		tempGroup->next = state->temporaryGroupsFreeList;
-		state->temporaryGroupsFreeList = tempGroup;
-	}
-	state->temporaryGroups = 0;
-}
-#endif
-
 extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {
 	return debugGlobalState;
 }
@@ -1453,7 +1345,6 @@ extern "C" void DebugFinishFrame(ProgramMemory* memory, BitmapData& rawBitmap, I
 		return;
 	}
 	DebugRenderOverlay(state, bitmap, input);
-	//FreeTemporaryGroups(state);
 	DebugCollateEvents(state);
 	state->totalFrameCount++;
 	return;

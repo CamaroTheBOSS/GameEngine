@@ -100,7 +100,6 @@ struct DebugState {
 	DebugStoredEvent* freeStoredEventList;
 	DebugProfilerSpan* spanFreeList;
 	DebugVariable* variableHash[512];
-	PermanentDebugVariable* permanentVariables;
 	u32 entityIntrospectionCountInFrame;
 	
 	// UI
@@ -121,9 +120,6 @@ struct DebugState {
 	bool interacting;
 
 	bool isInitialized;
-
-	u32 debugSpanAllocationsCount;
-	u32 debugSpanFreed;
 };
 
 inline
