@@ -18,9 +18,7 @@
 
 DebugGlobalState debugGlobalState_ = {};
 DebugGlobalState* debugGlobalState = &debugGlobalState_;
-#if 0
-DebugVariable nullDebugVariable = {};
-#endif
+DEFINE_DEBUG_VARIABLE(bool, Profiler_Pause);
 
 // TODO: Delete stdlib
 #include <stdio.h>
@@ -60,6 +58,48 @@ bool IsVariableHot(DebugState* state, Rect2& rect2) {
 }
 
 inline
+bool SelectedByName(DebugSelectedSpan& span) {
+	return span.type == SpanSelection_ByName;
+}
+
+inline
+bool SelectedById(DebugSelectedSpan& span) {
+	return span.type == SpanSelection_ById;
+}
+
+inline
+bool SpanShouldBeRendered(DebugSelectedSpan& selected, DebugProfilerSpan* span) {
+	if (SelectedByName(selected) && span->parentName != selected.name) {
+		return false;
+	}
+	if (SelectedById(selected) && span->parentSpanId != selected.spanId) {
+		return false;
+	}
+	if (selected.type == SpanSelection_None && span->parentName != 0) {
+		return false;
+	}
+	return true;
+}
+
+inline
+bool IsVariableHot(DebugState* state, DebugSelectedSpan& selectedSpan) {
+	if (state->hotInteraction.obj != DebugInteractionObject::ProfilerSpan) {
+		return false;
+	}
+	DebugSelectedSpan& hotSelectedSpan = state->hotInteraction.selectedSpan;
+	bool result = true;
+	if (SelectedById(hotSelectedSpan)) {
+		result = hotSelectedSpan.captureFrameIndex == selectedSpan.captureFrameIndex &&
+			hotSelectedSpan.spanId == selectedSpan.spanId &&
+			hotSelectedSpan.name == selectedSpan.name;
+	}
+	else if (SelectedByName(hotSelectedSpan)) {
+		result = hotSelectedSpan.name == selectedSpan.name;
+	}
+	return result;
+}
+
+inline
 bool IsVariableHot(DebugState* state, DebugId id) {
 	bool result = AreDebugIdsEqual(state->hotInteraction.id, id);
 	return result;
@@ -80,10 +120,10 @@ DebugId GetDebugIdForLink(DebugVariableLink* link) {
 }
 
 inline
-DebugId GetDebugIdForSpan(DebugProfilerSpan* span, u32 threadIndex) {
+DebugId GetDebugIdForSpan(DebugProfilerSpan* span, u32 captureFrame) {
 	DebugId id = {};
-	id.ptr = (char*)span->name;
-	id.index = threadIndex;
+	id.ptr = ptrcast(void, u64(span->spanId));
+	id.index = captureFrame;
 	return id;
 }
 
@@ -146,11 +186,11 @@ DebugInteraction InteractionResizedRect2(Rect2 bbox, Rect2* resizable) {
 }
 
 inline
-DebugInteraction InteractionProfilerSpan(Rect2 bbox, DebugId id) {
+DebugInteraction InteractionProfilerSpan(Rect2 bbox, DebugSelectedSpan selectedSpan) {
 	DebugInteraction interaction = {};
 	interaction.startBoundingBox = bbox;
 	interaction.obj = DebugInteractionObject::ProfilerSpan;
-	interaction.id = id;
+	interaction.selectedSpan = selectedSpan;
 	return interaction;
 }
 
@@ -593,8 +633,10 @@ void FreeOldestFrame(DebugState* state) {
 				continue;
 			}
 			DebugStoredEvent* lastEventToRemove = var->oldestEvent;
+			state->deallocEventsSum++;
 			while (lastEventToRemove->next && lastEventToRemove->captureFrameIndex <= frame->frameIndex) {
 				lastEventToRemove = lastEventToRemove->next;
+				state->deallocEventsSum++;
 			}
 			DebugStoredEvent* newOldest = lastEventToRemove->next;
 			lastEventToRemove->next = state->freeStoredEventList;
@@ -609,7 +651,7 @@ void FreeOldestFrame(DebugState* state) {
 		}
 	}
 
-
+#if 0
 	for (u32 thread = 0; thread < frame->threadCount; thread++) {
 		DebugProfilerSpan* span = (frame->cpuSpansPerThread + thread)->firstChild;
 		DebugProfilerSpan* spanStack[64] = {};
@@ -621,20 +663,38 @@ void FreeOldestFrame(DebugState* state) {
 					Assert(spanStackCount < ArrayCount(spanStack) - 1);
 					spanStack[++spanStackCount] = next->firstChild;
 				}
-				if (!next->next) {
+				if (!next->nextPeer) {
 					break;
 				}
-				next = next->next;
+				next = next->nextPeer;
 			}
-			next->next = state->spanFreeList;
+			next->nextPeer = state->spanFreeList;
 			state->spanFreeList = span;
 
 			span = spanStack[spanStackCount--];
 		}
 	}
+#else
+	if (frame->lastCpuSpan) {
+#if 0
+		for (DebugProfilerSpan* span = frame->firstCpuSpan; span; span = span->next) {
+			state->deallocSpansSum += frame->spanCount;
+		}
+#else
+		state->deallocSpansSum += frame->spanCount;
+#endif
+		Assert(frame->firstCpuSpan);
+		frame->lastCpuSpan->next = state->spanFreeList;
+		state->spanFreeList = frame->firstCpuSpan;
+	}
+	else {
+		Assert(frame->firstCpuSpan == 0);
+	}
+#endif
 	DLINKED_LIST_REMOVE(frame);
 	frame->next = state->freeFrameList;
 	state->freeFrameList = frame;
+	state->deallocFramesSum++;
 }
 
 internal
@@ -649,10 +709,14 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableGroup* group, Debug
 		else if (HasArenaSpaceFor(state->collationFrameArena, sizeof(DebugStoredEvent))) {
 			storedEvent = PushStructSize(state->collationFrameArena, DebugStoredEvent);
 		}
-		else {
+		else if (state->framesSentinel.next != &state->framesSentinel) {
 			FreeOldestFrame(state);
 		}
+		else {
+			return 0;
+		}
 	}
+	state->allocEventsSum++;
 	storedEvent->event = *event;
 	storedEvent->next = 0;
 	storedEvent->captureFrameIndex = captureFrameIndex;
@@ -669,7 +733,7 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableGroup* group, Debug
 }
 
 internal 
-DebugProfilerSpan* AllocateSpan(DebugState* state) {
+DebugProfilerSpan* AllocateSpan(DebugState* state, DebugCollationFrame* frame) {
 	DebugProfilerSpan* span = 0;
 	while (!span) {
 		span = state->spanFreeList;
@@ -683,10 +747,17 @@ DebugProfilerSpan* AllocateSpan(DebugState* state) {
 			FreeOldestFrame(state);
 		}
 	}
-	span->firstChild = 0;
-	span->next = 0;
-	span->maxT = 0;
-	span->minT = 0;
+	state->allocSpansSum++;
+	*span = {};
+	span->spanId = ++frame->spanCount; // NOTE: Left NullID alone
+	if (!frame->firstCpuSpan) {
+		Assert(frame->lastCpuSpan == 0);
+		frame->firstCpuSpan = frame->lastCpuSpan = span;
+	}
+	else {
+		Assert(frame->lastCpuSpan != 0);
+		frame->lastCpuSpan = frame->lastCpuSpan->next = span;
+	}
 	return span;
 }
 
@@ -705,11 +776,13 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 			FreeOldestFrame(state);
 		}
 	}
+	state->allocFramesSum++;
 	u32 frameIndex = !debugGlobalState->currentFrameIndex;
 	newFrame->eventsCount = debugGlobalState->eventsCount[frameIndex];
 	newFrame->startCycles = debugGlobalState->frameStartCycles[frameIndex];
 	newFrame->frameIndex = state->totalFrameCount;
-	ZeroStruct(newFrame->cpuSpansPerThread);
+	newFrame->firstCpuSpan = newFrame->lastCpuSpan = 0;
+	newFrame->spanCount = 0;
 	DLINKED_LIST_ADD(&state->framesSentinel, newFrame);
 	return newFrame;
 }
@@ -746,7 +819,10 @@ DebugVariableGroup* GetGroupForObjectIntrospection(DebugState* state, DebugVaria
 internal
 void DebugCollateEvents(DebugState* state) {
 	TIMED_FUNCTION;
-
+	if(Profiler_Pause.data_bool) {
+		return;
+	}
+	
 	u32 frameIndex = !debugGlobalState->currentFrameIndex;
 	f32 scale = DEBUG_COLLATION_SCALE;
 	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];
@@ -773,24 +849,19 @@ void DebugCollateEvents(DebugState* state) {
 			f32 maxT = f4(event->cycles - newFrame->startCycles) * scale;
 			f32 thresholdT = 0.01f;
 			if ((maxT - minT) > thresholdT) {
-				DebugProfilerSpan* span = AllocateSpan(state);
+				DebugProfilerSpan* span = AllocateSpan(state, newFrame);
 				span->minT = minT;
 				span->maxT = maxT;
 				span->thread = stack->laneId;
 				span->name = openEvent->blockName;
-				span->firstChild = block->firstChildSpan;
 				if (parentBlock) {
-					span->next = parentBlock->firstChildSpan;
-					parentBlock->firstChildSpan = span;
+					span->parentName = parentBlock->event.blockName;
+					Assert(parentBlock->childSpans.count < ArrayCount(parentBlock->childSpans.children));
+					parentBlock->childSpans.children[parentBlock->childSpans.count++] = span;
 				}
-				else {
-					Assert(stack->laneId < ArrayCount(newFrame->cpuSpansPerThread));
-					DebugProfilerSpan* threadRoot = newFrame->cpuSpansPerThread + stack->laneId;
-					span->next = threadRoot->firstChild;
-					threadRoot->firstChild = span;
-					if (newFrame->threadCount < stack->laneId + 1) {
-						newFrame->threadCount = stack->laneId + 1;
-					}
+				for (u32 childIndex = 0; childIndex < block->childSpans.count; childIndex++) {
+					DebugProfilerSpan* childSpan = block->childSpans.children[childIndex];
+					childSpan->parentSpanId = span->spanId;
 				}
 			}
 			PopFromEventStack(state, &stack->timeEvents);
@@ -823,6 +894,7 @@ void DebugCollateEvents(DebugState* state) {
 		} break;
 		}
 	}
+	f32 xd = 0;
 }
 
 enum DebugVarToTextFlags {
@@ -919,6 +991,7 @@ Rect2 GetCpuSpanRectangle(Rect2 boundaries, f32 currentWidth,
 }
 
 void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mousePos) {
+	TIMED_FUNCTION;
 	Rect2 boundaries = state->cpuProfilerBoundaries;
 	if (IsInRectangle(boundaries, mousePos)) {
 		state->nextHotInteraction = InteractionMovedRect2(boundaries, &state->cpuProfilerBoundaries);
@@ -940,43 +1013,41 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		V4{1, 1, 0, 1},
 		V4{1, 0.5f, 0.5f, 1},
 	};
-	u32 previousColorIndex = 100;
-	const char* previousSpanName = 0;
-
 	f32 frameWidth = f4(state->threadStacksCount) * threadLaneTotalWidth + frameLaneSpace;
 	f32 currentWidth = frameWidth;
 	f32 collationScale = DEBUG_COLLATION_SCALE;
 	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
 	PushRect(state->renderGroup, boundaries, 0, V2{ 0, 0 }, backgroundColor);
-	
 	DebugCollationFrame* frame = state->framesSentinel.next;
-	while (currentWidth < profilerDim.X + frameWidth && frame != &state->framesSentinel) {
-		for (u32 thread = 0; thread < frame->threadCount; thread++) {
-			DebugProfilerSpan* span = (frame->cpuSpansPerThread + thread)->firstChild;
 
-			Rect2 placeholderRectangle = GetCpuSpanRectangle(boundaries, currentWidth, thread,
-				threadLaneWidth, threadLaneTotalWidth, 0.f, 1.f
-			);
-			if (IsValid(placeholderRectangle)) {
-				PushRect(state->renderGroup, placeholderRectangle, 0, V2{ 0, 0 }, V4{ 0, 0, 0, 1 });
-			}
-			while (span) {
-				Rect2 spanRect = GetCpuSpanRectangle(boundaries, currentWidth, thread,
-					threadLaneWidth, threadLaneTotalWidth, span->minT, span->maxT
-				);
+	DebugSelectedSpan& selectedSpan = state->cpuProfilerSelectedSpan[state->cpuProfilerSelectedSpanCount];
+	if (SelectedById(selectedSpan)) {
+		while (frame->frameIndex > selectedSpan.captureFrameIndex) {
+			frame = frame->next;
+			currentWidth += frameWidth;
+		}
+		if (selectedSpan.captureFrameIndex != frame->frameIndex) {
+			selectedSpan = {};
+			frame = state->framesSentinel.next;
+		}
+	}
 	
-				u32 colorIndex = u4(uptr(span->name) >> 2) % ArrayCount(colors);
-				if (span->name != previousSpanName && previousColorIndex == colorIndex) {
-					colorIndex = (colorIndex + 1) % ArrayCount(colors);
-				}
-				previousColorIndex = colorIndex;
-				previousSpanName = span->name;
-				V4 rectColor = colors[colorIndex];
-				DebugId spanId = GetDebugIdForSpan(span, thread);
-				bool isSpanNameHot = IsVariableHot(state, spanId);
-				bool isInRectangle = IsInRectangle(spanRect, mousePos);
-				if (isSpanNameHot) {
-					if (span->name && isInRectangle) {
+	while (currentWidth < profilerDim.X + frameWidth && frame != &state->framesSentinel) {
+		for (DebugProfilerSpan* span = frame->firstCpuSpan; span; span = span->next) {
+			if (!SpanShouldBeRendered(selectedSpan, span)) {
+				continue;
+			}
+			Rect2 spanRect = GetCpuSpanRectangle(boundaries, currentWidth, span->thread,
+				threadLaneWidth, threadLaneTotalWidth, span->minT, span->maxT
+			);
+
+			u32 colorIndex = u4(uptr(span->name) >> 2) % ArrayCount(colors);
+			V4 rectColor = colors[colorIndex];
+			if (IsInRectangle(spanRect, mousePos)) {
+				DebugSelectedSpan selectedSpanData = { SpanSelection_None, span->name, span->spanId, frame->frameIndex };
+				if (IsVariableHot(state, selectedSpanData)) {
+					rectColor = V4{ 1, 1, 1, 1 };
+					if (span->name) {
 						char buffer[256];
 						sprintf_s(buffer, "%s", span->name);
 						V4 color = V4{ 1, 1, 1, 1 };
@@ -984,30 +1055,27 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 						V2 textPos = mousePos + V2{ 0, lineAdvance };
 						DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
 						textPos += V2{ 0, lineAdvance };
-						sprintf_s(buffer, "t<%4f,%4f>", span->minT, span->maxT);
+						sprintf_s(buffer, "t<%4f,%4f>, p%p", span->minT, span->maxT, span->name);
 						DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
 					}
-					rectColor = V4{ 1, 1, 1, 1 };
 				}
-				if (IsInRectangle(spanRect, mousePos)) {
-					state->nextHotInteraction = InteractionProfilerSpan(spanRect, spanId);
-				}
-				if (IsValid(spanRect)) {
-					PushRect(state->renderGroup, spanRect, 0, V2{ 0, 0 }, rectColor);
-				}
-				span = span->next;
+				state->nextHotInteraction = InteractionProfilerSpan(spanRect, selectedSpanData);
+			}
+			if (IsValid(spanRect)) {
+				PushRect(state->renderGroup, spanRect, 0, V2{ 0, 0 }, rectColor);
 			}
 		}
 		frame = frame->next;
 		currentWidth += frameWidth;
+		if (SelectedById(selectedSpan)) {
+			break;
+		}
 	}
 
 	Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
 	V4 itemColor = V4{ 1, 1, 1, 1 };
-	if (IsVariableHot(state, state->cpuProfilerBoundaries)) {
-		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
-	}
 	if (IsInRectangle(resizeAnchor, mousePos)) {
+		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
 		state->nextHotInteraction = InteractionResizedRect2(state->cpuProfilerBoundaries, &state->cpuProfilerBoundaries);
 	}
 	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
@@ -1103,8 +1171,18 @@ internal
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	if (WasPressed(controller.B.kEsc)) {
 		state->selectedCount = 0;
+		if (state->cpuProfilerSelectedSpanCount) {
+			if (IsPressed(controller.B.kShift)) {
+				state->cpuProfilerSelectedSpanCount = 0;
+			}
+			else {
+				state->cpuProfilerSelectedSpanCount--;
+			}
+		}
 	}
-
+	if (WasPressed(state->controller->B.kP)) {
+		Profiler_Pause.data_bool = !Profiler_Pause.data_bool;
+	}
 	// Set hot interaction
 	DebugInteractionObject nextInteractionObj = state->nextHotInteraction.obj;
 	if (nextInteractionObj != DebugInteractionObject::None) {
@@ -1163,7 +1241,11 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		case DebugInteractionObject::ProfilerSpan: {
-			if (WasPressed(controller.B.mouseLeft)) {
+			if (WasPressed(controller.B.mouseLeft) && IsPressed(controller.B.kShift)) {
+				state->nextHotInteraction.selectedSpan.type = SpanSelection_ById;
+				state->nextHotInteraction.type = DebugInteractionType::SelectProfilerSpan;
+			} else if (WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction.selectedSpan.type = SpanSelection_ByName;
 				state->nextHotInteraction.type = DebugInteractionType::SelectProfilerSpan;
 			}
 		} break;
@@ -1307,10 +1389,12 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		}
 	} break;
 	case DebugInteractionType::SelectProfilerSpan: {
-		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
-			state->cpuProfilerSelectedSpanId = state->interaction.id;
-			interactionEnded = true;
+		if (SelectedById(state->interaction.selectedSpan)) {
+			Profiler_Pause.data_bool = true;
 		}
+		Assert(state->cpuProfilerSelectedSpanCount < ArrayCount(state->cpuProfilerSelectedSpan) - 1);
+		state->cpuProfilerSelectedSpan[++state->cpuProfilerSelectedSpanCount] = state->interaction.selectedSpan;
+		interactionEnded = true;
 	} break;
 #if 0
 	case DebugInteract_Compile: {
@@ -1413,11 +1497,27 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap) {
 #endif
 		MemoryArena* arenas[] = { &state->collationFrameArena, &state->mainArena };
 		const char* arenaNames[] = { "CollationFrame", "Main" };
+		char* at = buffer;
+		char* end = buffer + sizeof(buffer);
+		at += sprintf_s(at, end - at, "Arena remaining sizes:   ");
 		for (u32 arenaIndex = 0; arenaIndex < ArrayCount(arenas); arenaIndex++) {
 			u64 arenaRemainingSize = GetArenaFreeSpaceSize(*arenas[arenaIndex]) / 1024;
-			sprintf_s(buffer, 256, "%sArena remaining size: %lldkB", arenaNames[arenaIndex], arenaRemainingSize);
-			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+			at += sprintf_s(at, end - at, "%s: %lldkB   ", arenaNames[arenaIndex], arenaRemainingSize);
 		}
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+
+#if 1
+		u32 allocs[] = { state->allocFramesSum, state->allocEventsSum , state->allocSpansSum };
+		u32 deallocs[] = { state->deallocFramesSum, state->deallocEventsSum , state->deallocSpansSum };
+		const char* varNames[] = { "Frames: ", "Events: ", "Spans: "};
+		at = buffer;
+		end = buffer + sizeof(buffer);
+		at += sprintf_s(at, end - at, "Dealloc/Alloc count: ");
+		for (u32 index = 0; index < ArrayCount(allocs); index++) {
+			at += sprintf_s(at, end - at, "%s%d/%d   ", varNames[index], deallocs[index], allocs[index]);
+		}
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+#endif
 		
 	}
 

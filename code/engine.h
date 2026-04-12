@@ -123,7 +123,16 @@ struct DebugState {
 
 	// Profiler
 	Rect2 cpuProfilerBoundaries;
-	DebugId cpuProfilerSelectedSpanId;
+	u32 cpuProfilerSelectedSpanCount;
+	DebugSelectedSpan cpuProfilerSelectedSpan[MAX_DEPTH_SPANS];
+
+	// Debug in debug :)
+	u32 allocFramesSum;
+	u32 deallocFramesSum;
+	u32 allocEventsSum;
+	u32 deallocEventsSum;
+	u32 allocSpansSum;
+	u32 deallocSpansSum;
 
 	bool isInitialized;
 };

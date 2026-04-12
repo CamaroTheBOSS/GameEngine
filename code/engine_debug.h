@@ -8,6 +8,9 @@
 #define DEBUG_CPU_FREQ (2.9f * 1000 * 1000)
 #define DEBUG_TARGET_REFRESH_MS 16.6666666f
 
+#define MAX_CHILD_SPANS 128
+#define MAX_DEPTH_SPANS 128
+
 struct DebugId {
 	void* ptr;
 	u32 index;
@@ -104,13 +107,16 @@ extern DebugGlobalState* debugGlobalState;
 #endif
 
 struct DebugProfilerSpan;
+struct DebugProfilerSpanChildren {
+	u32 count;
+	DebugProfilerSpan* children[MAX_CHILD_SPANS];
+};
+
 struct OpenDebugEvent {
 	DebugEvent event;
-
 	union {
-		DebugProfilerSpan* firstChildSpan;
+		DebugProfilerSpanChildren childSpans;
 	};
-
 	OpenDebugEvent* next;
 };
 
@@ -260,10 +266,12 @@ struct DebugProfilerSpan {
 	f32 minT;
 	f32 maxT;
 	u8 thread;
+	u32 spanId; //NOTE: Id unique in scope of a collation frame
+	u32 parentSpanId;
 	const char* name;
+	const char* parentName;
 
 	DebugProfilerSpan* next;
-	DebugProfilerSpan* firstChild;
 };
 
 
@@ -273,7 +281,10 @@ struct DebugCollationFrame {
 	u32 frameIndex;
 
 	u8 threadCount;
-	DebugProfilerSpan cpuSpansPerThread[32];
+	u32 spanCount;
+	DebugProfilerSpan* firstCpuSpan; // NOTE: These are connected with nextSpan
+	DebugProfilerSpan* lastCpuSpan;
+
 	DebugCollationFrame* next;
 	DebugCollationFrame* prev;
 };
@@ -289,9 +300,9 @@ struct DebugTree {
 enum class DebugInteractionObject {
 	None,
 	LinkInTree,
+	Introspectable,
 	MovedRect2,
 	ResizedRect2,
-	Introspectable,
 	ProfilerSpan,
 };
 
@@ -299,11 +310,11 @@ enum class DebugInteractionType {
 	None,
 
 	Toggle,
-	MoveV2,
-	MoveRect2,
 	ResizeRect2,
 	DragIncrease,
 	Tear,
+	MoveV2,
+	MoveRect2,
 	Select,
 	SelectProfilerSpan,
 };
@@ -321,6 +332,17 @@ struct DebugModifiedRect2 {
 struct DebugModifiedFloat {
 	f32 initial;
 	f32* actual;
+};
+enum DebugSpanSelectionType {
+	SpanSelection_None,
+	SpanSelection_ById,
+	SpanSelection_ByName
+};
+struct DebugSelectedSpan {
+	DebugSpanSelectionType type;
+	const char* name;
+	u32 spanId;
+	u32 captureFrameIndex;
 };
 
 struct DebugVariableLinkInTree {
@@ -343,6 +365,7 @@ struct DebugInteraction {
 		DebugModifiedV2 mod_V2;
 		DebugModifiedRect2 mod_Rect2;
 		DebugModifiedFloat mod_f32;
+		DebugSelectedSpan selectedSpan;
 	};
 	V2 startMousePos;
 	Rect2 startBoundingBox;

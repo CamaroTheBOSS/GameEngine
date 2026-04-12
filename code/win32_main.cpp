@@ -944,6 +944,9 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 			else if (vkCode == 'D') {
 				Win32ButtonUpdate(controller.B.kD, wasDown, isDown);
 			}
+			else if (vkCode == 'P') {
+				Win32ButtonUpdate(controller.B.kP, wasDown, isDown);
+			}
 			else if (vkCode == VK_UP) {
 				Win32ButtonUpdate(controller.B.kArrowUp, wasDown, isDown);
 			}
