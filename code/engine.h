@@ -86,6 +86,7 @@ struct TransientState {
 struct DebugState {
 	MemoryArena mainArena;
 	PlatformQueue* highPriorityQueue;
+	Controller* controller;
 
 	// Event Collation
 	u8 threadStacksCount;

@@ -286,26 +286,24 @@ struct DebugTree {
 	DebugTree* prev;
 };
 
-enum DebugInteractionType {
-	DebugInteract_None,
-
-	DebugInteract_Toggle,
-	DebugInteract_Resize,
-	DebugInteract_Move,
-	DebugInteract_DragIncrease,
-	DebugInteract_Tear,
-	DebugInteract_Select,
+enum class DebugInteractionObject {
+	None,
+	LinkInTree,
+	MovedRect2,
+	ResizedRect2,
+	Introspectable,
 };
 
-enum DebugInteractionObject {
-	DebugInteractObject_None,
+enum class DebugInteractionType {
+	None,
 
-	DebugInteractObject_LinkInTree,
-	DebugInteractObject_Span,
-	DebugInteractObject_Pos,
-	DebugInteractObject_Mod_f32,
-	DebugInteractObject_Mod_Rect2,
-	DebugInteractObject_Id,
+	Toggle,
+	MoveV2,
+	MoveRect2,
+	ResizeRect2,
+	DragIncrease,
+	Tear,
+	Select,
 };
 
 struct DebugModifiedV2 {
@@ -335,15 +333,14 @@ struct DebugVariableGroupInTree {
 
 struct DebugInteraction {
 	DebugInteractionType type;
-	DebugInteractionObject objType;
+	DebugInteractionObject obj;
 	union {
 		void* generic;
 		DebugId id;
 		DebugVariableLinkInTree linkInTree;
-		DebugVariableGroupInTree groupInTree;
-		DebugModifiedV2 pos;
-		DebugModifiedRect2 obj_Rect2;
-		DebugModifiedFloat fl32;
+		DebugModifiedV2 mod_V2;
+		DebugModifiedRect2 mod_Rect2;
+		DebugModifiedFloat mod_f32;
 	};
 	V2 startMousePos;
 	Rect2 startBoundingBox;

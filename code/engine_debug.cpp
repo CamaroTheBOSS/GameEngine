@@ -42,15 +42,13 @@ inline bool WasReleased(Button& button);
 
 inline
 bool IsVariableHot(DebugState* state, DebugVariableLink* link) {
-	bool result = state->hotInteraction.objType == DebugInteractObject_LinkInTree &&
-		state->hotInteraction.linkInTree.link == link;
+	bool result = state->hotInteraction.linkInTree.link == link;
 	return result;
 }
 
 inline
 bool IsVariableHot(DebugState* state, Rect2& rect2) {
-	bool result = state->hotInteraction.objType == DebugInteractObject_Mod_Rect2 &&
-		state->hotInteraction.obj_Rect2.actual == &rect2;
+	bool result = state->hotInteraction.mod_Rect2.actual == &rect2;
 	return result;
 }
 
@@ -78,7 +76,7 @@ DebugId GetDebugIdForLink(DebugVariableLink* link) {
 
 inline
 bool IsHighlighted(DebugState* state, DebugId did) {
-	return AreDebugIdsEqual(state->nextHotInteraction.id, did);
+	return AreDebugIdsEqual(state->hotInteraction.id, did);
 }
 
 inline
@@ -105,33 +103,51 @@ bool IsIntrospectionGroup(DebugVariableGroup* group) {
 }
 
 inline 
-DebugInteraction GetMoveInteraction(V2 mousePos, DebugTree* tree, V2 treeInitialPos) {
+DebugInteraction InteractionMoveTree(V2 mousePos, DebugTree* tree, V2 treeInitialPos) {
 	DebugInteraction interaction = {};
-	interaction.type = DebugInteract_Move;
-	interaction.objType = DebugInteractObject_Pos;
+	interaction.type = DebugInteractionType::MoveV2;
 	interaction.startMousePos = mousePos;
 	tree->pos = treeInitialPos;
-	interaction.pos.initial = tree->pos;
-	interaction.pos.actual = &tree->pos;
+	interaction.mod_V2.initial = tree->pos;
+	interaction.mod_V2.actual = &tree->pos;
+	return interaction;
+}
+inline
+DebugInteraction InteractionMovedRect2(Rect2 bbox, Rect2* mover) {
+	DebugInteraction interaction = {};
+	interaction.startBoundingBox = bbox;
+	interaction.obj = DebugInteractionObject::MovedRect2;
+	interaction.mod_Rect2.initial = *mover;
+	interaction.mod_Rect2.actual = mover;
 	return interaction;
 }
 
 inline
-DebugInteraction InteractionWithIntrospectable(Rect2 bBox, DebugId did) {
+DebugInteraction InteractionResizedRect2(Rect2 bbox, Rect2* resizable) {
 	DebugInteraction interaction = {};
-	interaction.objType = DebugInteractObject_Id;
+	interaction.startBoundingBox = bbox;
+	interaction.obj = DebugInteractionObject::ResizedRect2;
+	interaction.mod_Rect2.initial = *resizable;
+	interaction.mod_Rect2.actual = resizable;
+	return interaction;
+}
+
+inline
+DebugInteraction InteractionIntrospectable(Rect2 bBox, DebugId did) {
+	DebugInteraction interaction = {};
+	interaction.obj = DebugInteractionObject::Introspectable;
 	interaction.id = did;
 	interaction.startBoundingBox = bBox;
 	return interaction;
 }
 
 inline
-DebugInteraction InteractionWithLink(DebugState* state, Rect2 boundingBox, DebugTree* tree, DebugVariableLink* link) {
+DebugInteraction InteractionWithLink(Rect2 bBox, DebugTree* tree, DebugVariableLink* link) {
 	DebugInteraction interaction = {};
-	interaction.objType = DebugInteractObject_LinkInTree;
+	interaction.obj = DebugInteractionObject::LinkInTree;
 	interaction.linkInTree.link = link;
 	interaction.linkInTree.tree = tree;
-	interaction.startBoundingBox = boundingBox;
+	interaction.startBoundingBox = bBox;
 	return interaction;
 }
 
@@ -174,7 +190,7 @@ void DEBUG_HIT(DebugId did, Rect2 boundingBox) {
 		return;
 	}
 	if (!IsSelected(state, did)) {
-		state->nextHotInteraction = InteractionWithIntrospectable(boundingBox, did);
+		state->nextHotInteraction = InteractionIntrospectable(boundingBox, did);
 	}
 }
 
@@ -338,7 +354,7 @@ DebugTree* AddTree(DebugState* state, V2 pos, const char* name) {
 }
 
 internal 
-DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
+DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 	if (debugGlobalMemory->debugMemorySize == 0) {
 		return 0;
 	}
@@ -365,6 +381,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 #else
 		SubArena(state->collationFrameArena, state->mainArena, kB(1024));
 #endif
+		state->controller = &input.controllers[KB_CONTROLLER_IDX];
 		state->renderGroup = AllocateRenderGroup(state->mainArena, &tranState->assets, MB(4), false);
 		state->highPriorityQueue = tranState->highPriorityQueue;
 		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
@@ -875,13 +892,16 @@ Rect2 GetCpuSpanRectangle(Rect2 boundaries, f32 currentWidth,
 	return rectangle;
 }
 
-void DebugRenderCpuProfiler(DebugState* state, V2 mousePos) {
+void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mousePos) {
 	Rect2 init = Rect2{
 		V2{ state->overlayBoundaries.min + V2{ 30.f, 30.f } },
 		V2{ state->overlayBoundaries.max.X - 30.f, state->overlayBoundaries.min.Y + 250.f }
 	};
 	DEFINE_DEBUG_VARIABLE_WITH_INIT(Rect2, Profiler_Boundaries, init);
 	Rect2 boundaries = Profiler_Boundaries.data_Rect2;
+	if (IsInRectangle(boundaries, mousePos)) {
+		state->nextHotInteraction = InteractionMovedRect2(boundaries, &Profiler_Boundaries.data_Rect2);
+	}
 #if 1
 	f32 profilerPosY = boundaries.min.Y;
 	f32 profilerPosX = boundaries.min.X;
@@ -949,25 +969,12 @@ void DebugRenderCpuProfiler(DebugState* state, V2 mousePos) {
 	}
 
 	Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
-	if (IsInRectangle(boundaries, mousePos)) {
-		DebugInteraction interaction = {};
-		interaction.startBoundingBox = resizeAnchor;
-		interaction.objType = DebugInteractObject_Mod_Rect2;
-		interaction.obj_Rect2.initial = Profiler_Boundaries.data_Rect2;
-		interaction.obj_Rect2.actual = &Profiler_Boundaries.data_Rect2;
-		state->nextHotInteraction = interaction;
-	}
 	V4 itemColor = V4{ 1, 1, 1, 1 };
 	if (IsVariableHot(state, Profiler_Boundaries.data_Rect2)) {
 		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
 	}
 	if (IsInRectangle(resizeAnchor, mousePos)) {
-		DebugInteraction interaction = {};
-		interaction.startBoundingBox = resizeAnchor;
-		interaction.objType = DebugInteractObject_Mod_Rect2;
-		interaction.obj_Rect2.initial = Profiler_Boundaries.data_Rect2;
-		interaction.obj_Rect2.actual = &Profiler_Boundaries.data_Rect2;
-		state->nextHotInteraction = interaction;
+		state->nextHotInteraction = InteractionResizedRect2(Profiler_Boundaries.data_Rect2, &Profiler_Boundaries.data_Rect2);
 	}
 	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
 #endif
@@ -982,7 +989,7 @@ bool GroupShouldBeRendered(DebugState* state, DebugVariableGroup* group, DebugTr
 }
 
 internal
-void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
+void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mousePos) {
 	for (DebugTree* tree = state->UISentinel.next; tree != &state->UISentinel; tree = tree->next) {
 		FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->pos);
 		DebugVariableLink* node = tree->rootGroup.containingLink;
@@ -1022,7 +1029,7 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
 				if (IsInRectangle(bb, mousePos)) {
-					state->nextHotInteraction = InteractionWithLink(state, bb, tree, isGroup ? node->group->containingLink : node);
+					state->nextHotInteraction = InteractionWithLink(bb, tree, isGroup ? node->group->containingLink : node);
 				}
 				DebugVariableGroup* selectedGroup = isGroup ? node->group : node->parentGroup;
 				V4 bbColor = V4{ 0.5f, 0, 0, 1 };
@@ -1065,11 +1072,11 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	}
 
 	// Set hot interaction
-	DebugInteractionObject nextInteractionObjType = state->nextHotInteraction.objType;
-	if (nextInteractionObjType != DebugInteractObject_None) {
+	DebugInteractionObject nextInteractionObj = state->nextHotInteraction.obj;
+	if (nextInteractionObj != DebugInteractionObject::None) {
 		state->nextHotInteraction.startMousePos = mousePos;
-		switch (nextInteractionObjType) {
-		case DebugInteractObject_LinkInTree: {
+		switch (nextInteractionObj) {
+		case DebugInteractionObject::LinkInTree: {
 			DebugVariableGroup* group = state->nextHotInteraction.linkInTree.link->group;
 			bool isIntrospectGroup = group && IsIntrospectionGroup(group);
 			bool isSelectedGroup = group && IsSelected(state, group->introspectionId);
@@ -1077,7 +1084,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				if ((!isIntrospectGroup || isSelectedGroup) &&
 					WasPressed(controller.B.mouseLeft))
 				{
-					state->nextHotInteraction.type = DebugInteract_Toggle;
+					state->nextHotInteraction.type = DebugInteractionType::Toggle;
 				}
 			}
 			else {
@@ -1088,47 +1095,53 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				switch (event->type) {
 				case Event_Data_bool: {
 					if (WasPressed(controller.B.mouseLeft)) {
-						state->nextHotInteraction.type = DebugInteract_Toggle;
+						state->nextHotInteraction.type = DebugInteractionType::Toggle;
 					}
 				} break;
 				case Event_Data_f32: {
 					if (WasPressed(controller.B.mouseLeft)) {
-						state->nextHotInteraction.type = DebugInteract_DragIncrease;
-						state->nextHotInteraction.fl32.initial = event->data_f32;
-						state->nextHotInteraction.fl32.actual = &event->data_f32;
+						state->nextHotInteraction.type = DebugInteractionType::DragIncrease;
+						state->nextHotInteraction.mod_f32.initial = event->data_f32;
+						state->nextHotInteraction.mod_f32.actual = &event->data_f32;
 					}
 				} break;
 				}
 			}
 			if (!group || !isIntrospectGroup || isSelectedGroup) {
 				if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
-					state->nextHotInteraction.type = DebugInteract_Tear;
+					state->nextHotInteraction.type = DebugInteractionType::Tear;
 				}
 			}
 		} break;
-		case DebugInteractObject_Id: {
+		case DebugInteractionObject::Introspectable: {
 			if (WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.type = DebugInteract_Select;
+				state->nextHotInteraction.type = DebugInteractionType::Select;
 			}
 		} break;
-		case DebugInteractObject_Mod_Rect2: {
+		case DebugInteractionObject::ResizedRect2: {
 			if (WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.type = DebugInteract_Resize;
+				state->nextHotInteraction.type = DebugInteractionType::ResizeRect2;
 			}
-		}
+		} break;
+		case DebugInteractionObject::MovedRect2: {
+			if (WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction.type = DebugInteractionType::MoveRect2;
+			}
+		} break;
 		}
 	}
 	state->hotInteraction = state->nextHotInteraction;
 
 	// What to do at the beginning of interaction
-	if (!state->interacting && state->hotInteraction.type != DebugInteract_None) {
+	if (!state->interacting && state->hotInteraction.obj != DebugInteractionObject::None) {
 		state->interaction = state->hotInteraction;
 		state->interacting = true;
-		if (state->interaction.type == DebugInteract_Tear) {
+		if (state->interaction.type == DebugInteractionType::Tear) {
 #if 1
-			DebugVariableLink* tearPoint = state->interaction.groupInTree.group->containingLink;
-			if (state->interaction.objType == DebugInteractObject_LinkInTree) {
-				tearPoint = state->interaction.linkInTree.link;
+			bool isGroup = state->interaction.linkInTree.link->group != 0;
+			DebugVariableLink* tearPoint = state->interaction.linkInTree.link;
+			if (isGroup) {
+				tearPoint = state->interaction.linkInTree.link->group->containingLink;
 			}
 			DebugVariableGroup* oldParentGroup = tearPoint->parentGroup;
 			DebugTree* dstTree = state->interaction.linkInTree.tree;
@@ -1153,35 +1166,39 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 			Rect2& bbox = state->interaction.startBoundingBox;
 			V2 treePos = V2{ bbox.min.X, bbox.max.Y };
-			state->interaction = GetMoveInteraction(mousePos, dstTree, treePos);
+			state->interaction = InteractionMoveTree(mousePos, dstTree, treePos);
 #endif
 		}
 	}
 	
 	// What to do DURING the interaction (for interactions taking more time than one frame)
-	if (state->interacting && state->interaction.objType != DebugInteractObject_None) {
+	if (state->interacting && state->interaction.type != DebugInteractionType::None) {
 		V2 dMouse = mousePos - state->interaction.startMousePos;
 		switch (state->interaction.type) {
-		case DebugInteract_Toggle: {
-			Assert(state->interaction.objType == DebugInteractObject_LinkInTree);
+		case DebugInteractionType::Toggle: {
 			DebugTree* tree = state->interaction.linkInTree.tree;
 			if (LengthSq(dMouse) > 5.f) {
-				state->interaction = GetMoveInteraction(mousePos, tree, tree->pos);
+				state->interaction = InteractionMoveTree(mousePos, tree, tree->pos);
 			}
 		} break;
-		case DebugInteract_DragIncrease: {
-			DebugModifiedFloat& f = state->interaction.fl32;
+		case DebugInteractionType::DragIncrease: {
+			DebugModifiedFloat& f = state->interaction.mod_f32;
 			*f.actual = f.initial + 0.1f * dMouse.Y;
 		} break;
-		case DebugInteract_Resize: {
-			DebugModifiedRect2& rect2 = state->interaction.obj_Rect2;
+		case DebugInteractionType::ResizeRect2: {
+			DebugModifiedRect2& rect2 = state->interaction.mod_Rect2;
 			f32 newMaxX = Maximum(mousePos.X, rect2.initial.min.X + 10.f);
 			f32 newMaxY = Maximum(mousePos.Y, rect2.initial.min.Y + 10.f);
 			rect2.actual->max = V2{ newMaxX, newMaxY };
 		} break;
-		case DebugInteract_Move: {
-			DebugModifiedV2& pos = state->interaction.pos;
+		case DebugInteractionType::MoveV2: {
+			DebugModifiedV2& pos = state->interaction.mod_V2;
 			*pos.actual = pos.initial + dMouse;
+		} break;
+		case DebugInteractionType::MoveRect2: {
+			DebugModifiedRect2& rect2 = state->interaction.mod_Rect2;
+			rect2.actual->min = rect2.initial.min + dMouse;
+			rect2.actual->max = rect2.initial.max + dMouse;
 		} break;
 		}
 	}
@@ -1189,25 +1206,16 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	DEBUG_IF(Debug_ShowInteractions) {
 		char buffer[256];
 		const char* interaction = "Unknown";
+#define CASE_VALUE_TO_STRING(value, assignable) case value: { assignable = #value; } break
 		switch (state->interaction.type) {
-		case DebugInteract_None: {
-			interaction = "None";
-		} break;
-		case DebugInteract_Toggle: {
-			interaction = "Toggle";
-		} break;
-		case DebugInteract_DragIncrease: {
-			interaction = "DragIncrease";
-		} break;
-		case DebugInteract_Resize: {
-			interaction = "Resize";
-		} break;
-		case DebugInteract_Move: {
-			interaction = "Move";
-		} break;
-		case DebugInteract_Select: {
-			interaction = "Select";
-		} break;
+			CASE_VALUE_TO_STRING(DebugInteractionType::None, interaction);
+			CASE_VALUE_TO_STRING(DebugInteractionType::Toggle, interaction);
+			CASE_VALUE_TO_STRING(DebugInteractionType::DragIncrease, interaction);
+			CASE_VALUE_TO_STRING(DebugInteractionType::ResizeRect2, interaction);
+			CASE_VALUE_TO_STRING(DebugInteractionType::MoveRect2, interaction);
+			CASE_VALUE_TO_STRING(DebugInteractionType::MoveV2, interaction);
+			CASE_VALUE_TO_STRING(DebugInteractionType::Select, interaction);
+			CASE_VALUE_TO_STRING(DebugInteractionType::Tear, interaction);
 		} 
 		char* at = buffer;
 		char* end = buffer + sizeof(buffer);
@@ -1218,13 +1226,13 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	// What to do at the END of interaction
 	bool interactionEnded = false;
 	switch (state->interaction.type) {
-	case DebugInteract_Resize:
-	case DebugInteract_DragIncrease:
-	case DebugInteract_Move: {
+	case DebugInteractionType::DragIncrease:
+	case DebugInteractionType::ResizeRect2:
+	case DebugInteractionType::MoveRect2:
+	case DebugInteractionType::MoveV2: {
 		interactionEnded = !IsPressed(controller.B.mouseLeft);
 	} break;
-	case DebugInteract_Toggle: {
-		Assert(state->interaction.objType == DebugInteractObject_LinkInTree);
+	case DebugInteractionType::Toggle: {
 		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
 			bool* boolean = 0;
 			if (state->interaction.linkInTree.link->group) {
@@ -1243,7 +1251,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			interactionEnded = true;
 		}
 	} break;
-	case DebugInteract_Select: {
+	case DebugInteractionType::Select: {
 		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
 			if (IsPressed(controller.B.kShift)) {
 				u32 index = state->selectedCount++;
@@ -1333,15 +1341,15 @@ void DebugDumpStruct(DebugState* state, MemberDefinition* memberArray, u32 membe
 	
 }
 
-void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap, InputData& input) {
+void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap) {
 	TIMED_FUNCTION;
 	if (!state->font) {
 		return;
 	}
-	Controller& controller = input.controllers[KB_CONTROLLER_IDX];
+	Controller& controller = *state->controller;
 	V2 mousePos = FromPixelSpaceToWorldSpace(state->renderGroup.projection, controller.mouse, 0.f);
-	DebugRenderVariablesMenu(state, mousePos);
-	DebugRenderCpuProfiler(state, mousePos);
+	DebugRenderVariablesMenu(state, controller, mousePos);
+	DebugRenderCpuProfiler(state, controller, mousePos);
 	DebugInteract(state, mousePos, controller);
 
 	DEBUG_IF(Debug_ShowEventsCount) {
@@ -1382,11 +1390,11 @@ extern "C" void DebugFinishFrame(ProgramMemory* memory, BitmapData& rawBitmap, I
 	bitmap.data = ptrcast(u32, rawBitmap.data);
 	bitmap.pitch = rawBitmap.pitch;
 
-	DebugState* state = DebugBegin(bitmap);
+	DebugState* state = DebugBegin(bitmap, input);
 	if (!state) {
 		return;
 	}
-	DebugRenderOverlay(state, bitmap, input);
+	DebugRenderOverlay(state, bitmap);
 	DebugCollateEvents(state);
 	state->totalFrameCount++;
 	return;
