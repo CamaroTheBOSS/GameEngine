@@ -292,6 +292,7 @@ enum class DebugInteractionObject {
 	MovedRect2,
 	ResizedRect2,
 	Introspectable,
+	ProfilerSpan,
 };
 
 enum class DebugInteractionType {
@@ -304,6 +305,7 @@ enum class DebugInteractionType {
 	DragIncrease,
 	Tear,
 	Select,
+	SelectProfilerSpan,
 };
 
 struct DebugModifiedV2 {

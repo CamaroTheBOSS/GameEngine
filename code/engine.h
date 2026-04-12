@@ -121,6 +121,10 @@ struct DebugState {
 	DebugInteraction nextHotInteraction;
 	bool interacting;
 
+	// Profiler
+	Rect2 cpuProfilerBoundaries;
+	DebugId cpuProfilerSelectedSpanId;
+
 	bool isInitialized;
 };
 

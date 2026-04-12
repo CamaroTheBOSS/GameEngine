@@ -41,6 +41,13 @@ inline bool WasReleased(Button& button);
 #define DEBUG_COLLATION_SCALE (1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ));
 
 inline
+bool AreDebugIdsEqual(DebugId id1, DebugId id2) {
+	bool result = id1.ptr == id2.ptr &&
+		id1.index == id2.index;
+	return result;
+}
+
+inline
 bool IsVariableHot(DebugState* state, DebugVariableLink* link) {
 	bool result = state->hotInteraction.linkInTree.link == link;
 	return result;
@@ -53,9 +60,8 @@ bool IsVariableHot(DebugState* state, Rect2& rect2) {
 }
 
 inline
-bool AreDebugIdsEqual(DebugId id1, DebugId id2) {
-	bool result = id1.ptr == id2.ptr &&
-		id1.index == id2.index;
+bool IsVariableHot(DebugState* state, DebugId id) {
+	bool result = AreDebugIdsEqual(state->hotInteraction.id, id);
 	return result;
 }
 
@@ -73,6 +79,13 @@ DebugId GetDebugIdForLink(DebugVariableLink* link) {
 	return id;
 }
 
+inline
+DebugId GetDebugIdForSpan(DebugProfilerSpan* span, u32 threadIndex) {
+	DebugId id = {};
+	id.ptr = (char*)span->name;
+	id.index = threadIndex;
+	return id;
+}
 
 inline
 bool IsHighlighted(DebugState* state, DebugId did) {
@@ -129,6 +142,15 @@ DebugInteraction InteractionResizedRect2(Rect2 bbox, Rect2* resizable) {
 	interaction.obj = DebugInteractionObject::ResizedRect2;
 	interaction.mod_Rect2.initial = *resizable;
 	interaction.mod_Rect2.actual = resizable;
+	return interaction;
+}
+
+inline
+DebugInteraction InteractionProfilerSpan(Rect2 bbox, DebugId id) {
+	DebugInteraction interaction = {};
+	interaction.startBoundingBox = bbox;
+	interaction.obj = DebugInteractionObject::ProfilerSpan;
+	interaction.id = id;
 	return interaction;
 }
 
@@ -385,6 +407,10 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 		state->renderGroup = AllocateRenderGroup(state->mainArena, &tranState->assets, MB(4), false);
 		state->highPriorityQueue = tranState->highPriorityQueue;
 		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
+		state->cpuProfilerBoundaries = Rect2{
+			V2{ state->overlayBoundaries.min + V2{ 30.f, 30.f } },
+			V2{ state->overlayBoundaries.max.X - 30.f, state->overlayBoundaries.min.Y + 250.f }
+		};
 		state->threadStacks = PushArray(state->mainArena, MAX_DEBUG_THREADS, DebugThreadStack);
 		DLINKED_LIST_INIT(&state->UISentinel);
 		DLINKED_LIST_INIT(&state->framesSentinel);
@@ -893,14 +919,9 @@ Rect2 GetCpuSpanRectangle(Rect2 boundaries, f32 currentWidth,
 }
 
 void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mousePos) {
-	Rect2 init = Rect2{
-		V2{ state->overlayBoundaries.min + V2{ 30.f, 30.f } },
-		V2{ state->overlayBoundaries.max.X - 30.f, state->overlayBoundaries.min.Y + 250.f }
-	};
-	DEFINE_DEBUG_VARIABLE_WITH_INIT(Rect2, Profiler_Boundaries, init);
-	Rect2 boundaries = Profiler_Boundaries.data_Rect2;
+	Rect2 boundaries = state->cpuProfilerBoundaries;
 	if (IsInRectangle(boundaries, mousePos)) {
-		state->nextHotInteraction = InteractionMovedRect2(boundaries, &Profiler_Boundaries.data_Rect2);
+		state->nextHotInteraction = InteractionMovedRect2(boundaries, &state->cpuProfilerBoundaries);
 	}
 #if 1
 	f32 profilerPosY = boundaries.min.Y;
@@ -919,16 +940,20 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		V4{1, 1, 0, 1},
 		V4{1, 0.5f, 0.5f, 1},
 	};
+	u32 previousColorIndex = 100;
+	const char* previousSpanName = 0;
+
 	f32 frameWidth = f4(state->threadStacksCount) * threadLaneTotalWidth + frameLaneSpace;
 	f32 currentWidth = frameWidth;
 	f32 collationScale = DEBUG_COLLATION_SCALE;
-	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 1 };
+	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
 	PushRect(state->renderGroup, boundaries, 0, V2{ 0, 0 }, backgroundColor);
-
+	
 	DebugCollationFrame* frame = state->framesSentinel.next;
 	while (currentWidth < profilerDim.X + frameWidth && frame != &state->framesSentinel) {
 		for (u32 thread = 0; thread < frame->threadCount; thread++) {
 			DebugProfilerSpan* span = (frame->cpuSpansPerThread + thread)->firstChild;
+
 			Rect2 placeholderRectangle = GetCpuSpanRectangle(boundaries, currentWidth, thread,
 				threadLaneWidth, threadLaneTotalWidth, 0.f, 1.f
 			);
@@ -939,12 +964,19 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 				Rect2 spanRect = GetCpuSpanRectangle(boundaries, currentWidth, thread,
 					threadLaneWidth, threadLaneTotalWidth, span->minT, span->maxT
 				);
-
-				bool isHovered = IsInRectangle(spanRect, mousePos);
+	
 				u32 colorIndex = u4(uptr(span->name) >> 2) % ArrayCount(colors);
+				if (span->name != previousSpanName && previousColorIndex == colorIndex) {
+					colorIndex = (colorIndex + 1) % ArrayCount(colors);
+				}
+				previousColorIndex = colorIndex;
+				previousSpanName = span->name;
 				V4 rectColor = colors[colorIndex];
-				if (isHovered) {
-					if (span->name) {
+				DebugId spanId = GetDebugIdForSpan(span, thread);
+				bool isSpanNameHot = IsVariableHot(state, spanId);
+				bool isInRectangle = IsInRectangle(spanRect, mousePos);
+				if (isSpanNameHot) {
+					if (span->name && isInRectangle) {
 						char buffer[256];
 						sprintf_s(buffer, "%s", span->name);
 						V4 color = V4{ 1, 1, 1, 1 };
@@ -957,10 +989,12 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 					}
 					rectColor = V4{ 1, 1, 1, 1 };
 				}
+				if (IsInRectangle(spanRect, mousePos)) {
+					state->nextHotInteraction = InteractionProfilerSpan(spanRect, spanId);
+				}
 				if (IsValid(spanRect)) {
 					PushRect(state->renderGroup, spanRect, 0, V2{ 0, 0 }, rectColor);
 				}
-
 				span = span->next;
 			}
 		}
@@ -970,11 +1004,11 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 
 	Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
 	V4 itemColor = V4{ 1, 1, 1, 1 };
-	if (IsVariableHot(state, Profiler_Boundaries.data_Rect2)) {
+	if (IsVariableHot(state, state->cpuProfilerBoundaries)) {
 		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
 	}
 	if (IsInRectangle(resizeAnchor, mousePos)) {
-		state->nextHotInteraction = InteractionResizedRect2(Profiler_Boundaries.data_Rect2, &Profiler_Boundaries.data_Rect2);
+		state->nextHotInteraction = InteractionResizedRect2(state->cpuProfilerBoundaries, &state->cpuProfilerBoundaries);
 	}
 	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
 #endif
@@ -1128,6 +1162,11 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				state->nextHotInteraction.type = DebugInteractionType::MoveRect2;
 			}
 		} break;
+		case DebugInteractionObject::ProfilerSpan: {
+			if (WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction.type = DebugInteractionType::SelectProfilerSpan;
+			}
+		} break;
 		}
 	}
 	state->hotInteraction = state->nextHotInteraction;
@@ -1215,6 +1254,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			CASE_VALUE_TO_STRING(DebugInteractionType::MoveRect2, interaction);
 			CASE_VALUE_TO_STRING(DebugInteractionType::MoveV2, interaction);
 			CASE_VALUE_TO_STRING(DebugInteractionType::Select, interaction);
+			CASE_VALUE_TO_STRING(DebugInteractionType::SelectProfilerSpan, interaction);
 			CASE_VALUE_TO_STRING(DebugInteractionType::Tear, interaction);
 		} 
 		char* at = buffer;
@@ -1263,6 +1303,12 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				state->selectedId[0] = state->interaction.id;
 			}
 			
+			interactionEnded = true;
+		}
+	} break;
+	case DebugInteractionType::SelectProfilerSpan: {
+		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
+			state->cpuProfilerSelectedSpanId = state->interaction.id;
 			interactionEnded = true;
 		}
 	} break;
