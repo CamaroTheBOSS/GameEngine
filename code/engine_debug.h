@@ -184,8 +184,10 @@ internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, Debu
 #define DEBUG_DATA(type, data) { \
 	RecordDebugEventNoBracket(0, Event_Data_##type, __FILE__, #data, __LINE__); \
 	event->data_##type = data; }
-#define DEFINE_DEBUG_VARIABLE(type, variable) \
-	local_persist DebugEvent variable = *InitializePermanentDebugVariable((variable.data_##type = CONSTANT_##variable, &variable), Event_Data_##type, #variable, __FILE__, __LINE__, UniqueGUID)
+#define DEFINE_DEBUG_VARIABLE_WITH_INIT(type, variable, init) \
+	local_persist DebugEvent variable = *InitializePermanentDebugVariable((variable.data_##type = init, &variable), Event_Data_##type, #variable, __FILE__, __LINE__, UniqueGUID)
+#define DEFINE_DEBUG_VARIABLE_(type, variable, init) DEFINE_DEBUG_VARIABLE_WITH_INIT(type, variable, init)
+#define DEFINE_DEBUG_VARIABLE(type, variable) DEFINE_DEBUG_VARIABLE_(type, variable, CONSTANT_##variable)
 #define DEBUG_IF(variable) \
 	DEFINE_DEBUG_VARIABLE(bool, variable); \
 	if (variable.data_bool)
@@ -236,7 +238,7 @@ struct DebugVariableGroup {
 	bool expanded;
 
 	u32 introspectionObjectIndex;
-	bool introspectionDataReceived;
+	u32 dataReceivingFrameIndex;
 	DebugId introspectionId;
 	DebugVariableGroup* nextInHash;
 
@@ -302,12 +304,18 @@ enum DebugInteractionObject {
 	DebugInteractObject_Span,
 	DebugInteractObject_Pos,
 	DebugInteractObject_Mod_f32,
+	DebugInteractObject_Mod_Rect2,
 	DebugInteractObject_Id,
 };
 
 struct DebugModifiedV2 {
 	V2 initial;
 	V2* actual;
+};
+
+struct DebugModifiedRect2 {
+	Rect2 initial;
+	Rect2* actual;
 };
 
 struct DebugModifiedFloat {
@@ -334,6 +342,7 @@ struct DebugInteraction {
 		DebugVariableLinkInTree linkInTree;
 		DebugVariableGroupInTree groupInTree;
 		DebugModifiedV2 pos;
+		DebugModifiedRect2 obj_Rect2;
 		DebugModifiedFloat fl32;
 	};
 	V2 startMousePos;

@@ -41,6 +41,20 @@ inline bool WasReleased(Button& button);
 #define DEBUG_COLLATION_SCALE (1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ));
 
 inline
+bool IsVariableHot(DebugState* state, DebugVariableLink* link) {
+	bool result = state->hotInteraction.objType == DebugInteractObject_LinkInTree &&
+		state->hotInteraction.linkInTree.link == link;
+	return result;
+}
+
+inline
+bool IsVariableHot(DebugState* state, Rect2& rect2) {
+	bool result = state->hotInteraction.objType == DebugInteractObject_Mod_Rect2 &&
+		state->hotInteraction.obj_Rect2.actual == &rect2;
+	return result;
+}
+
+inline
 bool AreDebugIdsEqual(DebugId id1, DebugId id2) {
 	bool result = id1.ptr == id2.ptr &&
 		id1.index == id2.index;
@@ -360,8 +374,8 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap) {
 
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 		V2 rightTopCorner = V2{ state->overlayBoundaries.max.X - 400.f, state->overlayBoundaries.max.Y };
-		state->mainTree = AddTree(state, leftTopCorner, "Debugging");
-		state->introspectionTree = AddTree(state, rightTopCorner, "Introspection");
+		state->defaultMainVariablesGroup = &AddTree(state, leftTopCorner, "Debugging")->rootGroup;
+		state->defaultIntrospectionGroup = &AddTree(state, rightTopCorner, "Introspection")->rootGroup;
 
 		BeginRendering(state->renderGroup);
 		state->isInitialized = true;
@@ -695,7 +709,7 @@ void DebugCollateEvents(DebugState* state) {
 	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];
 	u32 eventsInFrameCount = debugGlobalState->eventsCount[frameIndex];
 	DebugCollationFrame* newFrame = AllocateNewDebugFrame(state);
-	DebugVariableGroup* introspectionGroup = &state->introspectionTree->rootGroup;
+	DebugVariableGroup* introspectionGroup = state->defaultIntrospectionGroup;
 	for (u32 eventIndex = 0;
 		eventIndex < eventsInFrameCount;
 		eventIndex++
@@ -743,16 +757,17 @@ void DebugCollateEvents(DebugState* state) {
 			u32 selectedIndex = 0;
 			u32 inFrameEntityIndex = IsSelected(state, event->data_DebugId, &selectedIndex) ? 99 + selectedIndex : state->entityIntrospectionCountInFrame;
 			introspectionGroup = GetGroupForObjectIntrospection(state, introspectionGroup, event->blockName, inFrameEntityIndex);
-			introspectionGroup->introspectionDataReceived = true;
+			introspectionGroup->dataReceivingFrameIndex = state->totalFrameCount;
 			introspectionGroup->introspectionId = event->data_DebugId;
 			PushToEventStack(state, &stack->dataEvents, event);
 		} break;
 		case Event_Data_BlockEnd: {
-			introspectionGroup = &state->introspectionTree->rootGroup;
+			// TODO: Stack on EventStack
+			introspectionGroup = state->defaultIntrospectionGroup;
 			PopFromEventStack(state, &stack->dataEvents);
 		} break;
 		case Event_PermanentVariableDeclaration: {
-			DebugVariableGroup* group = GetGroupForHierachicalName(state, &state->mainTree->rootGroup, event->blockName);
+			DebugVariableGroup* group = GetGroupForHierachicalName(state, state->defaultMainVariablesGroup, event->blockName);
 			DebugStoredEvent* storedEvent = StoreEvent(state, group, event, newFrame->frameIndex, true);
 		} break;
 		case Event_Data_u32:
@@ -861,10 +876,13 @@ Rect2 GetCpuSpanRectangle(Rect2 boundaries, f32 currentWidth,
 }
 
 void DebugRenderCpuProfiler(DebugState* state, V2 mousePos) {
-	Rect2 boundaries = {};
-	boundaries.min = state->overlayBoundaries.min + V2{ 30.f, 30.f };
-	boundaries.max = V2{ state->overlayBoundaries.max.X - 30.f, boundaries.min.Y + 250.f };
-#if 0
+	Rect2 init = Rect2{
+		V2{ state->overlayBoundaries.min + V2{ 30.f, 30.f } },
+		V2{ state->overlayBoundaries.max.X - 30.f, state->overlayBoundaries.min.Y + 250.f }
+	};
+	DEFINE_DEBUG_VARIABLE_WITH_INIT(Rect2, Profiler_Boundaries, init);
+	Rect2 boundaries = Profiler_Boundaries.data_Rect2;
+#if 1
 	f32 profilerPosY = boundaries.min.Y;
 	f32 profilerPosX = boundaries.min.X;
 	V2 profilerDim = GetDim(boundaries);
@@ -886,7 +904,7 @@ void DebugRenderCpuProfiler(DebugState* state, V2 mousePos) {
 	f32 collationScale = DEBUG_COLLATION_SCALE;
 	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 1 };
 	PushRect(state->renderGroup, boundaries, 0, V2{ 0, 0 }, backgroundColor);
-	
+
 	DebugCollationFrame* frame = state->framesSentinel.next;
 	while (currentWidth < profilerDim.X + frameWidth && frame != &state->framesSentinel) {
 		for (u32 thread = 0; thread < frame->threadCount; thread++) {
@@ -901,7 +919,7 @@ void DebugRenderCpuProfiler(DebugState* state, V2 mousePos) {
 				Rect2 spanRect = GetCpuSpanRectangle(boundaries, currentWidth, thread,
 					threadLaneWidth, threadLaneTotalWidth, span->minT, span->maxT
 				);
-				
+
 				bool isHovered = IsInRectangle(spanRect, mousePos);
 				u32 colorIndex = u4(uptr(span->name) >> 2) % ArrayCount(colors);
 				V4 rectColor = colors[colorIndex];
@@ -930,26 +948,36 @@ void DebugRenderCpuProfiler(DebugState* state, V2 mousePos) {
 		currentWidth += frameWidth;
 	}
 
-	/*Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
-	if (IsInRectangle(resizeAnchor, mousePos)) {
-		SetNextHotInteraction(state, node, resizeAnchor, tree);
+	Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
+	if (IsInRectangle(boundaries, mousePos)) {
+		DebugInteraction interaction = {};
+		interaction.startBoundingBox = resizeAnchor;
+		interaction.objType = DebugInteractObject_Mod_Rect2;
+		interaction.obj_Rect2.initial = Profiler_Boundaries.data_Rect2;
+		interaction.obj_Rect2.actual = &Profiler_Boundaries.data_Rect2;
+		state->nextHotInteraction = interaction;
 	}
-	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);*/
+	V4 itemColor = V4{ 1, 1, 1, 1 };
+	if (IsVariableHot(state, Profiler_Boundaries.data_Rect2)) {
+		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
+	}
+	if (IsInRectangle(resizeAnchor, mousePos)) {
+		DebugInteraction interaction = {};
+		interaction.startBoundingBox = resizeAnchor;
+		interaction.objType = DebugInteractObject_Mod_Rect2;
+		interaction.obj_Rect2.initial = Profiler_Boundaries.data_Rect2;
+		interaction.obj_Rect2.actual = &Profiler_Boundaries.data_Rect2;
+		state->nextHotInteraction = interaction;
+	}
+	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
 #endif
 }
 
 inline
-bool IsVariableHot(DebugState* state, DebugVariableLink* link) {
-	bool result = state->hotInteraction.objType == DebugInteractObject_LinkInTree &&
-		state->hotInteraction.linkInTree.link == link;
-	return result;
-}
-
-inline
 bool GroupShouldBeRendered(DebugState* state, DebugVariableGroup* group, DebugTree* tree) {
-	bool result = group && (group->introspectionObjectIndex == 0 ||
-							group->introspectionDataReceived ||
-							tree != state->introspectionTree);
+	bool result = group && (!IsIntrospectionGroup(group) ||
+							group->dataReceivingFrameIndex == (state->totalFrameCount - 1) ||
+							&tree->rootGroup != state->defaultIntrospectionGroup);
 	return result;
 }
 
@@ -986,7 +1014,6 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 					}
 					*at++ = ':';
 					*at++ = 0;
-					node->group->introspectionDataReceived = false;
 				}
 				else {
 					DebugEvent* event = &node->variable->newestEvent->event;
@@ -1001,6 +1028,9 @@ void DebugRenderVariablesMenu(DebugState* state, V2 mousePos) {
 				V4 bbColor = V4{ 0.5f, 0, 0, 1 };
 				if (IsSelected(state, selectedGroup->introspectionId)) {
 					bbColor = V4{ 0.5f, 0.5f, 0, 1 };
+				}
+				else {
+					selectedGroup->introspectionId = {};
 				}
 
 				PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, bbColor);
@@ -1081,6 +1111,11 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				state->nextHotInteraction.type = DebugInteract_Select;
 			}
 		} break;
+		case DebugInteractObject_Mod_Rect2: {
+			if (WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction.type = DebugInteract_Resize;
+			}
+		}
 		}
 	}
 	state->hotInteraction = state->nextHotInteraction;
@@ -1139,10 +1174,10 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			*f.actual = f.initial + 0.1f * dMouse.Y;
 		} break;
 		case DebugInteract_Resize: {
-			DebugModifiedV2& pos = state->interaction.pos;
-			f32 newMaxX = Maximum(mousePos.X, pos.initial.X + 10.f);
-			f32 newMaxY = Maximum(mousePos.Y, pos.initial.Y + 10.f);
-			*pos.actual = V2{ newMaxX, newMaxY };
+			DebugModifiedRect2& rect2 = state->interaction.obj_Rect2;
+			f32 newMaxX = Maximum(mousePos.X, rect2.initial.min.X + 10.f);
+			f32 newMaxY = Maximum(mousePos.Y, rect2.initial.min.Y + 10.f);
+			rect2.actual->max = V2{ newMaxX, newMaxY };
 		} break;
 		case DebugInteract_Move: {
 			DebugModifiedV2& pos = state->interaction.pos;
