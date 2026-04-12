@@ -61,6 +61,7 @@ struct Controller {
 	};
 	// Mouse data is in screen space <-0.5w + 0.5, 0.5w - 0.5> <-0.5h + 0.5, 0.5h - 0.5)
 	V2 mouse;
+	i32 mouseWheelTicks;
 };
 #pragma warning(pop)
 

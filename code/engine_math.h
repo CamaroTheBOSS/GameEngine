@@ -844,6 +844,14 @@ V2 Lerp(V2 A, f32 unilateral, V2 B) {
 }
 
 inline
+f32 SafeRatio(f32 A, f32 B) {
+	if (B == 0.f) {
+		return 0.f;
+	}
+	return A / B;
+}
+
+inline
 V3 Lerp(V3 A, f32 unilateral, V3 B) {
 	V3 result = {
 		Lerp(A.X, unilateral, B.X),

@@ -896,6 +896,9 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 		case WM_RBUTTONUP:
 			Win32ButtonUpdate(controller.B.mouseRight, true, false);
 			break;
+		case WM_MOUSEWHEEL: {
+ 			controller.mouseWheelTicks = (i4(msg.wParam) >> 16) / WHEEL_DELTA;
+		} break;
 		case WM_XBUTTONDOWN: {
 			u32 vkCode = u4(msg.wParam);
 			if (vkCode == VK_XBUTTON1) {
@@ -1043,6 +1046,7 @@ void ResetInput(Controller& controller) {
 	for (u32 bIndex = 0; bIndex < ArrayCount(controller.E); bIndex++) {
 		controller.E[bIndex].wasDown = controller.E[bIndex].isDown > 0;
 	}
+	controller.mouseWheelTicks = 0;
 }
 
 inline

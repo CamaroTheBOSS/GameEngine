@@ -297,13 +297,27 @@ struct DebugTree {
 	DebugTree* prev;
 };
 
+struct DebugScroll {
+	f32 value; //NOTE: <0,1>
+	f32 valueMin;
+	f32 valueRange;
+	f32 containerWidth;
+
+	f32 distancePerTick; //NOTE: in pixels
+
+	f32 minSize; //NOTE: in pixels
+	f32 sizeFudge; //NOTE: additional factor for scroll speed changes
+};
+
 enum class DebugInteractionObject {
 	None,
 	LinkInTree,
 	Introspectable,
 	MovedRect2,
 	ResizedRect2,
+	Profiler,
 	ProfilerSpan,
+	Float
 };
 
 enum class DebugInteractionType {
@@ -317,6 +331,7 @@ enum class DebugInteractionType {
 	MoveRect2,
 	Select,
 	SelectProfilerSpan,
+	ScrollProfiler
 };
 
 struct DebugModifiedV2 {
@@ -329,9 +344,16 @@ struct DebugModifiedRect2 {
 	Rect2* actual;
 };
 
-struct DebugModifiedFloat {
+enum DebugAxis {
+	Axis_X,
+	Axis_Y
+};
+
+struct DebugDraggedFloat {
 	f32 initial;
 	f32* actual;
+	f32 amountPerPixel;
+	DebugAxis axis;
 };
 enum DebugSpanSelectionType {
 	SpanSelection_None,
@@ -355,6 +377,14 @@ struct DebugVariableGroupInTree {
 	DebugTree* tree;
 };
 
+struct DebugCpuProfiler {
+	Rect2 boundaries;
+	u32 selectedSpanCount;
+	DebugSelectedSpan selectedSpans[MAX_DEPTH_SPANS];
+	DebugScroll scroll;
+};
+
+struct DebugCpuProfiler;
 struct DebugInteraction {
 	DebugInteractionType type;
 	DebugInteractionObject obj;
@@ -364,8 +394,9 @@ struct DebugInteraction {
 		DebugVariableLinkInTree linkInTree;
 		DebugModifiedV2 mod_V2;
 		DebugModifiedRect2 mod_Rect2;
-		DebugModifiedFloat mod_f32;
+		DebugDraggedFloat dragged_f32;
 		DebugSelectedSpan selectedSpan;
+		DebugCpuProfiler* profiler;
 	};
 	V2 startMousePos;
 	Rect2 startBoundingBox;

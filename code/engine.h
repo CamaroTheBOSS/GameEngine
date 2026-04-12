@@ -94,6 +94,7 @@ struct DebugState {
 	MemoryArena collationFrameArena;
 	OpenDebugEvent* openEventFreeList;
 	u32 totalFrameCount;
+	u32 collationFrameCount;
 	DebugCollationFrame framesSentinel;
 	DebugCollationFrame* freeFrameList;
 	DebugStoredEvent* freeStoredEventList;
@@ -122,9 +123,7 @@ struct DebugState {
 	bool interacting;
 
 	// Profiler
-	Rect2 cpuProfilerBoundaries;
-	u32 cpuProfilerSelectedSpanCount;
-	DebugSelectedSpan cpuProfilerSelectedSpan[MAX_DEPTH_SPANS];
+	DebugCpuProfiler cpuProfiler;
 
 	// Debug in debug :)
 	u32 allocFramesSum;

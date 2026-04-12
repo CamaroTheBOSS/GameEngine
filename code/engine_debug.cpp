@@ -169,6 +169,7 @@ inline
 DebugInteraction InteractionMovedRect2(Rect2 bbox, Rect2* mover) {
 	DebugInteraction interaction = {};
 	interaction.startBoundingBox = bbox;
+	interaction.type = DebugInteractionType::MoveRect2;
 	interaction.obj = DebugInteractionObject::MovedRect2;
 	interaction.mod_Rect2.initial = *mover;
 	interaction.mod_Rect2.actual = mover;
@@ -182,6 +183,28 @@ DebugInteraction InteractionResizedRect2(Rect2 bbox, Rect2* resizable) {
 	interaction.obj = DebugInteractionObject::ResizedRect2;
 	interaction.mod_Rect2.initial = *resizable;
 	interaction.mod_Rect2.actual = resizable;
+	return interaction;
+}
+
+inline
+DebugInteraction InteractionDragIncrease(Rect2 bbox, f32* dragged, f32 amountPerPixel, DebugAxis axis) {
+	DebugInteraction interaction = {};
+	interaction.startBoundingBox = bbox;
+	interaction.obj = DebugInteractionObject::Float;
+	interaction.type = DebugInteractionType::DragIncrease;
+	interaction.dragged_f32.initial = *dragged;
+	interaction.dragged_f32.actual = dragged;
+	interaction.dragged_f32.amountPerPixel = amountPerPixel;
+	interaction.dragged_f32.axis = axis;
+	return interaction;
+}
+
+inline
+DebugInteraction InteractionProfiler(Rect2 bbox, DebugCpuProfiler& profiler) {
+	DebugInteraction interaction = {};
+	interaction.startBoundingBox = bbox;
+	interaction.obj = DebugInteractionObject::Profiler;
+	interaction.profiler = &profiler;
 	return interaction;
 }
 
@@ -441,16 +464,20 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 #if 0
 		SubArena(state->collationFrameArena, state->mainArena, MB(16));
 #else
-		SubArena(state->collationFrameArena, state->mainArena, kB(1024));
+		SubArena(state->collationFrameArena, state->mainArena, kB(1256));
 #endif
 		state->controller = &input.controllers[KB_CONTROLLER_IDX];
 		state->renderGroup = AllocateRenderGroup(state->mainArena, &tranState->assets, MB(4), false);
 		state->highPriorityQueue = tranState->highPriorityQueue;
 		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
-		state->cpuProfilerBoundaries = Rect2{
+		state->cpuProfiler.boundaries = Rect2{
 			V2{ state->overlayBoundaries.min + V2{ 30.f, 30.f } },
 			V2{ state->overlayBoundaries.max.X - 30.f, state->overlayBoundaries.min.Y + 250.f }
 		};
+		state->cpuProfiler.scroll.distancePerTick = 30.f;
+		state->cpuProfiler.scroll.minSize = 6.f;
+		state->cpuProfiler.scroll.sizeFudge = 1000.f;
+
 		state->threadStacks = PushArray(state->mainArena, MAX_DEBUG_THREADS, DebugThreadStack);
 		DLINKED_LIST_INIT(&state->UISentinel);
 		DLINKED_LIST_INIT(&state->framesSentinel);
@@ -695,6 +722,7 @@ void FreeOldestFrame(DebugState* state) {
 	frame->next = state->freeFrameList;
 	state->freeFrameList = frame;
 	state->deallocFramesSum++;
+	state->collationFrameCount--;
 }
 
 internal
@@ -743,8 +771,11 @@ DebugProfilerSpan* AllocateSpan(DebugState* state, DebugCollationFrame* frame) {
 		else if (HasArenaSpaceFor(state->collationFrameArena, sizeof(DebugProfilerSpan))) {
 			span = PushStructSize(state->collationFrameArena, DebugProfilerSpan);
 		}
-		else {
+		else if (state->framesSentinel.next != &state->framesSentinel) {
 			FreeOldestFrame(state);
+		}
+		else {
+			return 0;
 		}
 	}
 	state->allocSpansSum++;
@@ -776,6 +807,7 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 			FreeOldestFrame(state);
 		}
 	}
+	state->collationFrameCount++;
 	state->allocFramesSum++;
 	u32 frameIndex = !debugGlobalState->currentFrameIndex;
 	newFrame->eventsCount = debugGlobalState->eventsCount[frameIndex];
@@ -850,18 +882,20 @@ void DebugCollateEvents(DebugState* state) {
 			f32 thresholdT = 0.01f;
 			if ((maxT - minT) > thresholdT) {
 				DebugProfilerSpan* span = AllocateSpan(state, newFrame);
-				span->minT = minT;
-				span->maxT = maxT;
-				span->thread = stack->laneId;
-				span->name = openEvent->blockName;
-				if (parentBlock) {
-					span->parentName = parentBlock->event.blockName;
-					Assert(parentBlock->childSpans.count < ArrayCount(parentBlock->childSpans.children));
-					parentBlock->childSpans.children[parentBlock->childSpans.count++] = span;
-				}
-				for (u32 childIndex = 0; childIndex < block->childSpans.count; childIndex++) {
-					DebugProfilerSpan* childSpan = block->childSpans.children[childIndex];
-					childSpan->parentSpanId = span->spanId;
+				if (span) {
+					span->minT = minT;
+					span->maxT = maxT;
+					span->thread = stack->laneId;
+					span->name = openEvent->blockName;
+					if (parentBlock) {
+						span->parentName = parentBlock->event.blockName;
+						Assert(parentBlock->childSpans.count < ArrayCount(parentBlock->childSpans.children));
+						parentBlock->childSpans.children[parentBlock->childSpans.count++] = span;
+					}
+					for (u32 childIndex = 0; childIndex < block->childSpans.count; childIndex++) {
+						DebugProfilerSpan* childSpan = block->childSpans.children[childIndex];
+						childSpan->parentSpanId = span->spanId;
+					}
 				}
 			}
 			PopFromEventStack(state, &stack->timeEvents);
@@ -986,15 +1020,49 @@ Rect2 GetCpuSpanRectangle(Rect2 boundaries, f32 currentWidth,
 	V2 spanSize = { threadWidth, (maxT - minT) * dims.Y };
 
 	Rect2 rectangle = GetRectFromCenterDim(spanCenter.XY, spanSize);
-	rectangle.min.X = Clip(rectangle.min.X, boundaries.min.X, boundaries.max.X);
+	rectangle = Intersection(rectangle, boundaries);
 	return rectangle;
 }
 
+inline
+void AdvanceScroll(DebugScroll& scroll, i32 ticks) {
+	if (scroll.valueRange != 0.f) {
+		scroll.value += ticks * scroll.distancePerTick / scroll.valueRange;
+		scroll.value = Clip01(scroll.value);
+	}
+}
+
+inline
+f32 GetScrollValue(DebugScroll& scroll) {
+	f32 value = scroll.value * scroll.valueRange + scroll.valueMin;
+	return value;
+}
+
+inline
+void ChangeScrollRange(DebugScroll& scroll, f32 newRange) {
+	scroll.value = scroll.value * SafeRatio(scroll.valueRange, newRange);
+	scroll.valueRange = newRange;
+}
+
+inline
+f32 GetScrollSizeForContainer(DebugScroll& scroll, f32 container) {
+	f32 size = Maximum(container * scroll.sizeFudge / (scroll.valueRange + scroll.sizeFudge), scroll.minSize);
+	return size;
+}
+
+inline
+f32 GetScrollValueForContainer(DebugScroll& scroll, f32 container) {
+	f32 size = GetScrollSizeForContainer(scroll, container);
+	f32 value = scroll.value * (container - size) + 0.5f * size;
+	return value;
+}
+
+internal
 void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mousePos) {
 	TIMED_FUNCTION;
-	Rect2 boundaries = state->cpuProfilerBoundaries;
+	Rect2 boundaries = state->cpuProfiler.boundaries;
 	if (IsInRectangle(boundaries, mousePos)) {
-		state->nextHotInteraction = InteractionMovedRect2(boundaries, &state->cpuProfilerBoundaries);
+		state->nextHotInteraction = InteractionProfiler(boundaries, state->cpuProfiler);
 	}
 #if 1
 	f32 profilerPosY = boundaries.min.Y;
@@ -1014,13 +1082,15 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		V4{1, 0.5f, 0.5f, 1},
 	};
 	f32 frameWidth = f4(state->threadStacksCount) * threadLaneTotalWidth + frameLaneSpace;
-	f32 currentWidth = frameWidth;
+	f32 currentWidth = frameWidth - GetScrollValue(state->cpuProfiler.scroll);
+	AdvanceScroll(state->cpuProfiler.scroll, state->controller->mouseWheelTicks);
+
 	f32 collationScale = DEBUG_COLLATION_SCALE;
 	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
 	PushRect(state->renderGroup, boundaries, 0, V2{ 0, 0 }, backgroundColor);
 	DebugCollationFrame* frame = state->framesSentinel.next;
 
-	DebugSelectedSpan& selectedSpan = state->cpuProfilerSelectedSpan[state->cpuProfilerSelectedSpanCount];
+	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
 	if (SelectedById(selectedSpan)) {
 		while (frame->frameIndex > selectedSpan.captureFrameIndex) {
 			frame = frame->next;
@@ -1033,36 +1103,38 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 	}
 	
 	while (currentWidth < profilerDim.X + frameWidth && frame != &state->framesSentinel) {
-		for (DebugProfilerSpan* span = frame->firstCpuSpan; span; span = span->next) {
-			if (!SpanShouldBeRendered(selectedSpan, span)) {
-				continue;
-			}
-			Rect2 spanRect = GetCpuSpanRectangle(boundaries, currentWidth, span->thread,
-				threadLaneWidth, threadLaneTotalWidth, span->minT, span->maxT
-			);
-
-			u32 colorIndex = u4(uptr(span->name) >> 2) % ArrayCount(colors);
-			V4 rectColor = colors[colorIndex];
-			if (IsInRectangle(spanRect, mousePos)) {
-				DebugSelectedSpan selectedSpanData = { SpanSelection_None, span->name, span->spanId, frame->frameIndex };
-				if (IsVariableHot(state, selectedSpanData)) {
-					rectColor = V4{ 1, 1, 1, 1 };
-					if (span->name) {
-						char buffer[256];
-						sprintf_s(buffer, "%s", span->name);
-						V4 color = V4{ 1, 1, 1, 1 };
-						f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
-						V2 textPos = mousePos + V2{ 0, lineAdvance };
-						DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
-						textPos += V2{ 0, lineAdvance };
-						sprintf_s(buffer, "t<%4f,%4f>, p%p", span->minT, span->maxT, span->name);
-						DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
-					}
+		if (currentWidth >= 0) {
+			for (DebugProfilerSpan* span = frame->firstCpuSpan; span; span = span->next) {
+				if (!SpanShouldBeRendered(selectedSpan, span)) {
+					continue;
 				}
-				state->nextHotInteraction = InteractionProfilerSpan(spanRect, selectedSpanData);
-			}
-			if (IsValid(spanRect)) {
-				PushRect(state->renderGroup, spanRect, 0, V2{ 0, 0 }, rectColor);
+				Rect2 spanRect = GetCpuSpanRectangle(boundaries, currentWidth, span->thread,
+					threadLaneWidth, threadLaneTotalWidth, span->minT, span->maxT
+				);
+
+				u32 colorIndex = u4(uptr(span->name) >> 2) % ArrayCount(colors);
+				V4 rectColor = colors[colorIndex];
+				if (IsInRectangle(spanRect, mousePos)) {
+					DebugSelectedSpan selectedSpanData = { SpanSelection_None, span->name, span->spanId, frame->frameIndex };
+					if (IsVariableHot(state, selectedSpanData)) {
+						rectColor = V4{ 1, 1, 1, 1 };
+						if (span->name) {
+							char buffer[256];
+							sprintf_s(buffer, "%s", span->name);
+							V4 color = V4{ 1, 1, 1, 1 };
+							f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
+							V2 textPos = mousePos + V2{ 0, lineAdvance };
+							DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
+							textPos += V2{ 0, lineAdvance };
+							sprintf_s(buffer, "t<%4f,%4f>, p%p", span->minT, span->maxT, span->name);
+							DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
+						}
+					}
+					state->nextHotInteraction = InteractionProfilerSpan(spanRect, selectedSpanData);
+				}
+				if (IsValid(spanRect)) {
+					PushRect(state->renderGroup, spanRect, 0, V2{ 0, 0 }, rectColor);
+				}
 			}
 		}
 		frame = frame->next;
@@ -1076,9 +1148,26 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 	V4 itemColor = V4{ 1, 1, 1, 1 };
 	if (IsInRectangle(resizeAnchor, mousePos)) {
 		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
-		state->nextHotInteraction = InteractionResizedRect2(state->cpuProfilerBoundaries, &state->cpuProfilerBoundaries);
+		state->nextHotInteraction = InteractionResizedRect2(resizeAnchor, &state->cpuProfiler.boundaries);
 	}
 	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
+
+	ChangeScrollRange(state->cpuProfiler.scroll, Maximum(state->collationFrameCount * frameWidth - profilerDim.X, 0));
+	V2 scrollAnchorCenter = V2{ 
+		boundaries.max.X - GetScrollValueForContainer(state->cpuProfiler.scroll, profilerDim.X), 
+		boundaries.min.Y
+	};
+	Rect2 scrollAnchor = GetRectFromCenterDim(
+		scrollAnchorCenter, 
+		{ GetScrollSizeForContainer(state->cpuProfiler.scroll, profilerDim.X), 8.f }
+	);
+	itemColor = V4{ 1, 1, 1, 1 };
+	if (IsInRectangle(scrollAnchor, mousePos)) {
+		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
+		f32 amountPerPixel = -1.f / profilerDim.X;
+		state->nextHotInteraction = InteractionDragIncrease(scrollAnchor, &state->cpuProfiler.scroll.value, amountPerPixel, Axis_X);
+	}
+	PushRect(state->renderGroup, scrollAnchor, 0, V2{ 0, 0 }, itemColor);
 #endif
 }
 
@@ -1171,12 +1260,12 @@ internal
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	if (WasPressed(controller.B.kEsc)) {
 		state->selectedCount = 0;
-		if (state->cpuProfilerSelectedSpanCount) {
+		if (state->cpuProfiler.selectedSpanCount) {
 			if (IsPressed(controller.B.kShift)) {
-				state->cpuProfilerSelectedSpanCount = 0;
+				state->cpuProfiler.selectedSpanCount = 0;
 			}
 			else {
-				state->cpuProfilerSelectedSpanCount--;
+				state->cpuProfiler.selectedSpanCount--;
 			}
 		}
 	}
@@ -1186,7 +1275,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	// Set hot interaction
 	DebugInteractionObject nextInteractionObj = state->nextHotInteraction.obj;
 	if (nextInteractionObj != DebugInteractionObject::None) {
-		state->nextHotInteraction.startMousePos = mousePos;
 		switch (nextInteractionObj) {
 		case DebugInteractionObject::LinkInTree: {
 			DebugVariableGroup* group = state->nextHotInteraction.linkInTree.link->group;
@@ -1212,9 +1300,9 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				} break;
 				case Event_Data_f32: {
 					if (WasPressed(controller.B.mouseLeft)) {
-						state->nextHotInteraction.type = DebugInteractionType::DragIncrease;
-						state->nextHotInteraction.mod_f32.initial = event->data_f32;
-						state->nextHotInteraction.mod_f32.actual = &event->data_f32;
+						state->nextHotInteraction = InteractionDragIncrease(
+							state->nextHotInteraction.startBoundingBox, &event->data_f32, 0.1f, Axis_Y
+						);
 					}
 				} break;
 				}
@@ -1240,6 +1328,17 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				state->nextHotInteraction.type = DebugInteractionType::MoveRect2;
 			}
 		} break;
+		case DebugInteractionObject::Profiler: {
+			if (WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction = InteractionMovedRect2(
+					state->nextHotInteraction.startBoundingBox, 
+					&state->nextHotInteraction.profiler->boundaries
+				);
+			}
+			else if (WasPressed(controller.B.mouseMiddle)) {
+				state->nextHotInteraction.type = DebugInteractionType::ScrollProfiler;
+			}
+		} break;
 		case DebugInteractionObject::ProfilerSpan: {
 			if (WasPressed(controller.B.mouseLeft) && IsPressed(controller.B.kShift)) {
 				state->nextHotInteraction.selectedSpan.type = SpanSelection_ById;
@@ -1250,6 +1349,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		}
+		state->nextHotInteraction.startMousePos = mousePos;
 	}
 	state->hotInteraction = state->nextHotInteraction;
 
@@ -1303,8 +1403,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		case DebugInteractionType::DragIncrease: {
-			DebugModifiedFloat& f = state->interaction.mod_f32;
-			*f.actual = f.initial + 0.1f * dMouse.Y;
+			DebugDraggedFloat& f = state->interaction.dragged_f32;
+			*f.actual = f.initial + f.amountPerPixel * dMouse.E[f.axis];
 		} break;
 		case DebugInteractionType::ResizeRect2: {
 			DebugModifiedRect2& rect2 = state->interaction.mod_Rect2;
@@ -1392,8 +1492,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		if (SelectedById(state->interaction.selectedSpan)) {
 			Profiler_Pause.data_bool = true;
 		}
-		Assert(state->cpuProfilerSelectedSpanCount < ArrayCount(state->cpuProfilerSelectedSpan) - 1);
-		state->cpuProfilerSelectedSpan[++state->cpuProfilerSelectedSpanCount] = state->interaction.selectedSpan;
+		Assert(state->cpuProfiler.selectedSpanCount < ArrayCount(state->cpuProfiler.selectedSpans) - 1);
+		state->cpuProfiler.selectedSpans[++state->cpuProfiler.selectedSpanCount] = state->interaction.selectedSpan;
 		interactionEnded = true;
 	} break;
 #if 0
@@ -1518,7 +1618,6 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap) {
 		}
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 #endif
-		
 	}
 
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
