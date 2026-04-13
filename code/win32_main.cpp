@@ -1245,12 +1245,12 @@ int CALLBACK WinMain(
 	u64 frameStartTime = Win32GetCurrentTimestamp();
 	u64 rdtscStart = __rdtsc();
 	while (globalRunning) {
-		TIMED_BLOCK_BEGIN(InputProcessing);
 		Win32ReloadGameCode(gameCode);
 #if INTERNAL_BUILD
 		debugGlobalState = gameCode.DebugInit(programMemory);
 #endif
 
+		TIMED_BLOCK_BEGIN(InputProcessing);
 		// TODO: ResetInput for Gamepad as well!
 		ResetInput(inputData.controllers[KB_CONTROLLER_IDX]);
 		Win32ProcessOSMessages(globalWin32State, programMemory, inputData.controllers[KB_CONTROLLER_IDX]);

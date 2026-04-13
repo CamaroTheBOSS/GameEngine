@@ -854,7 +854,6 @@ void DebugCollateEvents(DebugState* state) {
 	if(Profiler_Pause.data_bool) {
 		return;
 	}
-	
 	u32 frameIndex = !debugGlobalState->currentFrameIndex;
 	f32 scale = DEBUG_COLLATION_SCALE;
 	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];

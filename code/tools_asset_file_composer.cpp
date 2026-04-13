@@ -96,16 +96,15 @@ LoadedBitmap LoadBmpFile(const char* filename, V2 bottomUpAlignRatio = V2{ 0.5f,
 	u32 alphaShift = LeastSignificantHighBit(header->alphaMask).index;
 
 	LoadedBitmap result = {};
-	result.bufferStart = ptrcast(void, ptrcast(u8, bmpData.content) + header->bitmapOffset);
+	result.data = ptrcast(u32, ptrcast(u8, bmpData.content) + header->bitmapOffset);
 	result.height = header->height;
 	result.width = header->width;
 	result.widthOverHeight = f4(result.width) / f4(result.height);
 	Assert((header->bitsPerPixel / 8) == BITMAP_BYTES_PER_PIXEL);
 	result.pitch = result.width * BITMAP_BYTES_PER_PIXEL;
-	result.data = ptrcast(u32, result.bufferStart);
 	result.align = bottomUpAlignRatio;
 
-	u32* pixels = ptrcast(u32, result.bufferStart);
+	u32* pixels = ptrcast(u32, result.data);
 	for (u32 Y = 0; Y < header->height; Y++) {
 		for (u32 X = 0; X < header->width; X++) {
 			V4 texel = {
@@ -561,7 +560,7 @@ void WriteAssetsToFile(Assets& assets, const char* filename) {
 		AssetGroup* group = assets.groups + assetGroupIndex;
 		for (u32 assetIndex = group->firstAssetIndex; assetIndex < group->onePastLastAssetIndex; assetIndex++) {
 			Asset* asset = GetAsset(assets, assetIndex);
-			AssetMetadata* metadata = GetAssetMetadata(assets, *asset);
+			AssetMetadata* metadata = GetAssetMetadata(assets, asset->metadataId);
 			if (group->type == AssetGroup_Bitmap) {
 				u32 size = asset->memory->bitmap.pitch * asset->memory->bitmap.height;
 				u32 dataPosition = ftell(file);
@@ -606,7 +605,7 @@ void WriteSounds() {
 		SoundId nextAssetId = AddSoundAsset(assets, Asset_Music, "sound/silksong.wav", firstSampleIndex, chunkSampleCount);
 		Asset* nextAsset = GetAsset(assets, nextAssetId.id);
 		if (prevAsset) {
-			AssetMetadata* metadata = GetAssetMetadata(assets, *prevAsset);
+			AssetMetadata* metadata = GetAssetMetadata(assets, prevAsset->metadataId);
 			metadata->_soundInfo.chain = { SoundChain::Advance, 1 };
 		}
 		prevAsset = nextAsset;

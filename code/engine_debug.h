@@ -233,7 +233,7 @@ struct TimedBlock {
 	}
 
 	~TimedBlock() {
-		TIMED_BLOCK_END_(block.counter)
+		TIMED_BLOCK_END_(block.counter);
 	}
 };
 

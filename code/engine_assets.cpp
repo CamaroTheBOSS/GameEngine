@@ -313,14 +313,14 @@ void LoadAssetBackgroundTask(void* data) {
 	if (!Platform->FileErrors(args->source)) {
 		WriteCompilatorFence;
 		*args->state = AssetState_Ready;
-		if (args->task) {
-			EndBackgroundTask(args->task);
-		}
 	}
 	else {
 		WriteCompilatorFence;
 		Assert(!"Something bad happened with our file during the program, it shouldn't happen!");
 		*args->state = AssetState_NotReady;
+	}
+	if (args->task) {
+		EndBackgroundTask(args->task);
 	}
 }
 
