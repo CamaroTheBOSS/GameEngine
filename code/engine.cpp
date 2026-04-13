@@ -1493,26 +1493,17 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				DEBUG_BEGIN_DATA_BLOCK(Simulation_Entity, dId);
 				DEBUG_DATA(u32, entity->flags);
 				//DEBUG_DATA(hotEntity->collision);
-
-
-				/*DEBUG_DATA(f32, entity->distanceRemaining);
+				DEBUG_DATA(f32, entity->distanceRemaining);
 				DEBUG_DATA(f32, entity->faceDir);
-				DEBUG_DATA(u32, entity->highEntityIndex);*/
-
-
+				DEBUG_DATA(u32, entity->highEntityIndex);
 				//DEBUG_DATA(hotEntity->hitPoints);
 				DEBUG_DATA(V3, entity->pos);
 				DEBUG_DATA(u32, entity->storageIndex);
 				//DEBUG_DATA(hotEntity->sword);
-
-
-				/*DEBUG_DATA(f32, entity->timeRemaining);
+				DEBUG_DATA(f32, entity->timeRemaining);
 				DEBUG_DATA(u32, entity->type);
 				DEBUG_DATA(V3, entity->vel);
-				DEBUG_DATA(V3, entity->walkableDim);*/
-
-
-
+				DEBUG_DATA(V3, entity->walkableDim);
 				//DEBUG_DATA(hotEntity->worldPos);
 				DEBUG_END_DATA_BLOCK;
 			}
