@@ -123,7 +123,10 @@ struct DebugState {
 	bool interacting;
 
 	// Profiler
-	DebugCpuProfiler cpuProfiler;
+	DebugProfiler cpuProfiler;
+	DebugProfiler memProfiler;
+	u32 arenaViewsCount;
+	DebugArenaView arenaViews[32];
 
 	// Debug in debug :)
 	u32 allocFramesSum;

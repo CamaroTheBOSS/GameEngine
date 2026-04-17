@@ -1152,7 +1152,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		AllocateAssets(tranState);
 		for (u32 taskIndex = 0; taskIndex < ArrayCount(tranState->tasks); taskIndex++) {
 			TaskWithMemory* task = tranState->tasks + taskIndex;
-			//Note: Hot reload causes crash, when background tasks are working
 			SubArena(task->arena, tranState->arena, MB(4));
 			task->done = 1;
 		}

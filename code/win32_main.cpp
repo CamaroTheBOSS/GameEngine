@@ -1137,7 +1137,7 @@ int CALLBACK WinMain(
 ) {
 	InitializeQueue(globalHighPriorityQueue, 8);
 	InitializeQueue(globalLowPriorityQueue, 2);
-#if 0
+#if 1
 	u32 globalBitmapWidth = 1920;
 	u32 globalBitmapHeight = 1080;
 #else

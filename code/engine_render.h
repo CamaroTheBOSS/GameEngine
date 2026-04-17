@@ -106,4 +106,6 @@ inline bool PushBitmap(RenderGroup& group, BitmapId bid, V3 center,
 inline bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, 
 	V4 color = V4{ 1, 1, 1, 1 });
 inline bool PushRect(RenderGroup& group, Rect2 rectangle, f32 Z, V2 offset, V4 color);
+inline bool PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness);
+inline bool PushRectOutlineInside(RenderGroup& group, Rect2 rect, f32 Z, V4 color, f32 thickness);
 /*                Renderer API                  */

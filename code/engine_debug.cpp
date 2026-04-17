@@ -200,7 +200,7 @@ DebugInteraction InteractionDragIncrease(Rect2 bbox, f32* dragged, f32 amountPer
 }
 
 inline
-DebugInteraction InteractionProfiler(Rect2 bbox, DebugCpuProfiler& profiler) {
+DebugInteraction InteractionProfiler(Rect2 bbox, DebugProfiler& profiler) {
 	DebugInteraction interaction = {};
 	interaction.startBoundingBox = bbox;
 	interaction.obj = DebugInteractionObject::Profiler;
@@ -470,6 +470,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 		state->renderGroup = AllocateRenderGroup(state->mainArena, &tranState->assets, MB(4), false);
 		state->highPriorityQueue = tranState->highPriorityQueue;
 		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
+		
 		state->cpuProfiler.boundaries = Rect2{
 			V2{ state->overlayBoundaries.min + V2{ 30.f, 30.f } },
 			V2{ state->overlayBoundaries.max.X - 30.f, state->overlayBoundaries.min.Y + 250.f }
@@ -477,6 +478,14 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 		state->cpuProfiler.scroll.distancePerTick = 30.f;
 		state->cpuProfiler.scroll.minSize = 6.f;
 		state->cpuProfiler.scroll.sizeFudge = 1000.f;
+
+		state->memProfiler.boundaries = Rect2{
+			V2{ state->cpuProfiler.boundaries.min.X, state->cpuProfiler.boundaries.max.Y + 30.f },
+			V2{ state->cpuProfiler.boundaries.max + V2{0, 250.f + 30.f} }
+		};
+		state->memProfiler.scroll.distancePerTick = 30.f;
+		state->memProfiler.scroll.minSize = 6.f;
+		state->memProfiler.scroll.sizeFudge = 1000.f;
 
 		state->threadStacks = PushArray(state->mainArena, MAX_DEBUG_THREADS, DebugThreadStack);
 		DLINKED_LIST_INIT(&state->UISentinel);
@@ -917,6 +926,12 @@ void DebugCollateEvents(DebugState* state) {
 			DebugVariableGroup* group = GetGroupForHierachicalName(state, state->defaultMainVariablesGroup, event->blockName);
 			DebugStoredEvent* storedEvent = StoreEvent(state, group, event, newFrame->frameIndex, true);
 		} break;
+		case Event_InitializeArena: {
+			MemoryArena* arena = ptrcast(MemoryArena, event->generic);
+			state->arenaViews[state->arenaViewsCount++] = {
+				arena->data, arena->capacity, arena->used, arena->tempCount, event->blockName
+			};
+		}
 		case Event_Data_u32:
 		case Event_Data_i32:
 		case Event_Data_f32:
@@ -1019,39 +1034,67 @@ Rect2 GetCpuSpanRectangle(Rect2 boundaries, f32 currentWidth,
 	V2 spanSize = { threadWidth, (maxT - minT) * dims.Y };
 
 	Rect2 rectangle = GetRectFromCenterDim(spanCenter.XY, spanSize);
-	rectangle = Intersection(rectangle, boundaries);
+	rectangle = IntersectionInWidth(rectangle, boundaries);
 	return rectangle;
 }
 
 inline
 void AdvanceScroll(DebugScroll& scroll, i32 ticks) {
-	if (scroll.valueRange != 0.f) {
-		scroll.value += ticks * scroll.distancePerTick / scroll.valueRange;
+	f32 range = scroll.valueMax - scroll.valueMin;
+	if (range > 0.f) {
+		scroll.value += ticks * scroll.distancePerTick / range;
 		scroll.value = Clip01(scroll.value);
 	}
 }
 
 inline
+void AdvanceRangeOuter(DebugScroll& scroll, i32 ticks, f32 value, V2 container) {
+	Assert(value >= -1.f && value <= 1.f);
+	f32 adder = ticks * scroll.distancePerTick;
+	scroll.valueMin += -value * adder;
+	scroll.valueMax += (1.f - value) * adder;
+}
+
+inline
 f32 GetScrollValue(DebugScroll& scroll) {
-	f32 value = scroll.value * scroll.valueRange + scroll.valueMin;
+	f32 value = scroll.value * (scroll.valueMax - scroll.valueMin) + scroll.valueMin;
 	return value;
 }
 
 inline
-void ChangeScrollRange(DebugScroll& scroll, f32 newRange) {
-	scroll.value = scroll.value * SafeRatio(scroll.valueRange, newRange);
-	scroll.valueRange = newRange;
+void ChangeScrollMax(DebugScroll& scroll, f32 newMax) {
+	f32 newRange = (newMax - scroll.valueMin);
+	if (newRange > 0.f) {
+		scroll.value = scroll.value * SafeRatio(scroll.valueMax - scroll.valueMin, newRange);
+		scroll.valueMax = newMax;
+	}
 }
 
 inline
 f32 GetScrollSizeForContainer(DebugScroll& scroll, f32 container) {
-	f32 size = Maximum(container * scroll.sizeFudge / (scroll.valueRange + scroll.sizeFudge), scroll.minSize);
+	f32 range = scroll.valueMax - scroll.valueMin;
+	f32 size = Maximum(container * scroll.sizeFudge / (range + scroll.sizeFudge), scroll.minSize);
+	return size;
+}
+
+inline
+f32 GetScrollSizeForContainer2(DebugScroll& scroll, f32 container) {
+	f32 range = scroll.valueMax - scroll.valueMin;
+	f32 size = Squared(container) / range;
+	//f32 size = Maximum(container * scroll.sizeFudge / (range + scroll.sizeFudge), scroll.minSize);
 	return size;
 }
 
 inline
 f32 GetScrollValueForContainer(DebugScroll& scroll, f32 container) {
 	f32 size = GetScrollSizeForContainer(scroll, container);
+	f32 value = scroll.value * (container - size) + 0.5f * size;
+	return value;
+}
+
+inline
+f32 GetScrollValueForContainer2(DebugScroll& scroll, f32 container) {
+	f32 size = GetScrollSizeForContainer2(scroll, container);
 	f32 value = scroll.value * (container - size) + 0.5f * size;
 	return value;
 }
@@ -1151,7 +1194,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 	}
 	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
 
-	ChangeScrollRange(state->cpuProfiler.scroll, Maximum(state->collationFrameCount * frameWidth - profilerDim.X, 0));
+	ChangeScrollMax(state->cpuProfiler.scroll, Maximum(state->collationFrameCount * frameWidth - profilerDim.X, 0));
 	V2 scrollAnchorCenter = V2{ 
 		boundaries.max.X - GetScrollValueForContainer(state->cpuProfiler.scroll, profilerDim.X), 
 		boundaries.min.Y
@@ -1165,6 +1208,122 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
 		f32 amountPerPixel = -1.f / profilerDim.X;
 		state->nextHotInteraction = InteractionDragIncrease(scrollAnchor, &state->cpuProfiler.scroll.value, amountPerPixel, Axis_X);
+	}
+	PushRect(state->renderGroup, scrollAnchor, 0, V2{ 0, 0 }, itemColor);
+#endif
+}
+
+internal
+void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mousePos) {
+	TIMED_FUNCTION;
+	Rect2 boundaries = state->memProfiler.boundaries;
+	if (IsInRectangle(boundaries, mousePos)) {
+		state->nextHotInteraction = InteractionProfiler(boundaries, state->memProfiler);
+	}
+#if 1
+	f32 profilerPosY = boundaries.min.Y;
+	f32 profilerPosX = boundaries.min.X;
+	V2 profilerDim = GetDim(boundaries);
+	f32 spanHeight = 40.f;
+	V4 colors[] = {
+		V4{1, 0, 0, 1},
+		V4{0, 1, 0, 1},
+		V4{0, 0, 1, 1},
+		V4{0, 1, 1, 1},
+		V4{1, 0, 1, 1},
+		V4{1, 1, 0, 1},
+		V4{1, 0.5f, 0.5f, 1},
+	};
+	f32 value = (mousePos.X - boundaries.min.X) / profilerDim.X;
+	value = Clip(value, 0.f, 1.f);
+	AdvanceRangeOuter(state->memProfiler.scroll, state->controller->mouseWheelTicks, value, profilerDim);
+	state->memProfiler.scroll.valueMin = Minimum(boundaries.min.X, state->memProfiler.scroll.valueMin);
+	state->memProfiler.scroll.valueMax = Maximum(boundaries.max.X, state->memProfiler.scroll.valueMax);
+#if 1
+	char buffer[256];
+	char* at = buffer;
+	char* end = buffer + sizeof(buffer);
+	DebugRenderLine(state, "------------------", state->fontContext, V4{ 1, 1, 1, 1 });
+	sprintf_s(buffer, 256, "scroll.min: %f, scroll.max: %f", state->memProfiler.scroll.valueMin, state->memProfiler.scroll.valueMax);
+	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+	sprintf_s(buffer, 256, "scroll.value: %f, value: %f", state->memProfiler.scroll.value, value);
+	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+	sprintf_s(buffer, 256, "scroll.range: %f", state->memProfiler.scroll.valueMax - state->memProfiler.scroll.valueMin);
+	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+	
+#endif
+
+	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
+	PushRect(state->renderGroup, boundaries, 0, V2{ 0, 0 }, backgroundColor);
+
+	u64 maxSize = debugGlobalMemory->memoryBlockSize;
+	u64 memoryStart = u64(debugGlobalMemory->memoryBlock);
+	for (u32 arenaViewIndex = 0; arenaViewIndex < state->arenaViewsCount; arenaViewIndex++) {
+		DebugArenaView* view = state->arenaViews + arenaViewIndex;
+		u32 colorIndex = arenaViewIndex % ArrayCount(colors);
+		V4 color = colors[colorIndex];
+		
+		f32 testData[] = {
+			0.f,
+			0.1f * maxSize,
+			0.2f * maxSize,
+			0.3f * maxSize,
+			0.4f * maxSize,
+			0.5f * maxSize,
+			0.6f * maxSize,
+			0.7f * maxSize,
+			0.8f * maxSize,
+			0.9f * maxSize,
+			f4(maxSize)
+		};
+		f32 baseY = boundaries.min.Y + 30.f;
+		for (u32 i = 0; i < ArrayCount(testData); i++) {
+			f32 center = testData[i] / f4(maxSize) * (state->memProfiler.scroll.valueMax - state->memProfiler.scroll.valueMin) + state->memProfiler.scroll.valueMin;
+			center += GetScrollValue(state->memProfiler.scroll);
+			PushRect(state->renderGroup, V3{ center, baseY, 0.f }, V2{8.f, 8.f}, V2{ 0, 0 }, color);
+		}
+		
+		
+#if 0
+		f32 placementOffset = state->memProfiler.scroll.valueMax - profilerDim.X;
+		f32 placementSpread = profilerDim.X + GetScrollValue(state->memProfiler.scroll);
+		u64 leftOffset = u64(view->data - memoryStart) * u64(placementSpread) / maxSize;
+		u64 usageEndOffset = u64(view->data - memoryStart + view->used) * u64(placementSpread) / maxSize;
+		u64 rightOffset = u64(view->data - memoryStart + view->capacity) * u64(placementSpread) / maxSize;
+		f32 left = boundaries.min.X + leftOffset - placementOffset;
+		f32 usage = boundaries.min.X + usageEndOffset - placementOffset;
+		f32 right = boundaries.min.X + rightOffset - placementOffset;
+		f32 baseY = boundaries.min.Y + 30.f;
+		Rect2 usageArenaRect = GetRectFromMinMax(V2{ left, baseY - 0.5f * spanHeight }, V2{ usage, baseY + 0.5f * spanHeight });
+		usageArenaRect = Intersection(usageArenaRect, boundaries);
+		PushRect(state->renderGroup, usageArenaRect, 0, V2{ 0, 0 }, color);
+#endif
+#if 0
+		Rect2 fullArenaRect = GetRectFromMinMax(V2{ left, baseY - 0.5f * spanHeight }, V2{ right, baseY + 0.5f * spanHeight });
+#endif
+	}
+
+	Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
+	V4 itemColor = V4{ 1, 1, 1, 1 };
+	if (IsInRectangle(resizeAnchor, mousePos)) {
+		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
+		state->nextHotInteraction = InteractionResizedRect2(resizeAnchor, &state->memProfiler.boundaries);
+	}
+	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
+
+	V2 scrollAnchorCenter = V2{
+		boundaries.max.X - GetScrollValueForContainer2(state->memProfiler.scroll, profilerDim.X),
+		boundaries.min.Y
+	};
+	Rect2 scrollAnchor = GetRectFromCenterDim(
+		scrollAnchorCenter,
+		{ GetScrollSizeForContainer2(state->memProfiler.scroll, profilerDim.X), 8.f }
+	);
+	itemColor = V4{ 1, 1, 1, 1 };
+	if (IsInRectangle(scrollAnchor, mousePos)) {
+		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
+		f32 amountPerPixel = -1.f / profilerDim.X;
+		state->nextHotInteraction = InteractionDragIncrease(scrollAnchor, &state->memProfiler.scroll.value, amountPerPixel, Axis_X);
 	}
 	PushRect(state->renderGroup, scrollAnchor, 0, V2{ 0, 0 }, itemColor);
 #endif
@@ -1579,6 +1738,7 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap) {
 	V2 mousePos = FromPixelSpaceToWorldSpace(state->renderGroup.projection, controller.mouse, 0.f);
 	DebugRenderVariablesMenu(state, controller, mousePos);
 	DebugRenderCpuProfiler(state, controller, mousePos);
+	DebugRenderMemoryProfiler(state, controller, mousePos);
 	DebugInteract(state, mousePos, controller);
 
 	DEBUG_IF(Debug_ShowEventsCount) {

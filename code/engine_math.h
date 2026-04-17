@@ -612,6 +612,16 @@ Rect2 Intersection(Rect2 A, Rect2 B) {
 }
 
 inline
+Rect2 IntersectionInWidth(Rect2 A, Rect2 B) {
+	Rect2 result;
+	result.min.Y = A.min.Y;
+	result.min.X = Maximum(A.min.X, B.min.X);
+	result.max.Y = A.max.Y;
+	result.max.X = Minimum(A.max.X, B.max.X);
+	return result;
+}
+
+inline
 bool IsValid(Rect2 A) {
 	return A.min.X < A.max.X && A.min.Y < A.max.Y;
 }

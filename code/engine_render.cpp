@@ -791,7 +791,7 @@ LoadedFont* GetOrPrefetchFont(RenderGroup& group, FontId fid) {
 	return font;
 }
 
-internal
+inline
 bool PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness) {
 	V3 basePos = center;
 	basePos.X = center.X - 0.5f * size.X;
@@ -803,6 +803,19 @@ bool PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thick
 	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
 	basePos.Y = center.Y + 0.5f * size.Y;
 	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
+	return true;
+}
+
+inline
+bool PushRectOutlineInside(RenderGroup& group, Rect2 rect, f32 Z, V4 color, f32 thickness) {
+	Rect2 bot = GetRectFromMinMax(rect.min, V2{ rect.max.X, rect.min.Y + thickness });
+	Rect2 top = GetRectFromMinMax(V2{ rect.min.X, rect.max.Y - thickness }, rect.max);
+	Rect2 left = GetRectFromMinMax(rect.min, V2{ rect.min.X + thickness, rect.max.Y });
+	Rect2 right = GetRectFromMinMax(V2{ rect.max.X - thickness, rect.min.Y }, rect.max);
+	PushRect(group, bot, Z, V2{ 0, 0 }, color);
+	PushRect(group, top, Z, V2{ 0, 0 }, color);
+	PushRect(group, left, Z, V2{ 0, 0 }, color);
+	PushRect(group, right, Z, V2{ 0, 0 }, color);
 	return true;
 }
 

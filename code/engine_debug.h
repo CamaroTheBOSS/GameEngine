@@ -35,6 +35,7 @@ enum DebugEventType : u8 {
 	Event_Data_Rect3,
 	
 	Event_PermanentVariableDeclaration,
+	Event_InitializeArena,
 	Event_Count,
 };
 
@@ -54,6 +55,7 @@ struct DebugEvent {
 	const char* blockName;
 	u32 line;
 	union {
+		void* generic;
 		DebugId data_DebugId;
 		DebugEvent* data_DebugEvent;
 
@@ -198,6 +200,17 @@ internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, Debu
 	DEFINE_DEBUG_VARIABLE(bool, variable); \
 	if (variable.data_bool)
 
+
+#define InitializeArena(arena, data, capacity) \
+	InitializeArena(arena, data, capacity); { \
+	RecordDebugEventNoBracket(0, Event_InitializeArena, __FILE__, #arena, __LINE__); \
+	event->generic = ptrcast(void, &arena); }
+
+#define SubArena(subarena, arena, capacity) \
+	SubArena(subarena, arena, capacity); { \
+	RecordDebugEventNoBracket(0, Event_InitializeArena, __FILE__, #subarena, __LINE__); \
+	event->generic = ptrcast(void, &subarena); }
+
 #else
 #define TIMED_FUNCTION
 #define TIMED_BLOCK_BEGIN__(...)
@@ -300,7 +313,7 @@ struct DebugTree {
 struct DebugScroll {
 	f32 value; //NOTE: <0,1>
 	f32 valueMin;
-	f32 valueRange;
+	f32 valueMax;
 	f32 containerWidth;
 
 	f32 distancePerTick; //NOTE: in pixels
@@ -377,14 +390,22 @@ struct DebugVariableGroupInTree {
 	DebugTree* tree;
 };
 
-struct DebugCpuProfiler {
+struct DebugProfiler {
 	Rect2 boundaries;
 	u32 selectedSpanCount;
 	DebugSelectedSpan selectedSpans[MAX_DEPTH_SPANS];
 	DebugScroll scroll;
 };
 
-struct DebugCpuProfiler;
+struct DebugArenaView {
+	u8* data;
+	u64 capacity;
+	u64 used;
+	u32 tempCount;
+	const char* name;
+};
+
+struct DebugProfiler;
 struct DebugInteraction {
 	DebugInteractionType type;
 	DebugInteractionObject obj;
@@ -396,7 +417,7 @@ struct DebugInteraction {
 		DebugModifiedRect2 mod_Rect2;
 		DebugDraggedFloat dragged_f32;
 		DebugSelectedSpan selectedSpan;
-		DebugCpuProfiler* profiler;
+		DebugProfiler* profiler;
 	};
 	V2 startMousePos;
 	Rect2 startBoundingBox;
