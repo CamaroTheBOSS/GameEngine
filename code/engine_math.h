@@ -622,6 +622,14 @@ Rect2 IntersectionInWidth(Rect2 A, Rect2 B) {
 }
 
 inline
+Rect2 MoveRectangle(Rect2 A, V2 V) {
+	Rect2 result = {};
+	result.min = A.min + V;
+	result.max = A.max + V;
+	return result;
+}
+
+inline
 bool IsValid(Rect2 A) {
 	return A.min.X < A.max.X && A.min.Y < A.max.Y;
 }

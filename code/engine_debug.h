@@ -1,4 +1,5 @@
 #include "engine_common.h"
+#include "engine_render.h"
 
 // ------------------- EVENT PROFILER --------------------
 #define MAX_DEBUG_EVENTS 900000
@@ -312,14 +313,11 @@ struct DebugTree {
 
 struct DebugScroll {
 	f32 value; //NOTE: <0,1>
-	f32 valueMin;
-	f32 valueMax;
+	f32 min;
+	f32 range;
 	f32 containerWidth;
 
 	f32 distancePerTick; //NOTE: in pixels
-
-	f32 minSize; //NOTE: in pixels
-	f32 sizeFudge; //NOTE: additional factor for scroll speed changes
 };
 
 enum class DebugInteractionObject {
@@ -355,6 +353,13 @@ struct DebugModifiedV2 {
 struct DebugModifiedRect2 {
 	Rect2 initial;
 	Rect2* actual;
+};
+
+struct DebugVirtualView {
+	f32 zoom;
+	V2 offset;
+	Rect2 rect;
+	Projection projection;
 };
 
 enum DebugAxis {
@@ -395,6 +400,7 @@ struct DebugProfiler {
 	u32 selectedSpanCount;
 	DebugSelectedSpan selectedSpans[MAX_DEPTH_SPANS];
 	DebugScroll scroll;
+	DebugVirtualView view;
 };
 
 struct DebugArenaView {
