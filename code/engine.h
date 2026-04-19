@@ -1,5 +1,6 @@
 #pragma once
 #include "engine_platform.h"
+#include "engine_arena.h"
 #include "engine_world.h"
 #include "engine_simulation.h"
 #include "engine_render.h"
@@ -125,8 +126,9 @@ struct DebugState {
 	// Profiler
 	DebugProfiler cpuProfiler;
 	DebugProfiler memProfiler;
-	u32 arenaViewsCount;
-	DebugArenaView arenaViews[32];
+	DebugArenaView* arenaViews;
+	u32 selectedArenaViewsCount;
+	DebugArenaView* selectedArenaViews[MAX_DEPTH_SPANS];
 
 	// Debug in debug :)
 	u32 allocFramesSum;

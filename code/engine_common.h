@@ -115,8 +115,6 @@ typedef double f64;
 #include "engine_intrinsics.h"
 #include "engine_math.h"
 
-#define DEFAULT_ALIGNMENT 4
-
 struct MemoryArena {
 	u8* data;
 	u64 capacity;
@@ -135,125 +133,6 @@ struct TaskWithMemory {
 	TemporaryMemory memory;
 	volatile u32 done;
 };
-
-inline 
-void InitializeArena(MemoryArena& arena, void* data, u64 capacity) {
-	arena.data = ptrcast(u8, data);
-	arena.capacity = capacity;
-	arena.used = 0;
-	arena.tempCount = 0;
-}
-
-inline
-void ResetArena(MemoryArena& arena) {
-	Assert(arena.tempCount == 0);
-	arena.data = arena.data - arena.used;
-	arena.used = 0;
-}
-
-inline
-u64 GetAlignmentOffset(MemoryArena& arena, u64 alignment) {
-	u64 alignMask = alignment - 1;
-	Assert((alignment & alignMask) == 0);
-	u64 basePtr = reinterpret_cast<uptr>(arena.data) + arena.used;
-	u64 alignmentOffset = (alignment - (basePtr & alignMask)) & alignMask;
-	return alignmentOffset;
-}
-
-inline
-bool HasArenaSpaceFor(MemoryArena& arena, u64 size, u64 alignment = DEFAULT_ALIGNMENT) {
-	u64 alignmentOffset = GetAlignmentOffset(arena, alignment);
-	size += alignmentOffset;
-	bool result = (arena.used + size) <= arena.capacity;
-	return result;
-}
-
-inline
-u64 GetArenaFreeSpaceSize(MemoryArena& arena) {
-	u64 result = arena.capacity - arena.used;
-	return result;
-}
-
-inline
-TemporaryMemory BeginTempMemory(MemoryArena& arena) {
-	TemporaryMemory tempMemory = {};
-	tempMemory.arena = &arena;
-	tempMemory.usedFingerprint = arena.used;
-	arena.tempCount++;
-	return tempMemory;
-}
-
-inline
-void CommitTempMemory(TemporaryMemory& memory) {
-	// TODO: Support for nested temp memory by storing tempCount in temp memory
-	Assert(memory.arena->used >= memory.usedFingerprint);
-	Assert(memory.arena->tempCount == 1 && "Commiting temp memory does not support nesting temp memory");
-	memory.arena->tempCount--;
-}
-
-inline
-void EndTempMemory(TemporaryMemory& memory) {
-	Assert(memory.arena->used >= memory.usedFingerprint);
-	Assert(memory.arena->tempCount > 0);
-	memory.arena->used = memory.usedFingerprint;
-	memory.arena->tempCount--;
-}
-
-inline
-void* PushSize_(MemoryArena & arena, u64 size, u64 alignment = DEFAULT_ALIGNMENT) {
-	u64 alignmentOffset = GetAlignmentOffset(arena, alignment);
-	size += alignmentOffset;
-	if (arena.used + size > arena.capacity) {
-		Assert(false);
-		return 0;
-	}
-	void* ptr = arena.data + arena.used + alignmentOffset;
-	arena.used += size;
-	return ptr;
-}
-
-inline
-void SubArena(MemoryArena& subArena, MemoryArena& arena, u64 size, u64 alignment = DEFAULT_ALIGNMENT) {
-	Assert(subArena.capacity == 0);
-	void* data = PushSize_(arena, size, alignment);
-	InitializeArena(subArena, data, size);
-}
-
-inline
-void ZeroSize_(u8* ptr, u64 size) {
-	while (size--) {
-		*ptr++ = 0;
-	}
-}
-
-inline
-u8* CopySize(const void* srcv, void* dstv, u32 size) {
-	const u8* src = ptrcast(const u8, srcv);
-	u8* dst = ptrcast(u8, dstv);
-	u8* result = dst;
-	while (size--) {
-		*dst++ = *src++;
-	}
-	return result;
-}
-
-inline
-u8* SafeCopySize(const u8* src, u32 srcSize, u8* dst, u32 dstSize) {
-	u32 size = Minimum(srcSize, dstSize);
-	u8* result = CopySize(src, dst, size);
-	return result;
-}
-
-inline
-void CheckArena(MemoryArena& arena) {
-	Assert(arena.tempCount == 0);
-}
-
-#define ZeroStruct(obj) ZeroSize_(ptrcast(u8, &obj), sizeof(obj))
-#define PushStructSize(arena, type, ...) ptrcast(type, PushSize_(arena, sizeof(type), ##__VA_ARGS__))
-#define PushSize(arena, size, ...) PushSize_(arena, size, ##__VA_ARGS__)
-#define PushArray(arena, length, type, ...) ptrcast(type, PushSize_(arena, (length) * sizeof(type), ##__VA_ARGS__))
-#define PushString(arena, string, size, ...) ptrcast(char, CopySize(ptrcast(const u8,string), PushSize_(arena, (size) * sizeof(char), ##__VA_ARGS__), size))
 
 // TODO: Move it to String common file
 inline

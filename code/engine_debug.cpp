@@ -59,6 +59,12 @@ bool IsVariableHot(DebugState* state, Rect2& rect2) {
 }
 
 inline
+bool IsVariableHot(DebugState* state, DebugArenaView* view) {
+	bool result = state->hotInteraction.arenaView == view;
+	return result;
+}
+
+inline
 bool SelectedByName(DebugSelectedSpan& span) {
 	return span.type == SpanSelection_ByName;
 }
@@ -209,6 +215,15 @@ DebugInteraction InteractionProfilerSpan(Rect2 bbox, DebugSelectedSpan selectedS
 }
 
 inline
+DebugInteraction InteractionArenaView(Rect2 bbox, DebugArenaView* arenaView) {
+	DebugInteraction interaction = {};
+	interaction.startBoundingBox = bbox;
+	interaction.obj = DebugInteractionObject::ArenaView;
+	interaction.arenaView = arenaView;
+	return interaction;
+}
+
+inline
 DebugInteraction InteractionIntrospectable(Rect2 bBox, DebugId did) {
 	DebugInteraction interaction = {};
 	interaction.obj = DebugInteractionObject::Introspectable;
@@ -229,8 +244,8 @@ DebugInteraction InteractionWithLink(Rect2 bBox, DebugTree* tree, DebugVariableL
 
 internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line, const char* GUID) {
 	RecordDebugEventNoBracket(0, Event_PermanentVariableDeclaration, file, name, line);
-	event->data_DebugEvent = subevent;
-	event->GUID = GUID;
+	event12345->data_DebugEvent = subevent;
+	event12345->GUID = GUID;
 	subevent->blockName = name;
 	subevent->coreId = 0;
 	subevent->cycles = 0;
@@ -381,6 +396,14 @@ void DebugRenderLine(DebugState* state, const char* text, V2 pos, f32 scale, V4 
 }
 
 inline
+void DebugRenderLineWithOutline(DebugState* state, const char* text, V2 pos, f32 scale, V4 textColor, V4 outlineColor) {
+	Rect2 bb = {};
+	DebugRenderLine(state, text, pos, scale, outlineColor, false, &bb);
+	PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, outlineColor);
+	DebugRenderLine(state, text, pos, scale, textColor);
+}
+
+inline
 void DebugRenderLine(DebugState* state, const char* text, FontDrawContext& context, V4 color, bool render = true, Rect2* boundingBox = 0) {
 	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, color, render, boundingBox);
 	context.leftTopCurrent.E[1] -= context.lineAdvance;
@@ -440,8 +463,9 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 		TransientState* tranState = ptrcast(TransientState, debugGlobalMemory->transientMemory);
 		Assert(tranState->isInitialized);
 #if 1
+		DebugState* debugState = state;
 		InitializeArena(
-			state->mainArena,
+			debugState->mainArena,
 			ptrcast(u8, debugGlobalMemory->debugMemory) + sizeof(DebugState),
 			debugGlobalMemory->debugMemorySize - sizeof(DebugState)
 		);
@@ -455,7 +479,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 #if 0
 		SubArena(state->collationFrameArena, state->mainArena, MB(16));
 #else
-		SubArena(state->collationFrameArena, state->mainArena, kB(1256));
+		SubArena(state->collationFrameArena, state->mainArena, MB(2));
 #endif
 		state->controller = &input.controllers[KB_CONTROLLER_IDX];
 		state->renderGroup = AllocateRenderGroup(state->mainArena, &tranState->assets, MB(4), false);
@@ -472,7 +496,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 
 		state->memProfiler.view.rect = Rect2{
 			V2{ state->cpuProfiler.view.rect.min.X, state->cpuProfiler.view.rect.max.Y + 30.f },
-			V2{ state->cpuProfiler.view.rect.max + V2{0, 250.f + 30.f} }
+			V2{ state->cpuProfiler.view.rect.max + V2{0, 60.f + 30.f} }
 		};
 		state->memProfiler.view.offset = V2{ 0, 0 };
 		state->memProfiler.view.projection = GetOrtographicProjection(screenBitmap.width, screenBitmap.height, 1);
@@ -623,27 +647,50 @@ DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGro
 	return result;
 }
 
+inline
+DebugVariable* GetDebugVariable_(DebugState* state, const char* GUID, u32 hashSlot, u32 introspectionObjIndex) {
+	DebugVariable* result = 0;
+	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
+		if (var->GUID == GUID && var->introspectionObjectIndex == introspectionObjIndex) {
+			result = var;
+			break;
+		}
+	}
+	return result;
+}
+
+inline
+u32 GetDebugVariableHash_(DebugState* state, const char* GUID, u32 introspectionObjIndex) {
+	u32 hashSlot = (u4(uptr(GUID) >> 2) + 13 * introspectionObjIndex) % ArrayCount(state->variableHash);
+	return hashSlot;
+}
+
+inline
+DebugVariable* GetDebugVariable(DebugState* state, DebugVariableGroup* group, const char* GUID) {
+	u32 introspectionObjIndex = group ? group->introspectionObjectIndex : 0;
+	u32 hashSlot = GetDebugVariableHash_(state, GUID, introspectionObjIndex);
+	DebugVariable* result = GetDebugVariable_(state, GUID, hashSlot, introspectionObjIndex);
+	return result;
+}
+
 internal
 DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariableGroup* group, 
 	DebugStoredEvent* storedEvent) {
 	// TODO: Verify that this is compiled as AND and not as MOD
 	DebugEvent* event = &storedEvent->event;
-	u32 hashSlot = (u4(uptr(event->GUID) >> 2) + 13 * group->introspectionObjectIndex) % ArrayCount(state->variableHash);
-	DebugVariable* result = 0;
-	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-		if (var->GUID == event->GUID && var->introspectionObjectIndex == group->introspectionObjectIndex) {
-			result = var;
-			break;
-		}
-	}
+	u32 introspectionObjIndex = group ? group->introspectionObjectIndex : 0;
+	u32 hashSlot = GetDebugVariableHash_(state, event->GUID, introspectionObjIndex);
+	DebugVariable* result = GetDebugVariable_(state, event->GUID, hashSlot, introspectionObjIndex);
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariable);
 		result->GUID = event->GUID;
 		result->name = PushString(state->mainArena, event->GUID, StringLength(event->GUID) + 1);
 		result->nextInHash = state->variableHash[hashSlot];
-		result->introspectionObjectIndex = group->introspectionObjectIndex;
+		result->introspectionObjectIndex = introspectionObjIndex;
 		state->variableHash[hashSlot] = result;
-		AddVariableToGroup(state, group, result);
+		if (group) {
+			AddVariableToGroup(state, group, result);
+		}
 	}
 	return result;
 }
@@ -655,13 +702,18 @@ void FreeOldestFrame(DebugState* state) {
 	Assert(frame != &state->framesSentinel);
 	for (u32 hashSlot = 0; hashSlot < ArrayCount(state->variableHash); hashSlot++) {
 		for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-			if (var->permanent || !var->oldestEvent || 
-				var->oldestEvent->captureFrameIndex > frame->frameIndex) {
+			if ((var->permanent && var->oldestEvent == var->newestEvent) || 
+				!var->oldestEvent ||
+				var->oldestEvent->captureFrameIndex > frame->frameIndex
+				) {
 				continue;
 			}
 			DebugStoredEvent* lastEventToRemove = var->oldestEvent;
 			state->deallocEventsSum++;
 			while (lastEventToRemove->next && lastEventToRemove->captureFrameIndex <= frame->frameIndex) {
+				if (var->permanent && lastEventToRemove->next == var->newestEvent) {
+					break;
+				}
 				lastEventToRemove = lastEventToRemove->next;
 				state->deallocEventsSum++;
 			}
@@ -854,6 +906,7 @@ void DebugCollateEvents(DebugState* state) {
 	if(Profiler_Pause.data_bool) {
 		return;
 	}
+
 	u32 frameIndex = !debugGlobalState->currentFrameIndex;
 	f32 scale = DEBUG_COLLATION_SCALE;
 	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];
@@ -917,12 +970,56 @@ void DebugCollateEvents(DebugState* state) {
 			DebugVariableGroup* group = GetGroupForHierachicalName(state, state->defaultMainVariablesGroup, event->blockName);
 			DebugStoredEvent* storedEvent = StoreEvent(state, group, event, newFrame->frameIndex, true);
 		} break;
-		case Event_InitializeArena: {
-			MemoryArena* arena = ptrcast(MemoryArena, event->generic);
-			state->arenaViews[state->arenaViewsCount++] = {
-				arena->data, arena->capacity, arena->used, arena->tempCount, event->blockName
-			};
-		}
+		case Event_MemoryArenaInitialize: {
+			DebugArenaView* newArenaView = PushStructSize(state->mainArena, DebugArenaView);
+			newArenaView->event = StoreEvent(state, 0, event, newFrame->frameIndex, true);
+			newArenaView->firstChild = 0;
+			newArenaView->next = 0;
+			newArenaView->name = event->blockName;
+			newArenaView->GUID = event->GUID;
+			MemoryArenaSnapshot* snapshot = &event->data_MemoryArenaSnapshot;
+			MemoryArena* parentArena = snapshot->parent;
+			if (parentArena) {
+				DebugArenaView* view = state->arenaViews;
+				DebugArenaView* parentStack[16] = {};
+				u32 stackDepth = 0;
+				while (view) {
+					if (view->event->event.data_MemoryArenaSnapshot.arena.data == parentArena->data) {
+						newArenaView->next = view->firstChild;
+						view->firstChild = newArenaView;
+						DebugVariable* var = GetDebugVariable(state, 0, view->event->event.GUID);
+						var->newestEvent->event.data_MemoryArenaSnapshot.arena = *parentArena;
+						break;
+					}
+					if (view->firstChild) {
+						Assert(stackDepth < ArrayCount(parentStack) - 1);
+						parentStack[++stackDepth] = view;
+						view = view->firstChild;
+					}
+					else {
+						view = view->next;
+					}
+					while (!view && stackDepth > 0) {
+						view = parentStack[stackDepth--];
+						if (view) {
+							view = view->next;
+						}
+					}
+				}
+			}
+			else {
+				newArenaView->next = state->arenaViews;
+				state->arenaViews = newArenaView;
+			}
+		} break;
+		case Event_MemoryArenaUpdate: {
+			DebugVariable* var = GetDebugVariable(state, 0, event->GUID);
+			var->newestEvent->event = *event;
+
+			// TODO: This is nasty, cause StoreEvent actually allocates stuff on the arena, so it causes
+			// exponential growth of events incoming to the debug system until the memory is drained
+			// StoreEvent(state, 0, event, newFrame->frameIndex);
+		} break;
 		case Event_Data_u32:
 		case Event_Data_i32:
 		case Event_Data_f32:
@@ -933,7 +1030,6 @@ void DebugCollateEvents(DebugState* state) {
 		} break;
 		}
 	}
-	f32 xd = 0;
 }
 
 enum DebugVarToTextFlags {
@@ -1157,10 +1253,10 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 							V4 color = V4{ 1, 1, 1, 1 };
 							f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
 							V2 textPos = mousePos + V2{ 0, lineAdvance };
-							DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
+							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 });
 							textPos += V2{ 0, lineAdvance };
 							sprintf_s(buffer, "t<%4f,%4f>, p%p", span->minT, span->maxT, span->name);
-							DebugRenderLine(state, buffer, textPos, state->fontContext.scale, color);
+							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 });
 						}
 					}
 					state->nextHotInteraction = InteractionProfilerSpan(spanRect, selectedSpanData);
@@ -1284,22 +1380,46 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 	f32 a = viewDim.X / zoomedViewDim.X;
 	f32 b = view.rect.max.X - zoomedView.max.X * a;
 	f32 memoryToViewSpace = viewDim.X / f4(maxSize);
-	for (u32 arenaViewIndex = 0; arenaViewIndex < state->arenaViewsCount; arenaViewIndex++) {
-		DebugArenaView* arenaView = state->arenaViews + arenaViewIndex;
+
+	DebugArenaView* arenaView = state->arenaViews;
+	if (state->selectedArenaViewsCount > 0) {
+		arenaView = state->selectedArenaViews[state->selectedArenaViewsCount]->firstChild;
+	}
+	u32 arenaViewIndex = 0;
+	while (arenaView) {
 		u32 colorIndex = arenaViewIndex % ArrayCount(colors);
 		V4 color = colors[colorIndex];
-
-		f32 left = (f4(u64(arenaView->data) - memoryStart) - f4(0.5f * maxSize)) * memoryToViewSpace;
-		f32 usage = (f4(u64(arenaView->data + arenaView->used) - memoryStart) - f4(0.5f * maxSize)) * memoryToViewSpace;
-		f32 right = (f4(u64(arenaView->data + arenaView->capacity) - memoryStart) - f4(0.5f * maxSize)) * memoryToViewSpace;
+		
+		MemoryArenaSnapshot* snapshot = &arenaView->event->event.data_MemoryArenaSnapshot;
+		f32 left = (f4(u64(snapshot->arena.data) - memoryStart) - f4(0.5f * maxSize)) * memoryToViewSpace;
+		f32 usage = (f4(u64(snapshot->arena.data + snapshot->arena.used) - memoryStart) - f4(0.5f * maxSize)) * memoryToViewSpace;
+		f32 right = (f4(u64(snapshot->arena.data + snapshot->arena.capacity) - memoryStart) - f4(0.5f * maxSize)) * memoryToViewSpace;
 		f32 leftViewSpace = (viewCenter.X + left) * a + b;
 		f32 usageViewSpace = (viewCenter.X + usage) * a + b;
 		f32 rightViewSpace = (viewCenter.X + right) * a + b;
 		Rect2 capacityRect = GetRectFromMinMax(
 			V2{ leftViewSpace, view.rect.min.Y },
-			V2{ rightViewSpace, view.rect.min.Y + 0.8f * viewDim.Y}
+			V2{ rightViewSpace, view.rect.min.Y + 0.8f * viewDim.Y }
 		);
 		capacityRect = Intersection(capacityRect, view.rect);
+		if (IsInRectangle(capacityRect, mousePos)) {
+			if (IsVariableHot(state, arenaView)) {
+				color = V4{ 1, 1, 1, 1 };
+				if (arenaView->name) {
+					char buffer[256];
+					sprintf_s(buffer, "%s", arenaView->name);
+					color = V4{ 1, 1, 1, 1 };
+					f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
+					V2 textPos = mousePos + V2{ 0, lineAdvance };
+					DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 });
+					textPos += V2{ 0, lineAdvance };
+					MemoryArena* arena = &snapshot->arena;
+					sprintf_s(buffer, "u %lld/%lld, tempcount %d", arena->used, arena->capacity, arena->tempCount);
+					DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 });
+				}
+			}
+			state->nextHotInteraction = InteractionArenaView(capacityRect, arenaView);
+		}
 		if (IsValid(capacityRect)) {
 			PushRect(state->renderGroup, capacityRect, 0, V2{ 0, 0 }, color);
 		}
@@ -1310,6 +1430,8 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 		);
 		PushRect(state->renderGroup, usageRect, 0, V2{ 0, 0 }, color);
 #endif
+		arenaView = arenaView->next;
+		arenaViewIndex++;
 	}
 #endif
 #if 0
@@ -1415,12 +1537,21 @@ internal
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	if (WasPressed(controller.B.kEsc)) {
 		state->selectedCount = 0;
-		if (state->cpuProfiler.selectedSpanCount) {
+		if (state->cpuProfiler.selectedSpanCount > 0) {
 			if (IsPressed(controller.B.kShift)) {
 				state->cpuProfiler.selectedSpanCount = 0;
 			}
 			else {
 				state->cpuProfiler.selectedSpanCount--;
+			}
+		}
+		
+		if (state->selectedArenaViewsCount > 0) {
+			if (IsPressed(controller.B.kShift)) {
+				state->selectedArenaViewsCount = 0;
+			}
+			else {
+				state->selectedArenaViewsCount--;
 			}
 		}
 	}
@@ -1466,6 +1597,11 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
 					state->nextHotInteraction.type = DebugInteractionType::Tear;
 				}
+			}
+		} break;
+		case DebugInteractionObject::ArenaView: {
+			if (WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction.type = DebugInteractionType::SelectArenaView;
 			}
 		} break;
 		case DebugInteractionObject::Introspectable: {
@@ -1640,19 +1776,11 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->cpuProfiler.selectedSpans[++state->cpuProfiler.selectedSpanCount] = state->interaction.selectedSpan;
 		interactionEnded = true;
 	} break;
-#if 0
-	case DebugInteract_Compile: {
-		if (!IsPressed(controller.B.mouseLeft)) {
-			if (state->compilationHandle.state != CmdState_Running) {
-				WriteDebugConfig(state);
-				char cwd[] = "..\\code";
-				char cmd[] = "cmd.exe /c build.bat --game_only";
-				state->compilationHandle = Platform->SystemExecuteCommand(cwd, cmd);
-			}
-			interactionEnded = true;
-		}
+	case DebugInteractionType::SelectArenaView: {
+		Assert(state->selectedArenaViewsCount < ArrayCount(state->selectedArenaViews) - 1);
+		state->selectedArenaViews[++state->selectedArenaViewsCount] = state->interaction.arenaView;
+		interactionEnded = true;
 	} break;
-#endif
 	default: {
 		interactionEnded = true;
 	} break;
@@ -1761,6 +1889,10 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap) {
 		for (u32 index = 0; index < ArrayCount(allocs); index++) {
 			at += sprintf_s(at, end - at, "%s%d/%d   ", varNames[index], deallocs[index], allocs[index]);
 		}
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+#endif
+#if 0
+		sprintf_s(buffer, 256, "pushes size events: f: %d all: %d", state->debugPushSizeEventsPerFrame, state->debugPushSizeEvents);
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 #endif
 	}

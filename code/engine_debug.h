@@ -36,7 +36,8 @@ enum DebugEventType : u8 {
 	Event_Data_Rect3,
 	
 	Event_PermanentVariableDeclaration,
-	Event_InitializeArena,
+	Event_MemoryArenaInitialize,
+	Event_MemoryArenaUpdate,
 	Event_Count,
 };
 
@@ -44,6 +45,10 @@ struct DebugEventCountMetrics {
 	u32 count[Event_Count + 1];
 };
 
+struct MemoryArenaSnapshot {
+	MemoryArena arena;
+	MemoryArena* parent;
+};
 
 struct DebugEvent {
 	DebugEventType type;
@@ -59,6 +64,7 @@ struct DebugEvent {
 		void* generic;
 		DebugId data_DebugId;
 		DebugEvent* data_DebugEvent;
+		MemoryArenaSnapshot data_MemoryArenaSnapshot;
 
 		bool data_bool;
 		u32 data_u32;
@@ -134,20 +140,20 @@ struct DebugThreadStack {
 #define UniqueGUID_(file, line, counter) UniqueGUID__(file, line, counter)
 #define UniqueGUID UniqueGUID_(__FILE__, __LINE__, __COUNTER__)
 #define RecordDebugEventNoBracket_(counter, eventtype, filename, blockname, linenumber) \
-	u64 frameAndEventIndex = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);\
-	u32 frameIndex = frameAndEventIndex >> 32;\
-	u32 eventIndex = frameAndEventIndex & U32_MAX;\
-	Assert(eventIndex < MAX_DEBUG_EVENTS);\
-	DebugEvent* event = debugGlobalState->events[frameIndex] + eventIndex;\
+	u64 frameAndEventIndex12345 = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);\
+	u32 frameIndex12345 = frameAndEventIndex12345 >> 32;\
+	u32 eventIndex12345 = frameAndEventIndex12345 & U32_MAX;\
+	Assert(eventIndex12345 < MAX_DEBUG_EVENTS);\
+	DebugEvent* event12345 = debugGlobalState->events[frameIndex12345] + eventIndex12345;\
 	u32 coreId;\
-	event->cycles = __rdtscp(&coreId);\
-	event->coreId = u8(coreId);\
-	event->type = eventtype;\
-	event->file = filename;	\
-	event->GUID = UniqueGUID; \
-	event->blockName = blockname; \
-	event->line = linenumber;	\
-	event->threadId = u2(GetFastThreadId());
+	event12345->cycles = __rdtscp(&coreId);\
+	event12345->coreId = u8(coreId);\
+	event12345->type = eventtype;\
+	event12345->file = filename;	\
+	event12345->GUID = UniqueGUID; \
+	event12345->blockName = blockname; \
+	event12345->line = linenumber;	\
+	event12345->threadId = u2(GetFastThreadId());
 #define RecordDebugEventNoBracket(counter, eventtype, filename, blockname, linenumber) RecordDebugEventNoBracket_(counter, eventtype, filename, blockname, linenumber)
 
 #if INTERNAL_BUILD
@@ -187,12 +193,12 @@ internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, Debu
 #define DEBUG_BEGIN_DATA_BLOCK(Name, debugid) { \
 	u16 counter##Name = __COUNTER__; \
 	RecordDebugEventNoBracket(counter##Name, Event_Data_BlockBegin, __FILE__, #Name, __LINE__) \
-	event->data_DebugId = debugid; }
+	event12345->data_DebugId = debugid; }
 #define DEBUG_END_DATA_BLOCK { \
 	RecordDebugEventNoBracket(0, Event_Data_BlockEnd, __FILE__, "DataEndBlock", __LINE__) }
 #define DEBUG_DATA(type, data) { \
 	RecordDebugEventNoBracket(0, Event_Data_##type, __FILE__, #data, __LINE__); \
-	event->data_##type = data; }
+	event12345->data_##type = data; }
 #define DEFINE_DEBUG_VARIABLE_WITH_INIT(type, variable, init) \
 	local_persist DebugEvent variable = *InitializePermanentDebugVariable((variable.data_##type = init, &variable), Event_Data_##type, #variable, __FILE__, __LINE__, UniqueGUID)
 #define DEFINE_DEBUG_VARIABLE_(type, variable, init) DEFINE_DEBUG_VARIABLE_WITH_INIT(type, variable, init)
@@ -201,18 +207,24 @@ internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, Debu
 	DEFINE_DEBUG_VARIABLE(bool, variable); \
 	if (variable.data_bool)
 
-
-#define InitializeArena(arena, data, capacity) \
-	InitializeArena(arena, data, capacity); { \
-	RecordDebugEventNoBracket(0, Event_InitializeArena, __FILE__, #arena, __LINE__); \
-	event->generic = ptrcast(void, &arena); }
-
-#define SubArena(subarena, arena, capacity) \
-	SubArena(subarena, arena, capacity); { \
-	RecordDebugEventNoBracket(0, Event_InitializeArena, __FILE__, #subarena, __LINE__); \
-	event->generic = ptrcast(void, &subarena); }
+#define RecordMemoryDebugEvent_(type, arenaArg) \
+	RecordDebugEventNoBracket(0, type, __FILE__, #arenaArg, __LINE__) \
+	event12345->GUID = ptrcast(const char, &(arenaArg)); \
+	event12345->data_MemoryArenaSnapshot.arena = arenaArg; \
+	event12345->data_MemoryArenaSnapshot.parent = 0;
+#define RecordMemoryDebugEvent(type, arenaArg) { RecordMemoryDebugEvent_(type, arenaArg) }
+#define RecordSubArenaDebugEvent(subarenaArg, arenaArg) { \
+	RecordMemoryDebugEvent_(Event_MemoryArenaInitialize, subarenaArg) \
+	event12345->data_MemoryArenaSnapshot.parent = &(arenaArg); }
+#define RecordAssetMemoryBlockEvent(block) { \
+	RecordDebugEventNoBracket(0, Event_AssetMemoryBlock, __FILE__, "AssetMemoryBlock", __LINE__) \
+	event12345->data_AssetMemoryBlock = *(block); }
 
 #else
+#define RecordMemoryDebugEvent(...)
+#define RecordSubArenaDebugEvent(...)
+#define RecordAssetMemoryBlockEvent(...)
+
 #define TIMED_FUNCTION
 #define TIMED_BLOCK_BEGIN__(...)
 #define TIMED_BLOCK_BEGIN(...)
@@ -327,6 +339,7 @@ enum class DebugInteractionObject {
 	MovedRect2,
 	ResizedRect2,
 	ProfilerSpan,
+	ArenaView,
 	Float
 };
 
@@ -341,6 +354,7 @@ enum class DebugInteractionType {
 	MoveRect2,
 	Select,
 	SelectProfilerSpan,
+	SelectArenaView,
 	ScrollProfiler
 };
 
@@ -401,11 +415,12 @@ struct DebugProfiler {
 };
 
 struct DebugArenaView {
-	u8* data;
-	u64 capacity;
-	u64 used;
-	u32 tempCount;
 	const char* name;
+	const char* GUID;
+	DebugStoredEvent* event;
+
+	DebugArenaView* next;
+	DebugArenaView* firstChild;
 };
 
 struct DebugProfiler;
@@ -420,6 +435,7 @@ struct DebugInteraction {
 		DebugModifiedRect2 mod_Rect2;
 		DebugDraggedFloat dragged_f32;
 		DebugSelectedSpan selectedSpan;
+		DebugArenaView* arenaView;
 		DebugProfiler* profiler;
 	};
 	V2 startMousePos;

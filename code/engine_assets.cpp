@@ -746,8 +746,9 @@ void AllocateAssets(TransientState* tranState) {
 	assets.memorySentinel.remainingSize = 0;
 	assets.memorySentinel.totalSize = 0;
 	assets.memorySentinel.flags = 0;
-	InsertNewMemoryBlock(&assets.memorySentinel,
-		PushSize(tranState->arena, memoryForAssetsSize), memoryForAssetsSize);
+
+	void* firstBlock = PushSize(tranState->arena, memoryForAssetsSize);
+	InsertNewMemoryBlock(&assets.memorySentinel, firstBlock, memoryForAssetsSize);
 
 	TemporaryMemory scratchMemory = BeginTempMemory(tranState->arena);
 	AssetFileSource* sources = PushArray(tranState->arena, fileGroup->count, AssetFileSource);
