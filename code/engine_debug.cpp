@@ -1190,7 +1190,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 inline
 Rect2 ZoomTowardsDirection(DebugVirtualView& view, i32 ticks, V2 mousePos) {
 	f32 prevZoomAmount = view.zoom;
-	view.zoom = Clip(view.zoom - view.zoom * 0.03f * f4(ticks), 0.03f, view.projection.camera.focalLength);
+	view.zoom = Clip(view.zoom - view.zoom * 0.06f * f4(ticks), 0.01f, view.projection.camera.focalLength);
 	V2 viewCenter = GetCenter(view.rect);
 	V2 viewDim = GetDim(view.rect);
 	Rect2 zoomedView = GetRenderRectangleAtDistance(view.projection, u4(viewDim.X), u4(viewDim.Y), view.zoom);
@@ -1296,10 +1296,13 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 		f32 usageViewSpace = (viewCenter.X + usage) * a + b;
 		f32 rightViewSpace = (viewCenter.X + right) * a + b;
 		Rect2 capacityRect = GetRectFromMinMax(
-			V2{ leftViewSpace, view.rect.min.Y + (arenaViewIndex) * 30.f },
-			V2{ rightViewSpace, view.rect.min.Y + (arenaViewIndex + 1) * 30.f }
+			V2{ leftViewSpace, view.rect.min.Y },
+			V2{ rightViewSpace, view.rect.min.Y + 0.8f * viewDim.Y}
 		);
-		PushRect(state->renderGroup, capacityRect, 0, V2{ 0, 0 }, color);
+		capacityRect = Intersection(capacityRect, view.rect);
+		if (IsValid(capacityRect)) {
+			PushRect(state->renderGroup, capacityRect, 0, V2{ 0, 0 }, color);
+		}
 #if 0
 		Rect2 usageRect = GetRectFromMinMax(
 			V2{ leftViewSpace, view.rect.min.Y },
@@ -1307,26 +1310,11 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 		);
 		PushRect(state->renderGroup, usageRect, 0, V2{ 0, 0 }, color);
 #endif
-#if 0
-		f32 placementOffset = state->memProfiler.scroll.valueMax - profilerDim.X;
-		f32 placementSpread = profilerDim.X + GetScrollValue(state->memProfiler.scroll);
-		u64 leftOffset = u64(view->data - memoryStart) * u64(placementSpread) / maxSize;
-		u64 usageEndOffset = u64(view->data - memoryStart + view->used) * u64(placementSpread) / maxSize;
-		u64 rightOffset = u64(view->data - memoryStart + view->capacity) * u64(placementSpread) / maxSize;
-		f32 left = boundaries.min.X + leftOffset - placementOffset;
-		f32 usage = boundaries.min.X + usageEndOffset - placementOffset;
-		f32 right = boundaries.min.X + rightOffset - placementOffset;
-		f32 baseY = boundaries.min.Y + 30.f;
-		Rect2 usageArenaRect = GetRectFromMinMax(V2{ left, baseY - 0.5f * spanHeight }, V2{ usage, baseY + 0.5f * spanHeight });
-		usageArenaRect = Intersection(usageArenaRect, boundaries);
-		PushRect(state->renderGroup, usageArenaRect, 0, V2{ 0, 0 }, color);
-#endif
-#if 0
-		Rect2 fullArenaRect = GetRectFromMinMax(V2{ left, baseY - 0.5f * spanHeight }, V2{ right, baseY + 0.5f * spanHeight });
-#endif
 	}
 #endif
+#if 0
 	PushRectOutlineInside(state->renderGroup, zoomedView, 0, V4{ 1, 0, 0, 1 }, 2.f);
+#endif
 
 	V2 resizeCenter = view.rect.max;
 	V2 resizeSize = V2{ 8, 8 };
