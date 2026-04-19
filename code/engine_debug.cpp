@@ -170,7 +170,6 @@ inline
 DebugInteraction InteractionMovedRect2(Rect2 bbox, Rect2* mover) {
 	DebugInteraction interaction = {};
 	interaction.startBoundingBox = bbox;
-	interaction.type = DebugInteractionType::MoveRect2;
 	interaction.obj = DebugInteractionObject::MovedRect2;
 	interaction.mod_Rect2.initial = *mover;
 	interaction.mod_Rect2.actual = mover;
@@ -197,15 +196,6 @@ DebugInteraction InteractionDragIncrease(Rect2 bbox, f32* dragged, f32 amountPer
 	interaction.dragged_f32.actual = dragged;
 	interaction.dragged_f32.amountPerPixel = amountPerPixel;
 	interaction.dragged_f32.axis = axis;
-	return interaction;
-}
-
-inline
-DebugInteraction InteractionProfiler(Rect2 bbox, DebugProfiler& profiler) {
-	DebugInteraction interaction = {};
-	interaction.startBoundingBox = bbox;
-	interaction.obj = DebugInteractionObject::Profiler;
-	interaction.profiler = &profiler;
 	return interaction;
 }
 
@@ -472,15 +462,17 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 		state->highPriorityQueue = tranState->highPriorityQueue;
 		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
 		
-		state->cpuProfiler.boundaries = Rect2{
+		state->cpuProfiler.view.rect = Rect2{
 			V2{ state->overlayBoundaries.min + V2{ 30.f, 30.f } },
 			V2{ state->overlayBoundaries.max.X - 30.f, state->overlayBoundaries.min.Y + 250.f }
 		};
-		state->cpuProfiler.scroll.distancePerTick = 30.f;
+		state->cpuProfiler.view.offset = V2{ 0, 0 };
+		state->cpuProfiler.view.projection = GetOrtographicProjection(screenBitmap.width, screenBitmap.height, 1);
+		state->cpuProfiler.view.zoom = state->cpuProfiler.view.projection.camera.focalLength;
 
 		state->memProfiler.view.rect = Rect2{
-			V2{ state->cpuProfiler.boundaries.min.X, state->cpuProfiler.boundaries.max.Y + 30.f },
-			V2{ state->cpuProfiler.boundaries.max + V2{0, 250.f + 30.f} }
+			V2{ state->cpuProfiler.view.rect.min.X, state->cpuProfiler.view.rect.max.Y + 30.f },
+			V2{ state->cpuProfiler.view.rect.max + V2{0, 250.f + 30.f} }
 		};
 		state->memProfiler.view.offset = V2{ 0, 0 };
 		state->memProfiler.view.projection = GetOrtographicProjection(screenBitmap.width, screenBitmap.height, 1);
@@ -1072,17 +1064,39 @@ f32 GetScrollValueForContainer(DebugScroll& scroll, f32 container) {
 	return value;
 }
 
+inline
+void RenderScroll(DebugState* state, V2 center, V2 size, V2 mousePos, f32* data, DebugAxis axis, f32 amountPerPixel) {
+	Rect2 scrollAnchor = GetRectFromCenterDim(center, size);
+	V4 itemColor = V4{ 1, 1, 1, 1 };
+	if (IsInRectangle(scrollAnchor, mousePos)) {
+		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
+		state->nextHotInteraction = InteractionDragIncrease(scrollAnchor, data, amountPerPixel, axis);
+	}
+	PushRect(state->renderGroup, scrollAnchor, 0, V2{ 0, 0 }, itemColor);
+}
+
+inline
+void RenderResizeAnchor(DebugState* state, V2 center, V2 size, V2 mousePos, Rect2* data) {
+	Rect2 resizeAnchor = GetRectFromCenterDim(center, size);
+	V4 itemColor = V4{ 1, 1, 1, 1 };
+	if (IsInRectangle(resizeAnchor, mousePos)) {
+		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
+		state->nextHotInteraction = InteractionResizedRect2(resizeAnchor, data);
+	}
+	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
+}
+
+
 internal
 void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mousePos) {
 	TIMED_FUNCTION;
-	Rect2 boundaries = state->cpuProfiler.boundaries;
-	if (IsInRectangle(boundaries, mousePos)) {
-		state->nextHotInteraction = InteractionProfiler(boundaries, state->cpuProfiler);
+	DebugVirtualView& view = state->cpuProfiler.view;
+	bool isHot = IsInRectangle(view.rect, mousePos);
+	if (isHot) {
+		state->nextHotInteraction = InteractionMovedRect2(view.rect, &view.rect);
 	}
 #if 1
-	f32 profilerPosY = boundaries.min.Y;
-	f32 profilerPosX = boundaries.min.X;
-	V2 profilerDim = GetDim(boundaries);
+	V2 viewDim = GetDim(view.rect);
 	f32 threadLaneWidth = 8.f;
 	f32 threadLaneSpace = 2.f;
 	f32 threadLaneTotalWidth = threadLaneWidth + threadLaneSpace;
@@ -1097,12 +1111,16 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		V4{1, 0.5f, 0.5f, 1},
 	};
 	f32 frameWidth = f4(state->threadStacksCount) * threadLaneTotalWidth + frameLaneSpace;
-	f32 currentWidth = frameWidth - GetScrollValue(state->cpuProfiler.scroll);
-	AdvanceScroll(state->cpuProfiler.scroll, state->controller->mouseWheelTicks);
-
+	f32 maxWidth = Maximum(state->collationFrameCount * frameWidth, viewDim.X);
+	if (isHot) {
+		view.offset += V2{ state->controller->mouseWheelTicks * 30.f, 0.f };
+		view.offset = Clip(view.offset, 0.f, maxWidth - viewDim.X);
+	}
+	
+	f32 currentWidth = frameWidth - view.offset.X;
 	f32 collationScale = DEBUG_COLLATION_SCALE;
 	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
-	PushRect(state->renderGroup, boundaries, 0, V2{ 0, 0 }, backgroundColor);
+	PushRect(state->renderGroup, view.rect, 0, V2{ 0, 0 }, backgroundColor);
 	DebugCollationFrame* frame = state->framesSentinel.next;
 
 	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
@@ -1117,13 +1135,13 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		}
 	}
 	
-	while (currentWidth < profilerDim.X + frameWidth && frame != &state->framesSentinel) {
+	while (currentWidth < viewDim.X + frameWidth && frame != &state->framesSentinel) {
 		if (currentWidth >= 0) {
 			for (DebugProfilerSpan* span = frame->firstCpuSpan; span; span = span->next) {
 				if (!SpanShouldBeRendered(selectedSpan, span)) {
 					continue;
 				}
-				Rect2 spanRect = GetCpuSpanRectangle(boundaries, currentWidth, span->thread,
+				Rect2 spanRect = GetCpuSpanRectangle(view.rect, currentWidth, span->thread,
 					threadLaneWidth, threadLaneTotalWidth, span->minT, span->maxT
 				);
 
@@ -1159,39 +1177,46 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		}
 	}
 
-	Rect2 resizeAnchor = GetRectFromCenterDim(boundaries.max, V2{ 8, 8 });
-	V4 itemColor = V4{ 1, 1, 1, 1 };
-	if (IsInRectangle(resizeAnchor, mousePos)) {
-		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
-		state->nextHotInteraction = InteractionResizedRect2(resizeAnchor, &state->cpuProfiler.boundaries);
-	}
-	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
+	V2 resizeCenter = view.rect.max;
+	V2 resizeSize = V2{ 8, 8 };
+	RenderResizeAnchor(state, resizeCenter, resizeSize, mousePos, &state->cpuProfiler.view.rect);
 
-	ChangeScrollRange(state->cpuProfiler.scroll, Maximum(state->collationFrameCount * frameWidth - profilerDim.X, 0));
-	V2 scrollAnchorCenter = V2{ 
-		boundaries.max.X - GetScrollValueForContainer(state->cpuProfiler.scroll, profilerDim.X), 
-		boundaries.min.Y
-	};
-	Rect2 scrollAnchor = GetRectFromCenterDim(
-		scrollAnchorCenter, 
-		{ GetScrollSizeForContainer(state->cpuProfiler.scroll, profilerDim.X), 8.f }
-	);
-	itemColor = V4{ 1, 1, 1, 1 };
-	if (IsInRectangle(scrollAnchor, mousePos)) {
-		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
-		f32 amountPerPixel = -1.f / profilerDim.X;
-		state->nextHotInteraction = InteractionDragIncrease(scrollAnchor, &state->cpuProfiler.scroll.value, amountPerPixel, Axis_X);
-	}
-	PushRect(state->renderGroup, scrollAnchor, 0, V2{ 0, 0 }, itemColor);
+	V2 scrollSize = V2{ Squared(viewDim.X) / maxWidth, 8.f };
+	V2 scrollCenter = V2{ view.rect.max.X - view.offset.X / maxWidth * viewDim.X - 0.5f * scrollSize.X, view.rect.min.Y };
+	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, - maxWidth / viewDim.X);
 #endif
+}
+
+inline
+Rect2 ZoomTowardsDirection(DebugVirtualView& view, i32 ticks, V2 mousePos) {
+	f32 prevZoomAmount = view.zoom;
+	view.zoom = Clip(view.zoom - view.zoom * 0.03f * f4(ticks), 0.03f, view.projection.camera.focalLength);
+	V2 viewCenter = GetCenter(view.rect);
+	V2 viewDim = GetDim(view.rect);
+	Rect2 zoomedView = GetRenderRectangleAtDistance(view.projection, u4(viewDim.X), u4(viewDim.Y), view.zoom);
+
+	V2 mouseProjected = (mousePos - viewCenter); 
+	mouseProjected.X = Clip(mouseProjected.X, -0.5f * viewDim.X, 0.5f * viewDim.X);
+	mouseProjected.Y = Clip(mouseProjected.Y, -0.5f * viewDim.Y, 0.5f * viewDim.Y);
+	
+	V2 amountToMove = mouseProjected * (prevZoomAmount - view.zoom) / view.projection.camera.focalLength;
+	V2 minOffset = view.rect.min - zoomedView.min - viewCenter;
+	V2 maxOffset = view.rect.max - zoomedView.max - viewCenter;
+	view.offset += amountToMove;
+	view.offset.X = Clip(view.offset.X, minOffset.X, maxOffset.X);
+	view.offset.Y = Clip(view.offset.Y, minOffset.Y, maxOffset.Y);
+	V2 finalOffset = view.offset + viewCenter;
+	zoomedView = MoveRectangle(zoomedView, finalOffset);
+	return zoomedView;
 }
 
 internal
 void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mousePos) {
 	TIMED_FUNCTION;
 	DebugVirtualView& view = state->memProfiler.view;
-	if (IsInRectangle(view.rect, mousePos)) {
-		state->nextHotInteraction = InteractionProfiler(view.rect, state->memProfiler);
+	bool isHot = IsInRectangle(view.rect, mousePos);
+	if (isHot) {
+		state->nextHotInteraction = InteractionMovedRect2(view.rect, &view.rect);
 	}
 #if 1
 	
@@ -1200,61 +1225,37 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 		V4{1, 0, 0, 1},
 		V4{0, 1, 0, 1},
 		V4{0, 0, 1, 1},
-		V4{0, 1, 1, 1},
+		//V4{0, 1, 1, 1},
 		V4{1, 0, 1, 1},
 		V4{1, 1, 0, 1},
 		V4{1, 0.5f, 0.5f, 1},
 	};
-	u64 maxSize = debugGlobalMemory->memoryBlockSize;
-	u64 memoryStart = u64(debugGlobalMemory->memoryBlock);
-	f32 focalLength = state->memProfiler.view.projection.camera.focalLength;
-
+	Rect2 zoomedView = ZoomTowardsDirection(view, isHot ? controller.mouseWheelTicks : 0, mousePos);
 	V2 viewDim = GetDim(view.rect);
 	V2 viewCenter = GetCenter(view.rect);
+	V2 zoomedViewDim = GetDim(zoomedView);
 
-	f32 prevZoomAmount = view.zoom;
-	view.zoom = Clip(view.zoom - view.zoom * 0.03f * f4(controller.mouseWheelTicks), 0.03f, focalLength);
-	f32 mouseXProfilerSpace = (mousePos.X - viewCenter.X);
-	mouseXProfilerSpace = Clip(mouseXProfilerSpace, -0.5f * viewDim.X, 0.5f * viewDim.X);
-
-	Rect2 virtualView = GetRenderRectangleAtDistance(state->memProfiler.view.projection, u4(viewDim.X), u4(viewDim.Y), view.zoom);
-	f32 amountToMoveInX = mouseXProfilerSpace * (prevZoomAmount - view.zoom) / focalLength;
-
-	view.offset.X += amountToMoveInX;
-	f32 minOffset = view.rect.min.X - virtualView.min.X - viewCenter.X;
-	f32 maxOffset = view.rect.max.X - virtualView.max.X - viewCenter.X;
-	view.offset.X = Clip(view.offset.X, minOffset, maxOffset);
-	f32 finalOffset = view.offset.X + viewCenter.X;
-	virtualView = MoveRectangle(virtualView, V2{ finalOffset, viewCenter.Y });
-
-#if 1
+#if 0
 	char buffer[256];
 	char* at = buffer;
 	char* end = buffer + sizeof(buffer);
 	DebugRenderLine(state, "------------------", state->fontContext, V4{ 1, 1, 1, 1 });
-	sprintf_s(buffer, 256, "virtualView.min: %f, %f", virtualView.min.X, virtualView.min.Y);
+	sprintf_s(buffer, 256, "zoomedView.min: %f, %f", zoomedView.min.X, zoomedView.min.Y);
 	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-	sprintf_s(buffer, 256, "virtualView.max: %f, %f", virtualView.max.X, virtualView.max.Y);
+	sprintf_s(buffer, 256, "zoomedView.max: %f, %f", zoomedView.max.X, zoomedView.max.Y);
 	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-	sprintf_s(buffer, 256, "mouseXprofspace: %f, zoomAmount: %f", mouseXProfilerSpace, view.zoom);
+	sprintf_s(buffer, 256, "zoomAmount: %f offset: %f, ", view.zoom, view.offset.X);
 	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-	sprintf_s(buffer, 256, "offset: %f, final: %f", view.offset.X, finalOffset);
-	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-	sprintf_s(buffer, 256, "scroll.range: %f, value: %f, %f min:", state->memProfiler.scroll.range, state->memProfiler.scroll.value, state->memProfiler.scroll.min);
-	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-	
 #endif
 
 	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
 	PushRect(state->renderGroup, view.rect, 0, V2{ 0, 0 }, backgroundColor);
 
-	
-	for (u32 arenaViewIndex = 0; arenaViewIndex < state->arenaViewsCount; arenaViewIndex++) {
-		DebugArenaView* arenaView = state->arenaViews + arenaViewIndex;
-		u32 colorIndex = arenaViewIndex % ArrayCount(colors);
-		V4 color = colors[colorIndex];
-		
-		f32 testData[] = {
+
+	u64 maxSize = debugGlobalMemory->memoryBlockSize;
+	u64 memoryStart = u64(debugGlobalMemory->memoryBlock);
+#if 0
+	f32 testData[] = {
 			memoryStart + 0.f,
 			memoryStart + 0.1f * maxSize,
 			memoryStart + 0.2f * maxSize,
@@ -1266,21 +1267,46 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 			memoryStart + 0.8f * maxSize,
 			memoryStart + 0.9f * maxSize,
 			memoryStart + f4(maxSize)
-		};
-		f32 baseY = view.rect.min.Y + 30.f;
-		for (u32 i = 0; i < ArrayCount(testData); i++) {
-			f32 testPoint = (f4(testData[i] - memoryStart) - f4(0.5f * maxSize)) / f4(maxSize) * viewDim.X;
-			f32 a = viewDim.X / GetDim(virtualView).X;
-			f32 b = view.rect.max.X - virtualView.max.X * a;
-			f32 center = (viewCenter.X + testPoint) * a + b;
-			V4 c = V4{ i * 0.1f, 0.f, 0.f, 1 };
-			if (i == (ArrayCount(testData) - 1) || i == 0) {
-				c = V4{ 1, 1, 1, 1 };
-			}
-			PushRect(state->renderGroup, V3{ center, baseY, 0.f }, V2{ 8.f, 8.f }, V2{ 0, 0 }, c);
+	};
+	f32 baseY = view.rect.min.Y + 30.f;
+	for (u32 i = 0; i < ArrayCount(testData); i++) {
+		f32 testPoint = (f4(testData[i] - memoryStart) - f4(0.5f * maxSize)) / f4(maxSize) * viewDim.X;
+		f32 a = viewDim.X / zoomedViewDim.X;
+		f32 b = view.rect.max.X - zoomedView.max.X * a;
+		f32 center = (viewCenter.X + testPoint) * a + b;
+		V4 c = V4{ i * 0.1f, 0.f, 0.f, 1 };
+		if (i == (ArrayCount(testData) - 1) || i == 0) {
+			c = V4{ 1, 1, 1, 1 };
 		}
-		
-		
+		PushRect(state->renderGroup, V3{ center, baseY, 0.f }, V2{ 8.f, 8.f }, V2{ 0, 0 }, c);
+	}
+#else
+	f32 a = viewDim.X / zoomedViewDim.X;
+	f32 b = view.rect.max.X - zoomedView.max.X * a;
+	f32 memoryToViewSpace = viewDim.X / f4(maxSize);
+	for (u32 arenaViewIndex = 0; arenaViewIndex < state->arenaViewsCount; arenaViewIndex++) {
+		DebugArenaView* arenaView = state->arenaViews + arenaViewIndex;
+		u32 colorIndex = arenaViewIndex % ArrayCount(colors);
+		V4 color = colors[colorIndex];
+
+		f32 left = (f4(u64(arenaView->data) - memoryStart) - f4(0.5f * maxSize)) * memoryToViewSpace;
+		f32 usage = (f4(u64(arenaView->data + arenaView->used) - memoryStart) - f4(0.5f * maxSize)) * memoryToViewSpace;
+		f32 right = (f4(u64(arenaView->data + arenaView->capacity) - memoryStart) - f4(0.5f * maxSize)) * memoryToViewSpace;
+		f32 leftViewSpace = (viewCenter.X + left) * a + b;
+		f32 usageViewSpace = (viewCenter.X + usage) * a + b;
+		f32 rightViewSpace = (viewCenter.X + right) * a + b;
+		Rect2 capacityRect = GetRectFromMinMax(
+			V2{ leftViewSpace, view.rect.min.Y + (arenaViewIndex) * 30.f },
+			V2{ rightViewSpace, view.rect.min.Y + (arenaViewIndex + 1) * 30.f }
+		);
+		PushRect(state->renderGroup, capacityRect, 0, V2{ 0, 0 }, color);
+#if 0
+		Rect2 usageRect = GetRectFromMinMax(
+			V2{ leftViewSpace, view.rect.min.Y },
+			V2{ usageViewSpace, view.rect.min.Y + 30.f }
+		);
+		PushRect(state->renderGroup, usageRect, 0, V2{ 0, 0 }, color);
+#endif
 #if 0
 		f32 placementOffset = state->memProfiler.scroll.valueMax - profilerDim.X;
 		f32 placementSpread = profilerDim.X + GetScrollValue(state->memProfiler.scroll);
@@ -1299,37 +1325,16 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 		Rect2 fullArenaRect = GetRectFromMinMax(V2{ left, baseY - 0.5f * spanHeight }, V2{ right, baseY + 0.5f * spanHeight });
 #endif
 	}
+#endif
+	PushRectOutlineInside(state->renderGroup, zoomedView, 0, V4{ 1, 0, 0, 1 }, 2.f);
 
-	PushRectOutlineInside(state->renderGroup, virtualView, 0, V4{ 1, 0, 0, 1 }, 2.f);
+	V2 resizeCenter = view.rect.max;
+	V2 resizeSize = V2{ 8, 8 };
+	RenderResizeAnchor(state, resizeCenter, resizeSize, mousePos, &view.rect);
 
-	Rect2 resizeAnchor = GetRectFromCenterDim(view.rect.max, V2{ 8, 8 });
-	V4 itemColor = V4{ 1, 1, 1, 1 };
-	if (IsInRectangle(resizeAnchor, mousePos)) {
-		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
-		state->nextHotInteraction = InteractionResizedRect2(resizeAnchor, &state->memProfiler.boundaries);
-	}
-	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
-
-	/*ChangeScrollRange(state->memProfiler.scroll, scrollRange);
-	state->memProfiler.scroll.value -= amountToMoveInX / profilerDim.X;
-	state->memProfiler.scroll.value = Clip01(state->memProfiler.scroll.value);*/
-
-	static f32 scroll = 0.f;
-	f32 scrollSize = GetDim(virtualView).X;
-	f32 scrollValue = -view.offset.X;
-
-	V2 scrollAnchorCenter = V2{
-		viewCenter.X - scrollValue,
-		view.rect.min.Y
-	};
-	Rect2 scrollAnchor = GetRectFromCenterDim(scrollAnchorCenter, V2{ scrollSize, 8.f });
-	itemColor = V4{ 1, 1, 1, 1 };
-	if (IsInRectangle(scrollAnchor, mousePos)) {
-		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
-		f32 amountPerPixel = 1.f;
-		state->nextHotInteraction = InteractionDragIncrease(scrollAnchor, &view.offset.X, amountPerPixel, Axis_X);
-	}
-	PushRect(state->renderGroup, scrollAnchor, 0, V2{ 0, 0 }, itemColor);
+	V2 scrollCenter = V2{ viewCenter.X + view.offset.X, view.rect.min.Y };
+	V2 scrollSize = V2{ zoomedViewDim.X, 8.f };
+	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, 1.f);
 #endif
 }
 
@@ -1488,17 +1493,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		case DebugInteractionObject::MovedRect2: {
 			if (WasPressed(controller.B.mouseLeft)) {
 				state->nextHotInteraction.type = DebugInteractionType::MoveRect2;
-			}
-		} break;
-		case DebugInteractionObject::Profiler: {
-			if (WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction = InteractionMovedRect2(
-					state->nextHotInteraction.startBoundingBox, 
-					&state->nextHotInteraction.profiler->boundaries
-				);
-			}
-			else if (WasPressed(controller.B.mouseMiddle)) {
-				state->nextHotInteraction.type = DebugInteractionType::ScrollProfiler;
 			}
 		} break;
 		case DebugInteractionObject::ProfilerSpan: {

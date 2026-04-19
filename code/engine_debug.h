@@ -326,7 +326,6 @@ enum class DebugInteractionObject {
 	Introspectable,
 	MovedRect2,
 	ResizedRect2,
-	Profiler,
 	ProfilerSpan,
 	Float
 };
@@ -396,10 +395,8 @@ struct DebugVariableGroupInTree {
 };
 
 struct DebugProfiler {
-	Rect2 boundaries;
 	u32 selectedSpanCount;
 	DebugSelectedSpan selectedSpans[MAX_DEPTH_SPANS];
-	DebugScroll scroll;
 	DebugVirtualView view;
 };
 
