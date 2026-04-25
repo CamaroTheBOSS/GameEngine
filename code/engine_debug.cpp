@@ -676,7 +676,9 @@ DebugVariable* GetDebugVariable(DebugState* state, DebugVariableGroup* group, co
 internal
 DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariableGroup* group, 
 	DebugStoredEvent* storedEvent) {
-	// TODO: Verify that this is compiled as AND and not as MOD
+	// TODO: Verify that this is compiled as AND and not as MOD 
+	// -> TODO: Do the same with CLANG
+	// -> It is with MSVC
 	DebugEvent* event = &storedEvent->event;
 	u32 introspectionObjIndex = group ? group->introspectionObjectIndex : 0;
 	u32 hashSlot = GetDebugVariableHash_(state, event->GUID, introspectionObjIndex);
@@ -864,6 +866,9 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 	u32 frameIndex = !debugGlobalState->currentFrameIndex;
 	newFrame->eventsCount = debugGlobalState->eventsCount[frameIndex];
 	newFrame->startCycles = debugGlobalState->frameStartCycles[frameIndex];
+	newFrame->endCycles = debugGlobalState->frameEndCycles[frameIndex];
+	newFrame->startCyclesDebugFinishFrame = debugGlobalState->frameStartCyclesDebugFinishFrame[frameIndex];
+	newFrame->endCyclesDebugFinishFrame = debugGlobalState->frameEndCyclesDebugFinishFrame[frameIndex];
 	newFrame->frameIndex = state->totalFrameCount;
 	newFrame->firstCpuSpan = newFrame->lastCpuSpan = 0;
 	newFrame->spanCount = 0;
@@ -1923,6 +1928,14 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap) {
 		sprintf_s(buffer, 256, "pushes size events: f: %d all: %d", state->debugPushSizeEventsPerFrame, state->debugPushSizeEvents);
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 #endif
+#if 1
+		DebugCollationFrame* frame = state->framesSentinel.next;
+		f32 durationMs = f4(frame->endCycles - frame->startCycles) / DEBUG_CPU_FREQ;
+		f32 durationMsNoDebug = durationMs - f4(frame->endCyclesDebugFinishFrame - frame->startCyclesDebugFinishFrame) * DEBUG_COLLATION_SCALE;
+		
+		sprintf_s(buffer, 256, "Frame duration: %.2fms (%.2fms)", durationMs, durationMsNoDebug);
+		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+#endif
 	}
 
 	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
@@ -1934,6 +1947,7 @@ extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {
 
 extern "C" void DebugFinishFrame(ProgramMemory* memory, BitmapData& rawBitmap, InputData& input) {
 	TIMED_FUNCTION;
+	debugGlobalState->frameStartCyclesDebugFinishFrame[debugGlobalState->currentFrameIndex] = __rdtsc();
 	LoadedBitmap bitmap = {};
 	bitmap.height = rawBitmap.height;
 	bitmap.width = rawBitmap.width;
@@ -1947,5 +1961,6 @@ extern "C" void DebugFinishFrame(ProgramMemory* memory, BitmapData& rawBitmap, I
 	DebugRenderOverlay(state, bitmap);
 	DebugCollateEvents(state);
 	state->totalFrameCount++;
+	debugGlobalState->frameEndCyclesDebugFinishFrame[debugGlobalState->currentFrameIndex] = __rdtsc();
 	return;
 }

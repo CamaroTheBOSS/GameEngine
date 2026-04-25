@@ -670,6 +670,7 @@ RenderGroup AllocateRenderGroup(MemoryArena& arena, Assets* assets, u32 size, bo
 	RenderGroup result = {};
 	result.pushBuffer = PushArray(arena, size, u8);
 	result.maxPushBufferSize = size;
+	result.pushBufferCount = 0;
 	result.pushBufferSize = 0;
 	result.renderInBackground = renderInBackground;
 	result.generationId.id = 0;
@@ -702,6 +703,7 @@ void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
 	header->type = type;
 	void* result = (header + 1);
 	group.pushBufferSize += size;
+	group.pushBufferCount++;
 	return result;
 }
 

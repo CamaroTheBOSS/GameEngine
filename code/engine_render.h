@@ -85,11 +85,21 @@ struct Projection {
 struct RenderGroup {
 	Projection projection;
 	u8* pushBuffer;
+	u32 pushBufferCount;
 	u32 pushBufferSize;
 	u32 maxPushBufferSize;
 	bool renderInBackground;
 	GenerationId generationId;
 	Assets* assets;
+};
+
+struct SortKey {
+	f32 value;
+};
+
+struct SortElement {
+	SortKey key;
+	u32 offset;
 };
 
 void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,

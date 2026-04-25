@@ -106,6 +106,9 @@ struct DebugGlobalState {
 	DebugEvent events[2][MAX_DEBUG_EVENTS];
 	u32 eventsCount[2];
 	u64 frameStartCycles[2];
+	u64 frameEndCycles[2];
+	u64 frameStartCyclesDebugFinishFrame[2];
+	u64 frameEndCyclesDebugFinishFrame[2];
 	u32 currentFrameIndex;
 	volatile u64 frameAndEventIndex;
 };
@@ -178,7 +181,8 @@ struct DebugThreadStack {
 	debugGlobalState->frameStartCycles[debugGlobalState->currentFrameIndex] = __rdtsc();
 #define MARKUP_FRAME_END { \
 	u32 oldFrameIndex = debugGlobalState->currentFrameIndex; \
-	debugGlobalState->currentFrameIndex = !debugGlobalState->currentFrameIndex;	\
+	debugGlobalState->frameEndCycles[oldFrameIndex] = __rdtsc();\
+	debugGlobalState->currentFrameIndex = !oldFrameIndex;\
 	u64 oldFrameAndEventIndex = AtomicExchangeU64(&debugGlobalState->frameAndEventIndex, u64(debugGlobalState->currentFrameIndex) << 32); \
 	debugGlobalState->eventsCount[oldFrameIndex] = oldFrameAndEventIndex & U32_MAX;\
 	MARKUP_FRAME_BEGIN }
@@ -306,6 +310,9 @@ struct DebugProfilerSpan {
 
 struct DebugCollationFrame {
 	u64 startCycles;
+	u64 endCycles;
+	u64 startCyclesDebugFinishFrame;
+	u64 endCyclesDebugFinishFrame;
 	u32 eventsCount;
 	u32 frameIndex;
 
