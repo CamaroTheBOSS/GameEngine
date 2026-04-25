@@ -24,15 +24,6 @@ DEFINE_DEBUG_VARIABLE(bool, Profiler_Pause);
 #include <stdio.h>
 
 //NOTE: Intelisense helpers
-internal void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue);
-inline V2 FromPixelSpaceToWorldSpace(Projection& projection, V2 pixelSpacePos, f32 atDistanceFromCamera);
-inline Rect2 GetRenderRectangleAtDistance(Projection& projection, u32 width, u32 height, f32 distance);
-inline Projection GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 metersToPixels);
-inline RenderGroup AllocateRenderGroup(MemoryArena& arena, Assets* assets, u32 size, bool renderInBackground);
-inline LoadedFont* GetOrPrefetchFont(RenderGroup& group, FontId fid);
-inline FontId GetFontWithType(Assets& assets, FontType type);
-inline void BeginRendering(RenderGroup& group);
-inline void EndRendering(RenderGroup& group);
 inline bool IsPressed(Button& button);
 inline bool WasPressed(Button& button);
 inline bool WasReleased(Button& button);
@@ -518,7 +509,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 	BeginRendering(state->renderGroup);
 	state->entityIntrospectionCountInFrame = 0;
 	state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
-	state->renderGroup.pushBufferSize = 0;
+	ResetRenderGroup(state->renderGroup);
 	state->renderGroup.projection = GetOrtographicProjection(screenBitmap.width, screenBitmap.height, 1);
 	state->font = GetOrPrefetchFont(
 		state->renderGroup, GetFontWithType(*state->renderGroup.assets, Font_Debug)

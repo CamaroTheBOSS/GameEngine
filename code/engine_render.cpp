@@ -22,7 +22,7 @@ EntityBasis ProjectCoords(Projection& projection, V3 center, V2 size)
 			result.valid = true;
 		}
 	}
-	
+	result.sortKey = 4096 * center.Z - center.Y;
 	return result;
 }
 
@@ -501,11 +501,73 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 	}
 }
 
+
 internal
 void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i clipRect) {
+#if 1
 	TIMED_FUNCTION;
+	SortElement* sortElement = ptrcast(SortElement, group.pushBuffer + group.sortBufferAt);
+	for (u32 sortIndex = 0; sortIndex < group.pushBufferCount; sortIndex++, sortElement++) {
+		u8* address = group.pushBuffer + sortElement->offset;
+		RenderCallHeader* header = ptrcast(RenderCallHeader, address);
+		address += sizeof(RenderCallHeader);
+		switch (header->type) {
+		case RenderCallType_RenderCallClear: {
+			RenderCallClear* call = ptrcast(RenderCallClear, address);
+			RenderRectangleTransparent(dstBuffer, V2{ 0, 0 }, V2i(dstBuffer.width, dstBuffer.height), call->color, clipRect);
+		} break;
+		case RenderCallType_RenderCallRectangle: {
+			RenderCallRectangle* call = ptrcast(RenderCallRectangle, address);
+#if 0
+			V2 min = call->center - call->size / 2.f;
+			V2 max = min + call->size;
+			RenderRectangleTransparent(dstBuffer, min, max, call->color, clipRect);
+#else
+			V2 xAxis = V2{ call->size.X, 0 };
+			V2 yAxis = V2{ 0, call->size.Y };
+			V2 origin = call->center - call->size / 2.f;
+			RenderFilledRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, clipRect);
+#endif
+		} break;
+		case RenderCallType_RenderCallBitmap: {
+			// TODO: RenderCallBitmap and RenderCallRectangle have different approaches to calculate center
+			// It should be unified (check groundLevel) which is different from RenderCallRectangle,
+			// also, size is properly changed in RenderCallRectangle and not in RenderCallBitmap
+			RenderCallBitmap* call = ptrcast(RenderCallBitmap, address);
+			V2 xAxis = V2{ call->size.X, 0 };
+			V2 yAxis = V2{ 0, call->size.Y };
+			V2 origin = call->center - Hadamard(call->bitmap->align, call->size);
+			RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, clipRect);
+		} break;
+		case RenderCallType_RenderCallCoordinateSystem: {
+			RenderCallCoordinateSystem* call = ptrcast(RenderCallCoordinateSystem, address);
+			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis,
+				call->color, *call->bitmap, call->normalMap, call->topEnvMap,
+				call->middleEnvMap, call->bottomEnvMap
+			);
+			V4 color = V4{ 1.f, 0.f, 0.f, 0.f };
+			V2 size = V2{ 5.f, 5.f };
+			V2 points[4]{
+				call->origin,
+				call->origin + call->xAxis,
+				call->origin + call->yAxis,
+				call->origin + call->xAxis + call->yAxis
+			};
+			RenderRectangleOpaque(dstBuffer, points[0], points[0] + size, color.RGB);
+			RenderRectangleOpaque(dstBuffer, points[1], points[1] + size, color.RGB);
+			RenderRectangleOpaque(dstBuffer, points[2], points[2] + size, color.RGB);
+			RenderRectangleOpaque(dstBuffer, points[3], points[3] + size, color.RGB);
+		} break;
+		//InvalidDefaultCase;
+		}
+	}
+#else
+	TIMED_FUNCTION;
+	SortElement* sortElement = ptrcast(SortElement, group.pushBuffer + group.maxPushBufferSize - sizeof(SortElement));
 	u32 relativeRenderAddress = 0;
 	while (relativeRenderAddress < group.pushBufferSize) {
+		Assert(relativeRenderAddress == sortElement->offset);
+		sortElement--;
 		RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + relativeRenderAddress);
 		relativeRenderAddress += sizeof(RenderCallHeader);
 		u32 relativeAddressBeforeSwitchCase = relativeRenderAddress;
@@ -560,9 +622,30 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i cli
 			RenderRectangleOpaque(dstBuffer, points[3], points[3] + size, color.RGB);
 			relativeRenderAddress += sizeof(RenderCallCoordinateSystem);
 		} break;
-		InvalidDefaultCase;
+													  InvalidDefaultCase;
 		}
 		Assert(relativeAddressBeforeSwitchCase < relativeRenderAddress);
+	}
+#endif
+}
+
+void SortRenderGroup(RenderGroup& group) {
+	for (;;) {
+		bool swapped = false;
+		for (u32 base = 0; base < group.pushBufferCount - 1; base++) {
+			SortElement* A = ptrcast(SortElement, group.pushBuffer + group.sortBufferAt) + base;
+			SortElement* B = ptrcast(SortElement, group.pushBuffer + group.sortBufferAt) + base + 1;
+
+			if (A->key > B->key) {
+				SortElement swap = *A;
+				*A = *B;
+				*B = swap;
+				swapped = true;
+			}
+		}
+		if (!swapped) {
+			break;
+		}
 	}
 }
 
@@ -607,6 +690,8 @@ void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Platf
 	Assert(tileWidth * tileCountX < dstBuffer.width + tileWidth);
 	Assert(tileHeight * tileCountY < dstBuffer.height + tileHeight);
 
+	SortRenderGroup(group);
+
 	for (u32 tileY = 0; tileY < tileCountY; tileY++) {
 		for (u32 tileX = 0; tileX < tileCountX; tileX++) {
 			RenderTiledArgs* args = workArgs + tileY * tileCountY + tileX;
@@ -629,6 +714,7 @@ void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Platf
 internal
 void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 	Rect2i clipRect = { 0, 0, dstBuffer.width, dstBuffer.height };
+	SortRenderGroup(group);
 	RenderGroupToBuffer(group, dstBuffer, clipRect);
 }
 
@@ -666,15 +752,21 @@ Projection GetStandardProjection(u32 widthPix, u32 heightPix) {
 }
 
 inline
-RenderGroup AllocateRenderGroup(MemoryArena& arena, Assets* assets, u32 size, bool renderInBackground = false) {
+void ResetRenderGroup(RenderGroup& group) {
+	group.pushBufferCount = 0;
+	group.pushBufferSize = 0;
+	group.sortBufferAt = group.maxPushBufferSize;
+}
+
+inline
+RenderGroup AllocateRenderGroup(MemoryArena& arena, Assets* assets, u32 size, bool renderInBackground) {
 	RenderGroup result = {};
 	result.pushBuffer = PushArray(arena, size, u8);
 	result.maxPushBufferSize = size;
-	result.pushBufferCount = 0;
-	result.pushBufferSize = 0;
 	result.renderInBackground = renderInBackground;
 	result.generationId.id = 0;
 	result.assets = assets;
+	ResetRenderGroup(result);
 	return result;
 }
 
@@ -691,14 +783,19 @@ void EndRendering(RenderGroup& group) {
 }
 
 #define Text(text) text
-#define PushRenderEntry(group, type) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType_##type))
+#define PushRenderEntry(group, type, sortKey) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType_##type, sortKey))
 inline
-void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
+void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type, f32 sortKey) {
 	size += sizeof(RenderCallHeader);
-	Assert(group.pushBufferSize + size <= group.maxPushBufferSize);
-	if (group.pushBufferSize + size > group.maxPushBufferSize) {
+	Assert(group.pushBufferSize + size <= group.sortBufferAt - sizeof(SortElement));
+	if (group.pushBufferSize + size > group.sortBufferAt - sizeof(SortElement)) {
 		return 0;
 	}
+	group.sortBufferAt -= sizeof(SortElement);
+	SortElement* sortElement = ptrcast(SortElement, group.pushBuffer + group.sortBufferAt);
+	sortElement->key = sortKey;
+	sortElement->offset = group.pushBufferSize;
+
 	RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + group.pushBufferSize);
 	header->type = type;
 	void* result = (header + 1);
@@ -709,7 +806,7 @@ void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type) {
 
 inline
 bool PushClearCall(RenderGroup& group, V4 color) {
-	RenderCallClear* call = PushRenderEntry(group, RenderCallClear);
+	RenderCallClear* call = PushRenderEntry(group, RenderCallClear, -999999.f);
 	call->color = color;
 	return true;
 }
@@ -721,7 +818,7 @@ bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height,
 	if (!params.valid) {
 		return false;
 	}
-	RenderCallBitmap* call = PushRenderEntry(group, RenderCallBitmap);
+	RenderCallBitmap* call = PushRenderEntry(group, RenderCallBitmap, params.sortKey);
 	call->bitmap = bitmap;
 	call->center = params.center;
 	call->offset = offset;
@@ -764,7 +861,7 @@ bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
 	if (!params.valid) {
 		return false;
 	}
-	RenderCallRectangle* call = PushRenderEntry(group, RenderCallRectangle);
+	RenderCallRectangle* call = PushRenderEntry(group, RenderCallRectangle, params.sortKey);
 	call->center = params.center;
 	call->size = params.size;
 	call->offset = offset;
@@ -822,7 +919,7 @@ bool PushCoordinateSystem(RenderGroup& group, V2 origin, V2 xAxis, V2 yAxis, V4 
 	LoadedBitmap* bitmap, LoadedBitmap* normalMap, EnvironmentMap* topEnvMap,
 	EnvironmentMap* middleEnvMap, EnvironmentMap* bottomEnvMap)
 {
-	RenderCallCoordinateSystem* call = PushRenderEntry(group, RenderCallCoordinateSystem);
+	RenderCallCoordinateSystem* call = PushRenderEntry(group, RenderCallCoordinateSystem, 0.f);
 	call->origin = origin;
 	call->xAxis = xAxis;
 	call->yAxis = yAxis;

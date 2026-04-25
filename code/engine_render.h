@@ -18,6 +18,7 @@ struct EntityBasis {
 	V2 center;
 	V2 size;
 	bool valid;
+	f32 sortKey;
 };
 
 struct EnvironmentMap {
@@ -88,17 +89,14 @@ struct RenderGroup {
 	u32 pushBufferCount;
 	u32 pushBufferSize;
 	u32 maxPushBufferSize;
+	u32 sortBufferAt;
 	bool renderInBackground;
 	GenerationId generationId;
 	Assets* assets;
 };
 
-struct SortKey {
-	f32 value;
-};
-
 struct SortElement {
-	SortKey key;
+	f32 key;
 	u32 offset;
 };
 
@@ -118,4 +116,17 @@ inline bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset,
 inline bool PushRect(RenderGroup& group, Rect2 rectangle, f32 Z, V2 offset, V4 color);
 inline bool PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness);
 inline bool PushRectOutlineInside(RenderGroup& group, Rect2 rect, f32 Z, V4 color, f32 thickness);
+
+inline RenderGroup AllocateRenderGroup(MemoryArena& arena, Assets* assets, u32 size, bool renderInBackground = false);
+inline void BeginRendering(RenderGroup& group);
+inline void EndRendering(RenderGroup& group);
+inline void ResetRenderGroup(RenderGroup& group);
+
+struct PlatformQueue;
+internal void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue);
+inline V2 FromPixelSpaceToWorldSpace(Projection& projection, V2 pixelSpacePos, f32 atDistanceFromCamera);
+inline Rect2 GetRenderRectangleAtDistance(Projection& projection, u32 width, u32 height, f32 distance);
+inline Projection GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 metersToPixels);
+inline LoadedFont* GetOrPrefetchFont(RenderGroup& group, FontId fid);
+inline FontId GetFontWithType(Assets& assets, FontType type);
 /*                Renderer API                  */

@@ -1292,7 +1292,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
 
-#if 1
+#if 0
 	Rect3 groundChunkBounds = ToRect3(playerView, V2{0, 0});
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(groundChunkBounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(groundChunkBounds));
@@ -1404,10 +1404,12 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		} break;
 		case EntityType_Wall: {
 			const f32 treeHeight = 2.5f * world.tileSizeInMeters.Z;
+#if 0
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1, 1, 1, layerAlpha });
+#endif
 			AssetFeatures match = {};
 			AssetFeatures weight = {};
-			match[Feature_Height] = 1.5f;
+			match[Feature_Height] = 2.5f;
 			weight[Feature_Height] = 1.f;
 			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Tree, match, weight, 10000);
 			PushBitmap(renderGroup, bmp, groundLevelPos, treeHeight, 
@@ -1416,7 +1418,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		case EntityType_Stairs: {
 			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, layerAlpha });
 			V3 upStairsPos = groundLevelPos + V3{ 0, 0, entity->walkableDim.Z };
-			PushRect(renderGroup, upStairsPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 0, 0, layerAlpha });
+			PushRectBorders(renderGroup, upStairsPos, entity->collision->totalVolume.size.XY, V4{ 0, 0, 0, layerAlpha }, 0.1f);
 		} break;
 		case EntityType_Familiar: {
 			f32 minDistance = Squared(10.f);
