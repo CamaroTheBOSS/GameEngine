@@ -48,6 +48,7 @@ struct Controller {
 			Button kSpace;
 			Button kEsc;
 			Button kShift;
+			Button kCtrl;
 			Button kAlt;
 			Button mouseLeft;
 			Button mouseRight;
@@ -56,7 +57,7 @@ struct Controller {
 			Button mouse2B;
 		};
 		Buttons B;
-		Button E[18];
+		Button E[19];
 		static_assert(sizeof(B) == sizeof(E));
 	};
 	// Mouse data is in screen space <-0.5w + 0.5, 0.5w - 0.5> <-0.5h + 0.5, 0.5h - 0.5)

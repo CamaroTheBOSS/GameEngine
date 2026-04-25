@@ -444,7 +444,7 @@ DebugTree* AddTree(DebugState* state, V2 pos, const char* name) {
 
 	tree->pos = pos;
 	tree->rootGroup = {};
-	tree->rootGroup.expanded = true;
+	tree->rootGroup.expanded = false;
 	tree->rootGroup.name = name;
 	tree->rootGroup.nameLength = StringLength(tree->rootGroup.name);
 	tree->rootGroup.containingLink = link;
@@ -634,7 +634,7 @@ DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGro
 	}
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariableGroup);
-		result->expanded = true;
+		result->expanded = false;
 		result->firstLink = 0;
 		result->name = name;
 		result->nameLength = nameLength;
@@ -1039,11 +1039,11 @@ enum DebugVarToTextFlags {
 	DebugVarToText_AddColon = 0x8,
 };
 
-u64 DebugEventToText(DebugEvent* event, char* buffer, u32 size, u32 flags) {
+u64 DebugEventToText(DebugEvent* event, char* buffer, u64 size, u32 flags) {
 	char* at = buffer;
 	char* end = buffer + size;
 	if (flags & DebugVarToText_ConfigPrefix) {
-		at += sprintf_s(at, end - at, "#define DEBUGUI_");
+		at += sprintf_s(at, end - at, "#define CONSTANT_");
 	}
 	const char* colon = (flags & DebugVarToText_AddColon) ? ":" : "";
 
@@ -1080,8 +1080,8 @@ u64 DebugEventToText(DebugEvent* event, char* buffer, u32 size, u32 flags) {
 	} break;
 	case Event_PermanentVariableDeclaration: {
 		u32 newFlags = flags;
-		flags &= (~DebugVarToText_ConfigPrefix | DebugVarToText_AddNewLine);
-		DebugEventToText(event->data_DebugEvent, at, u4(end - at), newFlags);
+		newFlags &= ~(DebugVarToText_ConfigPrefix | DebugVarToText_AddNewLine);
+		at += DebugEventToText(event->data_DebugEvent, at, u4(end - at), newFlags);
 	} break;
 	default: {
 		at += sprintf_s(at, end - at, "Unknown: %s", event->blockName);
@@ -1093,22 +1093,43 @@ u64 DebugEventToText(DebugEvent* event, char* buffer, u32 size, u32 flags) {
 	return at - buffer;
 }
 
-#if 0
 void WriteDebugConfig(DebugState* state) {
 	char buffer[4096];
 	char* at = buffer;
 	char* end = buffer + sizeof(buffer);
-	for (DebugVariableLink* link = state->compileTimeVariables; link; link = link->next) {
-		DebugVariable* var = link->var;
-		at += DebugVariableToText(var, at, u4(end - at),
-			DebugVarToText_ConfigPrefix |
-			DebugVarToText_AddFloatSuffix |
-			DebugVarToText_AddNewLine
-		);
+	for (DebugTree* tree = state->UISentinel.next; tree != &state->UISentinel; tree = tree->next) {
+		DebugVariableLink* node = tree->rootGroup.containingLink;
+		u32 depth = 0;
+		DebugVariableLink* parent[64] = {};
+		while (node) {
+			bool isGroup = node->group != 0;
+			if (node->variable && node->variable->permanent) {
+				at += DebugEventToText(&node->variable->newestEvent->event, at, end - at,
+					DebugVarToText_ConfigPrefix |
+					DebugVarToText_AddFloatSuffix |
+					DebugVarToText_AddNewLine
+				);
+			}
+
+			if (node) {
+				if (node->group) {
+					parent[++depth] = node;
+					node = parent[depth]->group->firstLink;
+				}
+				else {
+					node = node->next;
+				}
+			}
+			while (!node && depth > 0) {
+				node = parent[depth--];
+				if (node) {
+					node = node->next;
+				}
+			}
+		}
 	}
 	debugGlobalMemory->debug.WriteFile(DEBUG_CONFIG_PATH, buffer, at - buffer);
 }
-#endif
 
 Rect2 GetCpuSpanRectangle(Rect2 boundaries, f32 currentWidth,
 	u32 currentThread, f32 threadWidth, f32 threadTotalWidth, f32 minT, f32 maxT) {
@@ -1191,7 +1212,9 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 	if (isHot) {
 		state->nextHotInteraction = InteractionMovedRect2(view.rect, &view.rect);
 	}
-#if 1
+	DEBUG_IF_NOT(Profiler_Cpu) {
+		return;
+	}
 	V2 viewDim = GetDim(view.rect);
 	f32 threadLaneWidth = 8.f;
 	f32 threadLaneSpace = 2.f;
@@ -1280,7 +1303,6 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 	V2 scrollSize = V2{ Squared(viewDim.X) / maxWidth, 8.f };
 	V2 scrollCenter = V2{ view.rect.max.X - view.offset.X / maxWidth * viewDim.X - 0.5f * scrollSize.X, view.rect.min.Y };
 	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, - maxWidth / viewDim.X);
-#endif
 }
 
 inline
@@ -1314,8 +1336,10 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 	if (isHot) {
 		state->nextHotInteraction = InteractionMovedRect2(view.rect, &view.rect);
 	}
-#if 1
-	
+	DEBUG_IF_NOT(Profiler_Memory) {
+		return;
+	}
+
 	f32 spanHeight = 40.f;
 	V4 colors[] = {
 		V4{1, 0, 0, 1},
@@ -1445,7 +1469,6 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 	V2 scrollCenter = V2{ viewCenter.X + view.offset.X, view.rect.min.Y };
 	V2 scrollSize = V2{ zoomedViewDim.X, 8.f };
 	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, 1.f);
-#endif
 }
 
 inline
@@ -1558,6 +1581,10 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	if (WasPressed(state->controller->B.kP)) {
 		Profiler_Pause.data_bool = !Profiler_Pause.data_bool;
 	}
+	if (WasPressed(state->controller->B.kS) && IsPressed(state->controller->B.kCtrl)) {
+		WriteDebugConfig(state);
+	}
+
 	// Set hot interaction
 	DebugInteractionObject nextInteractionObj = state->nextHotInteraction.obj;
 	if (nextInteractionObj != DebugInteractionObject::None) {
@@ -1662,6 +1689,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				}
 				dstTree = AddTree(state, dstTree->pos, "NewUserGroup");
 				dstTree->rootGroup.firstLink = tearPoint;
+				dstTree->rootGroup.expanded = true;
 				tearPoint->next = 0;
 				tearPoint->parentGroup = &dstTree->rootGroup;
 			}

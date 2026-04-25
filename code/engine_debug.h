@@ -206,6 +206,9 @@ internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, Debu
 #define DEBUG_IF(variable) \
 	DEFINE_DEBUG_VARIABLE(bool, variable); \
 	if (variable.data_bool)
+#define DEBUG_IF_NOT(variable) \
+	DEFINE_DEBUG_VARIABLE(bool, variable); \
+	if (!variable.data_bool)
 
 #define RecordMemoryDebugEvent_(type, arenaArg) \
 	RecordDebugEventNoBracket(0, type, __FILE__, #arenaArg, __LINE__) \

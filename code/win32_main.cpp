@@ -971,6 +971,9 @@ void Win32ProcessOSMessages(Win32State& state, ProgramMemory& memory, Controller
 			else if (vkCode == VK_SHIFT) {
 				Win32ButtonUpdate(controller.B.kShift, wasDown, isDown);
 			}
+			else if (vkCode == VK_CONTROL) {
+				Win32ButtonUpdate(controller.B.kCtrl, wasDown, isDown);
+			}
 			else if (vkCode == 'L') {
 				if (!wasDown) {
 					Win32WaitForQueueCompletion(&globalHighPriorityQueue);
