@@ -5,7 +5,7 @@ ProgramMemory* debugGlobalMemory;
 #endif
 
 void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
-	bool even, Rect2i clipRect)
+	Rect2i clipRect)
 {
 	TIMED_FUNCTION;
 	V2 points[4] = {
@@ -82,9 +82,7 @@ void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V
 	i32 maxY = fillRect.maxY;
 	i32 minX = fillRect.minX;
 	i32 maxX = fillRect.maxX;
-	if (even == (minY & 1)) {
-		minY++;
-	}
+
 	// NOTE: Assume aligned X boundaries and proper clipping
 	Assert(((maxX - minX) & 7) == 0);
 	Assert(maxX <= clipRect.maxX);
@@ -120,10 +118,10 @@ void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V
 	__m256 dxBase = _mm256_set1_ps(f4(minX) - origin.X);
 #define E(mm, i) ptrcast(f32, &mm)[i]
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
-	u32 rowAdvance = 2 * bitmap.pitch;
+	u32 rowAdvance = bitmap.pitch;
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
 	LLVM_MCA_BEGIN(opt_render_filled_rect);
-	for (i32 Y = minY; Y < maxY; Y += 2) {
+	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
 		__m256 dy = _mm256_set1_ps(f4(Y) + 0.5f - origin.Y);
 		__m256 dx = _mm256_add_ps(dxBase, _mm256_setr_ps(0.5f, 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7.5f));
@@ -202,7 +200,7 @@ void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V
 
 
 void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
-	LoadedBitmap& texture, bool even, Rect2i clipRect)
+	LoadedBitmap& texture, Rect2i clipRect)
 {
 	TIMED_FUNCTION;
 	V2 points[4] = {
@@ -278,9 +276,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	i32 maxY = fillRect.maxY;
 	i32 minX = fillRect.minX;
 	i32 maxX = fillRect.maxX;
-	if (even == (minY & 1)) {
-		minY++;
-	}
+
 	// NOTE: Assume aligned X boundaries and proper clipping
 	Assert(((maxX - minX) & 7) == 0);
 	Assert(maxX <= clipRect.maxX);
@@ -324,10 +320,10 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	__m256 dxBase = _mm256_set1_ps(f4(minX) - origin.X);
 #define E(mm, i) ptrcast(f32, &mm)[i]
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
-	u32 rowAdvance = 2 * bitmap.pitch;
+	u32 rowAdvance = bitmap.pitch;
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
 	LLVM_MCA_BEGIN(opt_render_rect);
-	for (i32 Y = minY; Y < maxY; Y += 2) {
+	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
 		__m256 dy = _mm256_set1_ps(f4(Y) - origin.Y);
 		__m256 dx = _mm256_add_ps(dxBase, _mm256_setr_ps(0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f));

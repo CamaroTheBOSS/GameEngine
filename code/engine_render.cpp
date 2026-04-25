@@ -168,7 +168,7 @@ V4 SampleEnvMap(EnvironmentMap envMap, V2 screenSpaceUV, V3 rayDirection) {
 }
 
 internal
-void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color, bool even, Rect2i clipRect) {
+void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color, Rect2i clipRect) {
 	TIMED_FUNCTION;
 	Rect2i fillRect;
 	fillRect.minY = FloorF32ToI32(start.Y);
@@ -181,13 +181,11 @@ void RenderRectangleTransparent(LoadedBitmap& bitmap, V2 start, V2 end, V4 color
 	i32 maxY = fillRect.maxY;
 	i32 minX = fillRect.minX;
 	i32 maxX = fillRect.maxX;
-	if (even == (minY & 1)) {
-		minY++;
-	}
+
 	u8* dstRow = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
-	u32 rowAdvance = 2 * bitmap.pitch;
+	u32 rowAdvance = bitmap.pitch;
 	color.RGB *= color.A;
-	for (i32 Y = minY; Y < maxY; Y += 2) {
+	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, dstRow);
 		for (i32 X = minX; X < maxX; X++) {
 			V4 dest = {
@@ -504,7 +502,7 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 }
 
 internal
-void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i clipRect, bool even) {
+void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i clipRect) {
 	TIMED_FUNCTION;
 	u32 relativeRenderAddress = 0;
 	while (relativeRenderAddress < group.pushBufferSize) {
@@ -514,7 +512,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i cli
 		switch (header->type) {
 		case RenderCallType_RenderCallClear: {
 			RenderCallClear* call = ptrcast(RenderCallClear, group.pushBuffer + relativeRenderAddress);
-			RenderRectangleTransparent(dstBuffer, V2{ 0, 0 }, V2i(dstBuffer.width, dstBuffer.height), call->color, even, clipRect);
+			RenderRectangleTransparent(dstBuffer, V2{ 0, 0 }, V2i(dstBuffer.width, dstBuffer.height), call->color, clipRect);
 			relativeRenderAddress += sizeof(RenderCallClear);
 		} break;
 		case RenderCallType_RenderCallRectangle: {
@@ -522,12 +520,12 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i cli
 #if 0
 			V2 min = call->center - call->size / 2.f;
 			V2 max = min + call->size;
-			RenderRectangleTransparent(dstBuffer, min, max, call->color, even, clipRect);
+			RenderRectangleTransparent(dstBuffer, min, max, call->color, clipRect);
 #else
 			V2 xAxis = V2{ call->size.X, 0 };
 			V2 yAxis = V2{ 0, call->size.Y };
 			V2 origin = call->center - call->size / 2.f;
-			RenderFilledRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, even, clipRect);
+			RenderFilledRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, clipRect);
 #endif
 			relativeRenderAddress += sizeof(RenderCallRectangle);
 		} break;
@@ -539,7 +537,7 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i cli
 			V2 xAxis = V2{ call->size.X, 0 };
 			V2 yAxis = V2{ 0, call->size.Y };
 			V2 origin = call->center - Hadamard(call->bitmap->align, call->size);
-			RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, even, clipRect);
+			RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, clipRect);
 			relativeRenderAddress += sizeof(RenderCallBitmap);
 		} break;
 		case RenderCallType_RenderCallCoordinateSystem: {
@@ -577,8 +575,7 @@ struct RenderTiledArgs {
 void RenderTiled(void* data) {
 	TIMED_FUNCTION;
 	RenderTiledArgs* args = ptrcast(RenderTiledArgs, data);
-	RenderGroupToBuffer(*args->group, *args->dstBuffer, args->clipRect, false);
-	RenderGroupToBuffer(*args->group, *args->dstBuffer, args->clipRect, true);
+	RenderGroupToBuffer(*args->group, *args->dstBuffer, args->clipRect);
 }
 
 internal
@@ -632,8 +629,7 @@ void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Platf
 internal
 void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
 	Rect2i clipRect = { 0, 0, dstBuffer.width, dstBuffer.height };
-	RenderGroupToBuffer(group, dstBuffer, clipRect, true);
-	RenderGroupToBuffer(group, dstBuffer, clipRect, false);
+	RenderGroupToBuffer(group, dstBuffer, clipRect);
 }
 
 inline
