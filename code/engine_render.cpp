@@ -3,8 +3,36 @@
 #include "engine_intrinsics.h"
 #include "engine_rand.h"
 
+inline 
+ObjectTransform DefaultUprightTransform() {
+	ObjectTransform transform = {};
+	transform.upright = true;
+	return transform;
+}
+
+inline
+ObjectTransform ScaledUprightTransform(f32 scale) {
+	ObjectTransform transform = {};
+	transform.scale = scale;
+	transform.upright = true;
+	return transform;
+}
+
+inline
+ObjectTransform DefaultFlatTransform() {
+	ObjectTransform transform = {};
+	return transform;
+}
+
+inline
+ObjectTransform ScaledFlatTransform(f32 scale) {
+	ObjectTransform transform = {};
+	transform.scale = scale;
+	return transform;
+}
+
 internal
-EntityBasis ProjectCoords(Projection& projection, V3 center, V2 size)
+EntityBasis ProjectCoords(Projection& projection, ObjectTransform transform, V3 center, V2 size)
 {
 	EntityBasis result = {};
 	if (projection.orthographic) {
@@ -22,7 +50,7 @@ EntityBasis ProjectCoords(Projection& projection, V3 center, V2 size)
 			result.valid = true;
 		}
 	}
-	result.sortKey = 4096 * center.Z - center.Y;
+	result.sortKey = 4096 * (center.Z + 0.1f * transform.upright) - center.Y;
 	return result;
 }
 
@@ -812,23 +840,23 @@ bool PushClearCall(RenderGroup& group, V4 color) {
 }
 
 inline
-bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, V2 offset, V4 color) {
-	V2 sizeUnprojected = height * V2{ bitmap->widthOverHeight, 1 };
-	EntityBasis params = ProjectCoords(group.projection, center, sizeUnprojected);
+bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, ObjectTransform transform, V3 center, V4 color) {
+	V2 sizeUnprojected = transform.scale * V2{ bitmap->widthOverHeight, 1 };
+	EntityBasis params = ProjectCoords(group.projection, transform, center, sizeUnprojected);
 	if (!params.valid) {
 		return false;
 	}
 	RenderCallBitmap* call = PushRenderEntry(group, RenderCallBitmap, params.sortKey);
 	call->bitmap = bitmap;
 	call->center = params.center;
-	call->offset = offset;
+	call->offset = transform.offset;
 	call->color = color;
 	call->size = params.size;
 	return true;
 }
 
 inline
-bool PushBitmap(RenderGroup& group, BitmapId bid, V3 center, f32 height, V2 offset, V4 color) {
+bool PushBitmap(RenderGroup& group, ObjectTransform transform, BitmapId bid, V3 center, V4 color) {
 	TIMED_FUNCTION;
 	LoadedBitmap* bitmap = GetBitmap(*group.assets, bid, group.generationId);
 	if (!bitmap && group.renderInBackground) {
@@ -845,7 +873,7 @@ bool PushBitmap(RenderGroup& group, BitmapId bid, V3 center, f32 height, V2 offs
 		}
 	}
 	if (bitmap) {
-		PushBitmap(group, bitmap, center, height, offset, color);
+		PushBitmap(group, bitmap, transform, center, color);
 	}
 	else {
 		// NOTE: Background prefetching cannot be done from the background thread
@@ -856,22 +884,22 @@ bool PushBitmap(RenderGroup& group, BitmapId bid, V3 center, f32 height, V2 offs
 }
 
 inline
-bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, V4 color) {
-	EntityBasis params = ProjectCoords(group.projection, center, size);
+bool PushRect(RenderGroup& group, ObjectTransform transform, V3 center, V2 size, V4 color) {
+	EntityBasis params = ProjectCoords(group.projection, transform, center, size);
 	if (!params.valid) {
 		return false;
 	}
 	RenderCallRectangle* call = PushRenderEntry(group, RenderCallRectangle, params.sortKey);
 	call->center = params.center;
 	call->size = params.size;
-	call->offset = offset;
+	call->offset = transform.offset;
 	call->color = color;
 	return true;
 }
 
 inline
-bool PushRect(RenderGroup& group, Rect2 rectangle, f32 Z, V2 offset, V4 color) {
-	return PushRect(group, ToV3(GetCenter(rectangle), Z), GetDim(rectangle), offset, color);
+bool PushRect(RenderGroup& group, ObjectTransform transform, Rect2 rectangle, f32 Z, V4 color) {
+	return PushRect(group, transform, ToV3(GetCenter(rectangle), Z), GetDim(rectangle), color);
 }
 
 inline
@@ -887,30 +915,30 @@ LoadedFont* GetOrPrefetchFont(RenderGroup& group, FontId fid) {
 }
 
 inline
-bool PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness) {
+bool PushRectBorders(RenderGroup& group, ObjectTransform transform, V3 center, V2 size, V4 color, f32 thickness) {
 	V3 basePos = center;
 	basePos.X = center.X - 0.5f * size.X;
-	PushRect(group, basePos, V2{ thickness, size.Y }, V2{ 0, 0 }, color);
+	PushRect(group, transform, basePos, V2{ thickness, size.Y }, color);
 	basePos.X = center.X + 0.5f * size.X;
-	PushRect(group, basePos, V2{ thickness, size.Y }, V2{ 0, 0 }, color);
+	PushRect(group, transform, basePos, V2{ thickness, size.Y }, color);
 	basePos = center;
 	basePos.Y = center.Y - 0.5f * size.Y;
-	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
+	PushRect(group, transform, basePos, V2{ size.X, thickness }, color);
 	basePos.Y = center.Y + 0.5f * size.Y;
-	PushRect(group, basePos, V2{ size.X, thickness }, V2{ 0, 0 }, color);
+	PushRect(group, transform, basePos, V2{ size.X, thickness }, color);
 	return true;
 }
 
 inline
-bool PushRectOutlineInside(RenderGroup& group, Rect2 rect, f32 Z, V4 color, f32 thickness) {
+bool PushRectOutlineInside(RenderGroup& group, ObjectTransform transform, Rect2 rect, f32 Z, V4 color, f32 thickness) {
 	Rect2 bot = GetRectFromMinMax(rect.min, V2{ rect.max.X, rect.min.Y + thickness });
 	Rect2 top = GetRectFromMinMax(V2{ rect.min.X, rect.max.Y - thickness }, rect.max);
 	Rect2 left = GetRectFromMinMax(rect.min, V2{ rect.min.X + thickness, rect.max.Y });
 	Rect2 right = GetRectFromMinMax(V2{ rect.max.X - thickness, rect.min.Y }, rect.max);
-	PushRect(group, bot, Z, V2{ 0, 0 }, color);
-	PushRect(group, top, Z, V2{ 0, 0 }, color);
-	PushRect(group, left, Z, V2{ 0, 0 }, color);
-	PushRect(group, right, Z, V2{ 0, 0 }, color);
+	PushRect(group, transform, bot, Z, color);
+	PushRect(group, transform, top, Z, color);
+	PushRect(group, transform, left, Z, color);
+	PushRect(group, transform, right, Z, color);
 	return true;
 }
 

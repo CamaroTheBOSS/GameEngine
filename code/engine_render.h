@@ -83,6 +83,12 @@ struct Projection {
 	bool orthographic;
 };
 
+struct ObjectTransform {
+	bool upright;
+	f32 scale;
+	V2 offset;
+};
+
 struct RenderGroup {
 	Projection projection;
 	u8* pushBuffer;
@@ -107,15 +113,15 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 
 /*                Renderer API                  */
 inline bool PushClearCall(RenderGroup& group, V4 color = V4{ 1, 1, 1, 1 });
-inline bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, V3 center, f32 height, 
-	V2 offset, V4 color = V4{1, 1, 1, 1});
-inline bool PushBitmap(RenderGroup& group, BitmapId bid, V3 center,
-	f32 height, V2 offset, V4 color = V4{ 1, 1, 1, 1 });
-inline bool PushRect(RenderGroup& group, V3 center, V2 size, V2 offset, 
+inline bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, ObjectTransform transform, V3 center,
 	V4 color = V4{ 1, 1, 1, 1 });
-inline bool PushRect(RenderGroup& group, Rect2 rectangle, f32 Z, V2 offset, V4 color);
-inline bool PushRectBorders(RenderGroup& group, V3 center, V2 size, V4 color, f32 thickness);
-inline bool PushRectOutlineInside(RenderGroup& group, Rect2 rect, f32 Z, V4 color, f32 thickness);
+inline bool PushBitmap(RenderGroup& group, ObjectTransform transform, BitmapId bid, V3 center,
+	V4 color = V4{ 1, 1, 1, 1 });
+inline bool PushRect(RenderGroup& group, ObjectTransform transform, V3 center, V2 size,
+	V4 color = V4{ 1, 1, 1, 1 });
+inline bool PushRect(RenderGroup& group, ObjectTransform transform, Rect2 rectangle, f32 Z, V4 color);
+inline bool PushRectBorders(RenderGroup& group, ObjectTransform transform, V3 center, V2 size, V4 color, f32 thickness);
+inline bool PushRectOutlineInside(RenderGroup& group, ObjectTransform transform, Rect2 rect, f32 Z, V4 color, f32 thickness);
 
 inline RenderGroup AllocateRenderGroup(MemoryArena& arena, Assets* assets, u32 size, bool renderInBackground = false);
 inline void BeginRendering(RenderGroup& group);
@@ -129,4 +135,9 @@ inline Rect2 GetRenderRectangleAtDistance(Projection& projection, u32 width, u32
 inline Projection GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 metersToPixels);
 inline LoadedFont* GetOrPrefetchFont(RenderGroup& group, FontId fid);
 inline FontId GetFontWithType(Assets& assets, FontType type);
+
+inline ObjectTransform DefaultUprightTransform();
+inline ObjectTransform ScaledUprightTransform(f32 scale);
+inline ObjectTransform DefaultFlatTransform();
+inline ObjectTransform ScaledFlatTransform(f32 scale);
 /*                Renderer API                  */

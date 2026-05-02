@@ -172,7 +172,7 @@ void RenderHitPoints(RenderGroup& group, Entity& entity, V3 center, V2 offset, f
 	V2 pointSizeVec = V2{ pointSize, pointSize };
 	for (u32 hitPointIndex = 0; hitPointIndex < entity.hitPoints.count; hitPointIndex++) {
 		V3 rectCenter = center + V3{ realOffset.X, realOffset.Y, 0.f };
-		PushRect(group, rectCenter, pointSizeVec, V2{0, 0}, color);
+		PushRect(group, DefaultUprightTransform(), rectCenter, pointSizeVec, color);
 		realOffset.X += (distBetween + pointSize);
 	}
 }
@@ -226,7 +226,7 @@ void FillGroundBufferBackgroundTask(void* data) {
 					GetRandomBitmapId(*args->assets, Asset_Ground, series);
 				position.X += chunkOffsetX * width;
 				position.Y += chunkOffsetY * height;
-				bool pushed = PushBitmap(group, bid, position, 1.7f, V2{ 0, 0 }, color);
+				bool pushed = PushBitmap(group, ScaledFlatTransform(1.7f), bid, position, color);
 				if (pushed) {
 					bmpIndex++;
 				}
@@ -1292,7 +1292,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
 
-#if 0
+#if 1
 	Rect3 groundChunkBounds = ToRect3(playerView, V2{0, 0});
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(groundChunkBounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(groundChunkBounds));
@@ -1337,7 +1337,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			if (drawBuffer->state == GroundBufferState::Ready) {
 				V3 diff = Subtract(world, drawBuffer->pos, state->cameraPos);
 				diff -= ToV3(0.5f * state->world.chunkSizeInMeters.XY, 0);
-				PushBitmap(renderGroup, &drawBuffer->buffer, diff, 1.f * state->world.chunkSizeInMeters.Y, V2{ 0, 0 });
+				PushBitmap(renderGroup, &drawBuffer->buffer, ScaledFlatTransform(1.f * state->world.chunkSizeInMeters.Y), diff);
 			}
 		}
 	}
@@ -1356,8 +1356,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #endif
 	TIMED_BLOCK_END(GroundChunks);
 	TIMED_BLOCK_BEGIN(UpdateEntities);
-	PushRectBorders(renderGroup, V3{ 0.f, 0.f, 0.f }, GetDim(playerView), V4{ 1, 1, 0, 1 }, 0.4f);
-	PushRectBorders(renderGroup, V3{ 0.f, 0.f, 0.f }, GetDim(simBounds).XY, V4{ 1, 0, 0, 1 }, 0.4f);
+	PushRectBorders(renderGroup, DefaultUprightTransform(), V3{ 0.f, 0.f, 0.f }, GetDim(playerView), V4{ 1, 1, 0, 1 }, 0.4f);
+	PushRectBorders(renderGroup, DefaultUprightTransform(), V3{ 0.f, 0.f, 0.f }, GetDim(simBounds).XY, V4{ 1, 0, 0, 1 }, 0.4f);
 	f32 fadeUpStartZ = 0.f * state->world.tileSizeInMeters.Z;
 	f32 fadeUpEndZ = 0.3f * state->world.tileSizeInMeters.Z;
 	f32 fadeDownStartZ = -3.1f * state->world.tileSizeInMeters.Z;
@@ -1393,13 +1393,13 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			Assert(playerControls);
 			acceleration = playerControls->acceleration;
 			const f32 playerHeight = 1.35f;
-			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0, 1, 1, layerAlpha });
+			PushRect(renderGroup, DefaultUprightTransform(), groundLevelPos, entity->collision->totalVolume.size.XY, V4{ 0, 1, 1, layerAlpha });
 			AssetFeatures match = {};
 			AssetFeatures weight = {};
 			match[Feature_FacingDirection] = entity->faceDir;
 			weight[Feature_FacingDirection] = 1.f;
 			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Player, match, weight, PI);
-			PushBitmap(renderGroup, bmp, groundLevelPos, 1.35f, V2{0, 0});
+			PushBitmap(renderGroup, ScaledUprightTransform(1.35f), bmp, groundLevelPos);
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{0.f, -0.6f}, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 		} break;
 		case EntityType_Wall: {
@@ -1412,13 +1412,12 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			match[Feature_Height] = 2.5f;
 			weight[Feature_Height] = 1.f;
 			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Tree, match, weight, 10000);
-			PushBitmap(renderGroup, bmp, groundLevelPos, treeHeight, 
-				V2{0, 0.1f}, V4{1, 0.f, 1.f, layerAlpha});
+			PushBitmap(renderGroup, ScaledUprightTransform(treeHeight), bmp, groundLevelPos, V4{1, 0.f, 1.f, layerAlpha});
 		} break;
 		case EntityType_Stairs: {
-			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 0.1f, 0.1f, 0.1f, layerAlpha });
+			PushRect(renderGroup, DefaultUprightTransform(), groundLevelPos, entity->collision->totalVolume.size.XY, V4{ 0.1f, 0.1f, 0.1f, layerAlpha });
 			V3 upStairsPos = groundLevelPos + V3{ 0, 0, entity->walkableDim.Z };
-			PushRectBorders(renderGroup, upStairsPos, entity->collision->totalVolume.size.XY, V4{ 0, 0, 0, layerAlpha }, 0.1f);
+			PushRectBorders(renderGroup, DefaultUprightTransform(), upStairsPos, entity->collision->totalVolume.size.XY, V4{ 0, 0, 0, layerAlpha }, 0.1f);
 		} break;
 		case EntityType_Familiar: {
 			f32 minDistance = Squared(10.f);
@@ -1442,15 +1441,15 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			acceleration.Z = 10.0f * Sin(6 * t);
 			t += input.dtFrame;
 			acceleration -= 10.0f * entity->vel;
-			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY,
-				V2{ 0, 0 }, V4{ 0.f, 0.5f, 0.5f, layerAlpha });
+			PushRect(renderGroup, DefaultUprightTransform(), groundLevelPos, entity->collision->totalVolume.size.XY,
+				V4{ 0.f, 0.5f, 0.5f, layerAlpha });
 		} break;
 		case EntityType_Monster: {
-			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{ 0, 0 }, V4{ 1.f, 0.5f, 0, layerAlpha });
+			PushRect(renderGroup, DefaultUprightTransform(), groundLevelPos, entity->collision->totalVolume.size.XY, V4{ 1.f, 0.5f, 0, layerAlpha });
 			RenderHitPoints(renderGroup, *entity, groundLevelPos, V2{ 0.f, -0.9f }, 0.1f, 0.2f, V4{ 1, 0, 0, layerAlpha });
 		} break;
 		case EntityType_Sword: {
-			PushRect(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V2{0, 0}, V4{0, 0, 0, layerAlpha });
+			PushRect(renderGroup, DefaultUprightTransform(), groundLevelPos, entity->collision->totalVolume.size.XY, V4{0, 0, 0, layerAlpha });
 			entity->timeRemaining -= input.dtFrame;
 			if (entity->distanceRemaining <= 0.f || entity->timeRemaining <= 0.f) {
 				ClearCollisionRuleForEntity(state->world, entity->storageIndex);
@@ -1458,7 +1457,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			}
 		} break;
 		case EntityType_Space: {
-			PushRectBorders(renderGroup, groundLevelPos, entity->collision->totalVolume.size.XY, V4{0, 0, 1, layerAlpha }, 0.2f);
+			PushRectBorders(renderGroup, DefaultUprightTransform(), groundLevelPos, entity->collision->totalVolume.size.XY, V4{0, 0, 1, layerAlpha }, 0.2f);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
 		}
@@ -1484,7 +1483,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 					DEBUG_HIT(dId, volumeRect);
 				}
 				if (DEBUG_HIGHLIGHTED(dId, &color)) {
-					PushRectBorders(renderGroup, center, volume->size.XY, color, 0.05f);
+					PushRectBorders(renderGroup, DefaultUprightTransform(), center, volume->size.XY, color, 0.05f);
 				}
 #if 0
 				PushRect(renderGroup, mousePos, V2{ 1.f, 1.f }, V2{ 0, 0 }, V4{ 1, 0, 0, 1 });

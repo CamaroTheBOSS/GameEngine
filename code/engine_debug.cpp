@@ -338,7 +338,7 @@ u32 HexToInt(char c) {
 }
 
 internal
-void DebugRenderLine(DebugState* state, const char* text, V2 pos, f32 scale, V4 color, bool render = true, Rect2* boundingBox = 0) {
+void DebugRenderLine(DebugState* state, const char* text, V2 pos, f32 scale, V4 color, bool render = true, Rect2* boundingBox = 0, f32 Z = 0.f) {
 	Rect2 resultBoundingBox = InversedInfinityRect2();
 	u32 prevChar = 0;
 	f32 spaceAdvance = scale * 55;
@@ -367,9 +367,9 @@ void DebugRenderLine(DebugState* state, const char* text, V2 pos, f32 scale, V4 
 			f32 width = f4(metadata->_bitmapInfo.width);
 			f32 height = f4(metadata->_bitmapInfo.height);
 			pos.X += scale * GetFontWidthAdvanceFor(state->font, prevChar, codepoint);
-			V3 anchor = ToV3(pos, 0);
+			V3 anchor = ToV3(pos, Z);
 			if (render) {
-				PushBitmap(state->renderGroup, bid, anchor, scale * height, V2{ 0, 0 }, color);
+				PushBitmap(state->renderGroup, ScaledFlatTransform(scale * height), bid, anchor, color);
 			}
 			if (boundingBox) {
 				Rect2 glyphRect = GetRectFromMinDim(pos, scale * V2{ width, height });
@@ -387,11 +387,11 @@ void DebugRenderLine(DebugState* state, const char* text, V2 pos, f32 scale, V4 
 }
 
 inline
-void DebugRenderLineWithOutline(DebugState* state, const char* text, V2 pos, f32 scale, V4 textColor, V4 outlineColor) {
+void DebugRenderLineWithOutline(DebugState* state, const char* text, V2 pos, f32 scale, V4 textColor, V4 outlineColor, f32 Z = 0.f) {
 	Rect2 bb = {};
 	DebugRenderLine(state, text, pos, scale, outlineColor, false, &bb);
-	PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, outlineColor);
-	DebugRenderLine(state, text, pos, scale, textColor);
+	PushRect(state->renderGroup, DefaultFlatTransform(), AddRadius(bb, V2{ 4.f, 4.f }), Z, outlineColor);
+	DebugRenderLine(state, text, pos, scale, textColor, true, 0, Z);
 }
 
 inline
@@ -1185,7 +1185,7 @@ void RenderScroll(DebugState* state, V2 center, V2 size, V2 mousePos, f32* data,
 		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
 		state->nextHotInteraction = InteractionDragIncrease(scrollAnchor, data, amountPerPixel, axis);
 	}
-	PushRect(state->renderGroup, scrollAnchor, 0, V2{ 0, 0 }, itemColor);
+	PushRect(state->renderGroup, DefaultFlatTransform(), scrollAnchor, 0, itemColor);
 }
 
 inline
@@ -1196,7 +1196,7 @@ void RenderResizeAnchor(DebugState* state, V2 center, V2 size, V2 mousePos, Rect
 		itemColor = V4{ 0.5f, 0.5f, 0, 1 };
 		state->nextHotInteraction = InteractionResizedRect2(resizeAnchor, data);
 	}
-	PushRect(state->renderGroup, resizeAnchor, 0, V2{ 0, 0 }, itemColor);
+	PushRect(state->renderGroup, DefaultFlatTransform(), resizeAnchor, 0, itemColor);
 }
 
 
@@ -1235,7 +1235,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 	f32 currentWidth = frameWidth - view.offset.X;
 	f32 collationScale = DEBUG_COLLATION_SCALE;
 	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
-	PushRect(state->renderGroup, view.rect, 0, V2{ 0, 0 }, backgroundColor);
+	PushRect(state->renderGroup, DefaultFlatTransform(), view.rect, -1.f, backgroundColor);
 	DebugCollationFrame* frame = state->framesSentinel.next;
 
 	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
@@ -1272,16 +1272,16 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 							V4 color = V4{ 1, 1, 1, 1 };
 							f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
 							V2 textPos = mousePos + V2{ 0, lineAdvance };
-							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 });
+							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 							textPos += V2{ 0, lineAdvance };
 							sprintf_s(buffer, "t<%4f,%4f>, p%p", span->minT, span->maxT, span->name);
-							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 });
+							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 						}
 					}
 					state->nextHotInteraction = InteractionProfilerSpan(spanRect, selectedSpanData);
 				}
 				if (IsValid(spanRect)) {
-					PushRect(state->renderGroup, spanRect, 0, V2{ 0, 0 }, rectColor);
+					PushRect(state->renderGroup, DefaultFlatTransform(), spanRect, 0, rectColor);
 				}
 			}
 		}
@@ -1365,7 +1365,7 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 #endif
 
 	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
-	PushRect(state->renderGroup, view.rect, 0, V2{ 0, 0 }, backgroundColor);
+	PushRect(state->renderGroup, DefaultFlatTransform(), view.rect, -1.f, backgroundColor);
 
 
 	u64 maxSize = debugGlobalMemory->memoryBlockSize;
@@ -1431,17 +1431,17 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 					color = V4{ 1, 1, 1, 1 };
 					f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
 					V2 textPos = mousePos + V2{ 0, lineAdvance };
-					DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 });
+					DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 					textPos += V2{ 0, lineAdvance };
 					MemoryArena* arena = &snapshot->arena;
 					sprintf_s(buffer, "u %lld/%lld, tempcount %d", arena->used, arena->capacity, arena->tempCount);
-					DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 });
+					DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 				}
 			}
 			state->nextHotInteraction = InteractionArenaView(capacityRect, arenaView);
 		}
 		if (IsValid(capacityRect)) {
-			PushRect(state->renderGroup, capacityRect, 0, V2{ 0, 0 }, color);
+			PushRect(state->renderGroup, DefaultFlatTransform(), capacityRect, 0, color);
 		}
 #if 0
 		Rect2 usageRect = GetRectFromMinMax(
@@ -1527,7 +1527,7 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 					selectedGroup->introspectionId = {};
 				}
 
-				PushRect(state->renderGroup, AddRadius(bb, V2{ 4.f, 4.f }), 0, V2{ 0,0 }, bbColor);
+				PushRect(state->renderGroup, DefaultFlatTransform(), AddRadius(bb, V2{ 4.f, 4.f }), 0, bbColor);
 				DebugRenderLine(state, buffer, fontContext, itemColor);
 				elementRendered = true;
 			}
