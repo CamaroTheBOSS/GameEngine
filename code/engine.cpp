@@ -191,7 +191,7 @@ void FillGroundBufferBackgroundTask(void* data) {
 	FillGroundBufferTaskArgs* args = ptrcast(FillGroundBufferTaskArgs, data);
 	TaskWithMemory* task = args->task;
 	LoadedBitmap* buffer = &args->groundBuffer->buffer;
-	RenderGroup group = AllocateRenderGroup(task->arena, args->assets, u4(GetArenaFreeSpaceSize(task->arena)), true);
+	RenderGroup group = AllocateRenderGroup(task->arena, args->assets, u4(GetArenaFreeSpaceSize(task->arena) * 0.5f), true);
 	BeginRendering(group);
 	f32 width = args->chunkSizeInMeters.X;
 	f32 height = args->chunkSizeInMeters.Y;
@@ -233,7 +233,7 @@ void FillGroundBufferBackgroundTask(void* data) {
 			}
 		}
 	}
-	RenderGroupToBuffer(group, *buffer);
+	RenderGroupToBuffer(group, *buffer, args->task->arena);
 	EndRendering(group);
 	WriteCompilatorFence;
 	args->groundBuffer->state = GroundBufferState::Ready;
@@ -1292,7 +1292,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
 
-#if 1
+#if 0
 	Rect3 groundChunkBounds = ToRect3(playerView, V2{0, 0});
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(groundChunkBounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(groundChunkBounds));
@@ -1610,7 +1610,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 #endif
 	TIMED_BLOCK_BEGIN(Rendering);
-	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue);
+	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue, tranState->arena);
 	TIMED_BLOCK_END(Rendering);
 
 	EndRendering(renderGroup);

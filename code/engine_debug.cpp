@@ -680,6 +680,8 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 		result->name = PushString(state->mainArena, event->GUID, StringLength(event->GUID) + 1);
 		result->nextInHash = state->variableHash[hashSlot];
 		result->introspectionObjectIndex = introspectionObjIndex;
+		result->oldestEvent = 0;
+		result->newestEvent = 0;
 		state->variableHash[hashSlot] = result;
 		if (group) {
 			AddVariableToGroup(state, group, result);
@@ -1929,7 +1931,7 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap) {
 #endif
 	}
 
-	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue);
+	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue, state->mainArena);
 }
 
 extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {

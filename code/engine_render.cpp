@@ -532,7 +532,6 @@ void RenderBitmap(LoadedBitmap& screenBitmap, LoadedBitmap& loadedBitmap, V2 pos
 
 internal
 void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i clipRect) {
-#if 1
 	TIMED_FUNCTION;
 	SortElement* sortElement = ptrcast(SortElement, group.pushBuffer + group.sortBufferAt);
 	for (u32 sortIndex = 0; sortIndex < group.pushBufferCount; sortIndex++, sortElement++) {
@@ -589,85 +588,25 @@ void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Rect2i cli
 		//InvalidDefaultCase;
 		}
 	}
-#else
-	TIMED_FUNCTION;
-	SortElement* sortElement = ptrcast(SortElement, group.pushBuffer + group.maxPushBufferSize - sizeof(SortElement));
-	u32 relativeRenderAddress = 0;
-	while (relativeRenderAddress < group.pushBufferSize) {
-		Assert(relativeRenderAddress == sortElement->offset);
-		sortElement--;
-		RenderCallHeader* header = ptrcast(RenderCallHeader, group.pushBuffer + relativeRenderAddress);
-		relativeRenderAddress += sizeof(RenderCallHeader);
-		u32 relativeAddressBeforeSwitchCase = relativeRenderAddress;
-		switch (header->type) {
-		case RenderCallType_RenderCallClear: {
-			RenderCallClear* call = ptrcast(RenderCallClear, group.pushBuffer + relativeRenderAddress);
-			RenderRectangleTransparent(dstBuffer, V2{ 0, 0 }, V2i(dstBuffer.width, dstBuffer.height), call->color, clipRect);
-			relativeRenderAddress += sizeof(RenderCallClear);
-		} break;
-		case RenderCallType_RenderCallRectangle: {
-			RenderCallRectangle* call = ptrcast(RenderCallRectangle, group.pushBuffer + relativeRenderAddress);
-#if 0
-			V2 min = call->center - call->size / 2.f;
-			V2 max = min + call->size;
-			RenderRectangleTransparent(dstBuffer, min, max, call->color, clipRect);
-#else
-			V2 xAxis = V2{ call->size.X, 0 };
-			V2 yAxis = V2{ 0, call->size.Y };
-			V2 origin = call->center - call->size / 2.f;
-			RenderFilledRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, clipRect);
-#endif
-			relativeRenderAddress += sizeof(RenderCallRectangle);
-		} break;
-		case RenderCallType_RenderCallBitmap: {
-			// TODO: RenderCallBitmap and RenderCallRectangle have different approaches to calculate center
-			// It should be unified (check groundLevel) which is different from RenderCallRectangle,
-			// also, size is properly changed in RenderCallRectangle and not in RenderCallBitmap
-			RenderCallBitmap* call = ptrcast(RenderCallBitmap, group.pushBuffer + relativeRenderAddress);
-			V2 xAxis = V2{ call->size.X, 0 };
-			V2 yAxis = V2{ 0, call->size.Y };
-			V2 origin = call->center - Hadamard(call->bitmap->align, call->size);
-			RenderRectangleOptimized(dstBuffer, origin, xAxis, yAxis, call->color, *call->bitmap, clipRect);
-			relativeRenderAddress += sizeof(RenderCallBitmap);
-		} break;
-		case RenderCallType_RenderCallCoordinateSystem: {
-			RenderCallCoordinateSystem* call = ptrcast(RenderCallCoordinateSystem, group.pushBuffer + relativeRenderAddress);
-			RenderRectangleSlowly(dstBuffer, call->origin, call->xAxis, call->yAxis,
-				call->color, *call->bitmap, call->normalMap, call->topEnvMap,
-				call->middleEnvMap, call->bottomEnvMap
-			);
-			V4 color = V4{ 1.f, 0.f, 0.f, 0.f };
-			V2 size = V2{ 5.f, 5.f };
-			V2 points[4]{
-				call->origin,
-				call->origin + call->xAxis,
-				call->origin + call->yAxis,
-				call->origin + call->xAxis + call->yAxis
-			};
-			RenderRectangleOpaque(dstBuffer, points[0], points[0] + size, color.RGB);
-			RenderRectangleOpaque(dstBuffer, points[1], points[1] + size, color.RGB);
-			RenderRectangleOpaque(dstBuffer, points[2], points[2] + size, color.RGB);
-			RenderRectangleOpaque(dstBuffer, points[3], points[3] + size, color.RGB);
-			relativeRenderAddress += sizeof(RenderCallCoordinateSystem);
-		} break;
-													  InvalidDefaultCase;
-		}
-		Assert(relativeAddressBeforeSwitchCase < relativeRenderAddress);
-	}
-#endif
 }
 
-void SortRenderGroup(RenderGroup& group) {
+inline
+void Swap(SortElement* A, SortElement* B) {
+	SortElement swap = *A;
+	*A = *B;
+	*B = swap;
+}
+
+internal
+void BubbleSort(SortElement* array, u32 count) {
 	for (;;) {
 		bool swapped = false;
-		for (u32 base = 0; base < group.pushBufferCount - 1; base++) {
-			SortElement* A = ptrcast(SortElement, group.pushBuffer + group.sortBufferAt) + base;
-			SortElement* B = ptrcast(SortElement, group.pushBuffer + group.sortBufferAt) + base + 1;
+		for (u32 base = 0; base < count - 1; base++) {
+			SortElement* A = array + base;
+			SortElement* B = array + base + 1;
 
 			if (A->key > B->key) {
-				SortElement swap = *A;
-				*A = *B;
-				*B = swap;
+				Swap(A, B);
 				swapped = true;
 			}
 		}
@@ -675,6 +614,231 @@ void SortRenderGroup(RenderGroup& group) {
 			break;
 		}
 	}
+}
+
+internal
+u32 MergeSortRecursive(SortElement* array, u32 count, SortElement* tempBuffer, u32 depth) {
+	if (count == 1) {
+		return depth;
+	}
+	if (count == 2) {
+		SortElement* A = array;
+		SortElement* B = array + 1;
+		if (A->key > B->key) {
+			Swap(A, B);
+		}
+		return depth;
+	}
+	u32 leftCount = count / 2;
+	u32 rightCount = count - leftCount;
+
+	SortElement* leftArray = array;
+	SortElement* rightArray = array + leftCount;
+	SortElement* leftTemp = tempBuffer;
+	SortElement* rightTemp = tempBuffer + leftCount;
+	MergeSortRecursive(leftTemp, leftCount, leftArray, depth + 1);
+	u32 maxDepth = MergeSortRecursive(rightTemp, rightCount, rightArray, depth + 1);
+
+	SortElement* out = array;
+	u32 leftRemaining = leftCount;
+	u32 rightRemaining = rightCount;
+	for (u32 elementIndex = 0; elementIndex < count; elementIndex++) {
+		SortElement* A = leftTemp;
+		SortElement* B = rightTemp;
+
+		if (leftRemaining && rightRemaining) {
+			if (A->key > B->key) {
+				*out++ = *B;
+				rightTemp++;
+				rightRemaining--;
+			}
+			else {
+				*out++ = *A;
+				leftTemp++;
+				leftRemaining--;
+			}
+		}
+		else if (leftRemaining) {
+			*out++ = *A;
+			leftTemp++;
+			leftRemaining--;
+		}
+		else if (rightRemaining) {
+			*out++ = *B;
+			rightTemp++;
+			rightRemaining--;
+		}
+		
+	}
+	return maxDepth;
+}
+
+inline
+void MergeSort(SortElement* array, u32 count, SortElement* tempBuffer) {
+	CopySize(array, tempBuffer, count * sizeof(SortElement));
+	u32 maxDepth = MergeSortRecursive(array, count, tempBuffer, 0);
+}
+
+internal
+void MergeSortWithCopying(SortElement* array, u32 count, SortElement* tempBuffer) {
+	if (count == 1) {
+		return;
+	}
+	if (count == 2) {
+		SortElement* A = array;
+		SortElement* B = array + 1;
+		if (A->key > B->key) {
+			Swap(A, B);
+		}
+		return;
+	}
+	u32 leftCount = count / 2;
+	u32 rightCount = count - leftCount;
+
+	SortElement* leftArray = array;
+	SortElement* rightArray = array + leftCount;
+	SortElement* leftTemp = tempBuffer;
+	SortElement* rightTemp = tempBuffer + leftCount;
+	MergeSortWithCopying(leftArray, leftCount, leftTemp);
+	MergeSortWithCopying(rightArray, rightCount, rightTemp);
+
+	SortElement* out = tempBuffer;
+	u32 leftRemaining = leftCount;
+	u32 rightRemaining = rightCount;
+	for (u32 elementIndex = 0; elementIndex < count; elementIndex++) {
+		SortElement* A = leftArray;
+		SortElement* B = rightArray;
+
+		if (leftRemaining && rightRemaining) {
+			if (A->key > B->key) {
+				*out++ = *B;
+				rightArray++;
+				rightRemaining--;
+			}
+			else {
+				*out++ = *A;
+				leftArray++;
+				leftRemaining--;
+			}
+		}
+		else if (leftRemaining) {
+			*out++ = *A;
+			leftArray++;
+			leftRemaining--;
+		}
+		else if (rightRemaining) {
+			*out++ = *B;
+			rightArray++;
+			rightRemaining--;
+		}
+	}
+	SortElement* dest = array;
+	SortElement* src = tempBuffer;
+	for (u32 elementIndex = 0; elementIndex < count; elementIndex++) {
+		*dest++ = *src++;
+	}
+	return;
+}
+
+inline
+u32 FloatToRadixValue(f32 value) {
+	u32 result = *ptrcast(u32, &value);
+
+	/* NOTE:
+	   FLOAT = |Sign bit (1)|Exponent (7)|Mantissa (24)|
+	   Exponent and mantissa are monotonically increasing when float is increasing
+	   Only sign bit is problematic (is 1 when float is negative)
+	   So we set the sign bit for the positive numbers to make them higher than negatives
+	   and we negate negative numbers to unset the sign bit and keep the monotonically
+	   increasing order 
+	*/
+	if (value < 0) {
+		result = ~result;
+	}
+	else {
+		result |= 0x80000000;
+	}
+	return result;
+}
+
+internal
+void RadixSort(SortElement* array, u32 count, SortElement* tempBuffer) {
+	for (u32 bitOffset = 0; bitOffset < 32; bitOffset += 8) {
+		u32 bucketOffsets[256] = {};
+		for (u32 elementIndex = 0; elementIndex < count; elementIndex++) {
+			SortElement* element = array + elementIndex;
+			u32 radixValue = FloatToRadixValue(element->key);
+			u8 radixPiece = (radixValue >> bitOffset) & 0xFF;
+			bucketOffsets[radixPiece]++;
+		}
+
+		u32 total = 0;
+		for (u32 bucketIndex = 0; bucketIndex < ArrayCount(bucketOffsets); bucketIndex++) {
+			u32 bucketCount = bucketOffsets[bucketIndex];
+			bucketOffsets[bucketIndex] = total;
+			total += bucketCount;
+		}
+
+		for (u32 elementIndex = 0; elementIndex < count; elementIndex++) {
+			SortElement* src = array + elementIndex;
+			
+			u32 radixValue = FloatToRadixValue(src->key);
+			u8 radixPiece = (radixValue >> bitOffset) & 0xFF;
+			u32 position = bucketOffsets[radixPiece]++;
+		
+			SortElement* dest = tempBuffer + position;
+			*dest = *src;
+		}
+		SortElement* swapper = array;
+		array = tempBuffer;
+		tempBuffer = swapper;
+	}
+}
+
+internal
+void SortRenderGroup(RenderGroup& group, MemoryArena& tempArena) {
+	
+	SortElement* array = ptrcast(SortElement, group.pushBuffer + group.sortBufferAt);
+	u32 count = group.pushBufferCount;
+	TemporaryMemory tempMemory = BeginTempMemory(tempArena);
+#if 1
+	SortElement* tempBuffer = PushArray(tempArena, count, SortElement);
+#else
+	count = 8;
+	array = PushArray(tempArena, count, SortElement);
+	SortElement* tempBuffer = PushArray(tempArena, count, SortElement);
+	array[0] = SortElement{ 40.f,  70 /* i */ };
+	array[1] = SortElement{ -20.f, 10 /* b */ };
+	array[2] = SortElement{ 30.f,  60 /* g */ };
+	array[3] = SortElement{ -30.f, 0  /* a */ };
+	array[4] = SortElement{ 0.0f,  30 /* d */ };
+	array[5] = SortElement{ 20.f,  50 /* f */ };
+	array[6] = SortElement{ 10.f,  40 /* e */ };
+	array[7] = SortElement{ -10.f, 20 /* c */ };
+
+	//array[8] = SortElement{ 45.f,  75 /* i */ };
+	//array[9] = SortElement{ -25.f, 15 /* b */ };
+	//array[10] = SortElement{ 35.f,  65 /* g */ };
+	//array[11] = SortElement{ -35.f, 5  /* a */ };
+	//array[12] = SortElement{ 0.5f,  35 /* d */ };
+	//array[13] = SortElement{ 25.f,  55 /* f */ };
+	//array[14] = SortElement{ 15.f,  45 /* e */ };
+	//array[15] = SortElement{ -15.f, 25 /* c */ };
+#endif
+	//BubbleSort(array, count);
+	//MergeSort(array, count, tempBuffer);
+	//MergeSortWithCopying(array, count, tempBuffer);
+	RadixSort(array, count, tempBuffer);
+	EndTempMemory(tempMemory);
+#if SLOW_VALIDATION
+	for (u32 sortIndex = 0; sortIndex < count - 1; sortIndex++) {
+		SortElement* A = array + sortIndex;
+		SortElement* B = array + sortIndex + 1;
+		if (A->key > B->key) {
+			Assert(!"Sorting does not work!");
+		}
+	}
+#endif
 }
 
 struct RenderTiledArgs {
@@ -690,7 +854,7 @@ void RenderTiled(void* data) {
 }
 
 internal
-void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue) {
+void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue, MemoryArena& tempMemoryArena) {
 	TIMED_FUNCTION;
 	constexpr u32 tileCountX = 4;
 	constexpr u32 tileCountY = 4;
@@ -718,7 +882,7 @@ void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Platf
 	Assert(tileWidth * tileCountX < dstBuffer.width + tileWidth);
 	Assert(tileHeight * tileCountY < dstBuffer.height + tileHeight);
 
-	SortRenderGroup(group);
+	SortRenderGroup(group, tempMemoryArena);
 
 	for (u32 tileY = 0; tileY < tileCountY; tileY++) {
 		for (u32 tileX = 0; tileX < tileCountX; tileX++) {
@@ -740,9 +904,9 @@ void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, Platf
 }
 
 internal
-void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer) {
+void RenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, MemoryArena& tempMemoryArena) {
 	Rect2i clipRect = { 0, 0, dstBuffer.width, dstBuffer.height };
-	SortRenderGroup(group);
+	SortRenderGroup(group, tempMemoryArena);
 	RenderGroupToBuffer(group, dstBuffer, clipRect);
 }
 

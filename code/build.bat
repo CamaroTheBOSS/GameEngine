@@ -25,7 +25,7 @@ set PATH=%MSVC_TOOLS_PATH%;%PATH%
 set GameCodeOnly=%1
 
 set CompilerFlags= -Od -nologo -GR- -MTd -Oi -W4 -WX -wd4100 -wd4189 -wd4505 -wd4005 -Zi -Fm -std:c++20 %WIN_INCLUDE_FLAGS%
-set CompilerFlags= -DINTERNAL_BUILD=1 %CompilerFlags%
+set CompilerFlags= -DINTERNAL_BUILD=1 -DSLOW_VALIDATION=1 %CompilerFlags%
 set LinkerFlags= %WIN_LIB_FLAGS% -incremental:no -opt:ref user32.lib gdi32.lib ole32.lib winmm.lib
 pushd ..\build
   echo %cd%

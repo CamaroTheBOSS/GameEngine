@@ -129,7 +129,7 @@ inline void EndRendering(RenderGroup& group);
 inline void ResetRenderGroup(RenderGroup& group);
 
 struct PlatformQueue;
-internal void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue);
+internal void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue, MemoryArena& tempMemoryArena);
 inline V2 FromPixelSpaceToWorldSpace(Projection& projection, V2 pixelSpacePos, f32 atDistanceFromCamera);
 inline Rect2 GetRenderRectangleAtDistance(Projection& projection, u32 width, u32 height, f32 distance);
 inline Projection GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 metersToPixels);
