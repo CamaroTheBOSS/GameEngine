@@ -599,6 +599,7 @@ void Swap(SortElement* A, SortElement* B) {
 
 internal
 void BubbleSort(SortElement* array, u32 count) {
+	TIMED_FUNCTION;
 	for (;;) {
 		bool swapped = false;
 		for (u32 base = 0; base < count - 1; base++) {
@@ -675,12 +676,14 @@ u32 MergeSortRecursive(SortElement* array, u32 count, SortElement* tempBuffer, u
 
 inline
 void MergeSort(SortElement* array, u32 count, SortElement* tempBuffer) {
+	TIMED_FUNCTION;
 	CopySize(array, tempBuffer, count * sizeof(SortElement));
 	u32 maxDepth = MergeSortRecursive(array, count, tempBuffer, 0);
 }
 
 internal
 void MergeSortWithCopying(SortElement* array, u32 count, SortElement* tempBuffer) {
+	TIMED_FUNCTION;
 	if (count == 1) {
 		return;
 	}
@@ -763,6 +766,7 @@ u32 FloatToRadixValue(f32 value) {
 
 internal
 void RadixSort(SortElement* array, u32 count, SortElement* tempBuffer) {
+	TIMED_FUNCTION;
 	for (u32 bitOffset = 0; bitOffset < 32; bitOffset += 8) {
 		u32 bucketOffsets[256] = {};
 		for (u32 elementIndex = 0; elementIndex < count; elementIndex++) {
@@ -797,7 +801,7 @@ void RadixSort(SortElement* array, u32 count, SortElement* tempBuffer) {
 
 internal
 void SortRenderGroup(RenderGroup& group, MemoryArena& tempArena) {
-	
+	TIMED_FUNCTION;
 	SortElement* array = ptrcast(SortElement, group.pushBuffer + group.sortBufferAt);
 	u32 count = group.pushBufferCount;
 	TemporaryMemory tempMemory = BeginTempMemory(tempArena);
@@ -974,7 +978,6 @@ void EndRendering(RenderGroup& group) {
 	group.generationId.id = 0;
 }
 
-#define Text(text) text
 #define PushRenderEntry(group, type, sortKey) ptrcast(type, PushRenderEntry_(group, sizeof(type), RenderCallType_##type, sortKey))
 inline
 void* PushRenderEntry_(RenderGroup& group, u32 size, RenderCallType type, f32 sortKey) {

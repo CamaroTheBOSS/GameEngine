@@ -21,9 +21,6 @@ set WIN_LIB_FLAGS=%WIN_LIB_FLAGS% /LIBPATH:"%VS_SDK_DIR%\Lib\%VS_SDK_VERSION%\um
 set WIN_LIB_FLAGS=%WIN_LIB_FLAGS% /LIBPATH:"%VS_SDK_DIR%\Lib\%VS_SDK_VERSION%\ucrt\x64"
 set PATH=%MSVC_TOOLS_PATH%;%PATH%
 
-
-set GameCodeOnly=%1
-
 set CompilerFlags= -Od -nologo -GR- -MTd -Oi -W4 -WX -wd4100 -wd4189 -wd4505 -wd4005 -Zi -Fm -std:c++20 %WIN_INCLUDE_FLAGS%
 set CompilerFlags= -DINTERNAL_BUILD=1 -DSLOW_VALIDATION=1 %CompilerFlags%
 set LinkerFlags= %WIN_LIB_FLAGS% -incremental:no -opt:ref user32.lib gdi32.lib ole32.lib winmm.lib
@@ -43,8 +40,6 @@ pushd ..\build
   REM Platform layer + game code
   cl %CompilerFlags% -O2 ..\code\engine_optimized.cpp /c -Foengine_optimized.obj
   cl %CompilerFlags% ..\code\engine.cpp -LD engine_optimized.obj /link %WIN_LIB_FLAGS% -incremental:no -opt:ref -PDB:engine%random%.pdb -EXPORT:GameMainLoopFrame -EXPORT:GameFillSoundBuffer -EXPORT:DebugInit -EXPORT:DebugFinishFrame
-  if "%GameCodeOnly%"=="" (
-	cl %CompilerFlags% ..\code\win32_main.cpp /link %LinkerFlags%
-  )
+  cl %CompilerFlags% ..\code\win32_main.cpp /link %LinkerFlags%
 popd
 endlocal

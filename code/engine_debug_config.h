@@ -4,4 +4,5 @@
 #define CONSTANT_Camera_ZoomoutValue 10.000000f
 #define CONSTANT_Profiler_Memory 0
 #define CONSTANT_Profiler_Cpu 0
+#define CONSTANT_Profiler_CpuSpansList 0
 #define CONSTANT_Profiler_Pause 0

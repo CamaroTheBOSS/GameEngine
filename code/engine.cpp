@@ -1292,7 +1292,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
 
-#if 0
+#if 1
 	Rect3 groundChunkBounds = ToRect3(playerView, V2{0, 0});
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(groundChunkBounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(groundChunkBounds));
