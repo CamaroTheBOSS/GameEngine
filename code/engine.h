@@ -7,6 +7,10 @@
 #include "engine_rand.h"
 #include "engine_assets.h"
 
+#if defined(INTERNAL_BUILD)
+ProgramMemory* debugGlobalMemory;
+#endif
+
 struct PlayerControls {
 	V3 acceleration;
 };

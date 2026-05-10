@@ -8,6 +8,10 @@
 #include <sys/stat.h>
 #include <gl/GL.h>
 
+PlatformAPI* Platform;
+
+#include "renderer_opengl.cpp"
+#include "renderer_software.cpp"
 
 #if defined(INTERNAL_BUILD)
 LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(TB(static_cast<u64>(10)));
@@ -18,9 +22,6 @@ DebugGlobalState* debugGlobalState = &debugGlobalState_;
 #else
 LPVOID MEM_ALLOC_START = reinterpret_cast<void*>(0);
 #endif
-
-PlatformAPI* Platform;
-
 
 extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrameStub) {}
 extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub) {
@@ -44,6 +45,14 @@ struct SoundRenderData {
 	float tSine = 0;
 	int bufferSizeInSamples;
 	u64 runningSampleIndex = 0;
+};
+
+
+struct VsyncHelperArgs {
+	u64 frameStartTime;
+	bool sleepIsGranular;
+	f32 targetFrameRefreshSeconds;
+	u32 schedulerGranularityMs;
 };
 
 struct Win32GameCode {
@@ -453,6 +462,17 @@ void InitializeQueue(PlatformQueue& queue, DWORD threadCount) {
 	queue.semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
 }
 
+inline
+void* Win32AllocateMemory(u32 bytes) {
+	void* result = VirtualAlloc(0, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	return result;
+}
+
+inline
+void Win32FreeMemory(void* memory) {
+	VirtualFree(memory, 0, MEM_RELEASE);
+}
+
 // Platform API
 struct Win32FileHandle {
 	PlatformFileHandle base;
@@ -795,67 +815,123 @@ void Win32ResizeBitmapMemory(BitmapData& bitmap, int newWidth, int newHeight) {
 	bitmap.data = VirtualAlloc(0, allocSize, MEM_COMMIT, PAGE_READWRITE);
 }
 
+inline
+u64 Win32GetCurrentTimestamp() {
+	LARGE_INTEGER timestamp = {};
+	QueryPerformanceCounter(&timestamp);
+	return timestamp.QuadPart;
+}
+
+inline internal
+f32 Win32CalculateTimeElapsed(u64 startTime, u64 endTime) {
+	return static_cast<f32>(endTime - startTime) / static_cast<f32>(globalPerformanceFreq.QuadPart);
+}
+
+inline
+void ManualVSync(VsyncHelperArgs& vsync) {
+	TIMED_BLOCK_BEGIN(WaitTillNextFrame);
+	u64 frameEndTime = Win32GetCurrentTimestamp();
+	f32 secondsElapsedForFrame = Win32CalculateTimeElapsed(vsync.frameStartTime, frameEndTime);
+	f32 desiredSleepTimeMs = 1000.0f * (vsync.targetFrameRefreshSeconds - secondsElapsedForFrame) - 5;
+	if (vsync.sleepIsGranular && desiredSleepTimeMs > vsync.schedulerGranularityMs) {
+		u64 start = Win32GetCurrentTimestamp();
+		Sleep(static_cast<DWORD>(desiredSleepTimeMs));
+		u64 end = Win32GetCurrentTimestamp();
+		f32 elapsed = Win32CalculateTimeElapsed(start, end);
+		frameEndTime = Win32GetCurrentTimestamp();
+		secondsElapsedForFrame = Win32CalculateTimeElapsed(vsync.frameStartTime, frameEndTime);
+		//Assert(secondsElapsedForFrame < targetFrameRefreshSeconds);
+	}
+	while (secondsElapsedForFrame < vsync.targetFrameRefreshSeconds) {
+		YieldProcessor();
+		frameEndTime = Win32GetCurrentTimestamp();
+		secondsElapsedForFrame = Win32CalculateTimeElapsed(vsync.frameStartTime, frameEndTime);
+	}
+	vsync.frameStartTime = frameEndTime;
+	TIMED_BLOCK_END(WaitTillNextFrame);
+}
+
 internal
-void Win32DisplayWindow(HDC deviceContext, Win32State& state, BitmapData bitmap, int width, int height) {
-	// TODO change that to more shipping quality version of fullscreen
-#if 0
-	if (state.bltOffsetX || state.bltOffsetY) {
-		PatBlt(deviceContext, 0, 0, state.bltOffsetX, 600, BLACKNESS);
-		PatBlt(deviceContext, state.bltOffsetX, 0, 1000, state.bltOffsetY, BLACKNESS);
-		PatBlt(deviceContext, state.bltOffsetX + bitmap.width, 0, 1920, 1080, BLACKNESS);
-		PatBlt(deviceContext, 0, state.bltOffsetY + bitmap.height, 1000, 600, BLACKNESS);
+void Win32RenderCommands(RenderCommandBuffer* renderCommands, BitmapData& bitmap, PlatformQueue* queue,
+	HDC deviceContext, Win32State& state, int windowWidth, int windowHeight, VsyncHelperArgs& vsync) 
+{
+	if (renderCommands->pushBufferCount > renderCommands->sortBufferCount) {
+		Win32FreeMemory(renderCommands->sortTempBuffer);
+		renderCommands->sortBufferCount = renderCommands->pushBufferCount;
+		renderCommands->sortTempBuffer = ptrcast(SortElement, Win32AllocateMemory(sizeof(SortElement) * renderCommands->sortBufferCount));
 	}
-	StretchDIBits(
-		deviceContext,
-		state.bltOffsetX, state.bltOffsetY, state.displayWidth, state.displayHeight,
-		0, 0, bitmap.width, bitmap.height,
-		bitmap.data,
-		&globalBitmapInfo,
-		DIB_RGB_COLORS, SRCCOPY
-	);
-#else
-	glViewport(0, 0, width, height);
+	SortRenderCommands(renderCommands);
 
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
+	bool isSoftwareRendering = 1;
+	if (isSoftwareRendering) {
+		LoadedBitmap dstBuffer = {};
+		dstBuffer.height = bitmap.height;
+		dstBuffer.width = bitmap.width;
+		dstBuffer.data = ptrcast(u32, bitmap.data);
+		dstBuffer.pitch = bitmap.pitch;
 
-	glClearColor(0.5f, 0.1f, 0.5f, 1.f);
-	glClear(GL_COLOR_BUFFER_BIT);
+		TiledRenderGroupToBuffer(renderCommands, dstBuffer, queue);
+		ManualVSync(vsync);
 
-	static GLuint glTexture = 0;
-	if (glTexture == 0) {
-		glGenTextures(1, &glTexture);
+		if (state.bltOffsetX || state.bltOffsetY) {
+			PatBlt(deviceContext, 0, 0, state.bltOffsetX, 600, BLACKNESS);
+			PatBlt(deviceContext, state.bltOffsetX, 0, 1000, state.bltOffsetY, BLACKNESS);
+			PatBlt(deviceContext, state.bltOffsetX + bitmap.width, 0, 1920, 1080, BLACKNESS);
+			PatBlt(deviceContext, 0, state.bltOffsetY + bitmap.height, 1000, 600, BLACKNESS);
+		}
+		StretchDIBits(
+			deviceContext,
+			state.bltOffsetX, state.bltOffsetY, state.displayWidth, state.displayHeight,
+			0, 0, bitmap.width, bitmap.height,
+			bitmap.data,
+			&globalBitmapInfo,
+			DIB_RGB_COLORS, SRCCOPY
+		);
+	}
+	else {
+		glViewport(0, 0, windowWidth, windowHeight);
+
+		glMatrixMode(GL_MODELVIEW);
+		glLoadIdentity();
+
+		glClearColor(0.5f, 0.1f, 0.5f, 1.f);
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		static GLuint glTexture = 0;
+		if (glTexture == 0) {
+			glGenTextures(1, &glTexture);
+			glBindTexture(GL_TEXTURE_2D, glTexture);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+		}
+		glEnable(GL_TEXTURE_2D);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, bitmap.width, bitmap.height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, bitmap.data);
+
+
+		//glColor4f(1.f, 0.f, 0.f, 1.f);
+		glBegin(GL_TRIANGLES);
 		glBindTexture(GL_TEXTURE_2D, glTexture);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+		glTexCoord2f(0.f, 0.f);
+		glVertex2f(-1.f, -1.f);
+		glTexCoord2f(1.f, 0.f);
+		glVertex2f(1.0f, -1.0f);
+		glTexCoord2f(1.f, 1.f);
+		glVertex2f(1.0f, 1.0f);
+
+		//glColor4f(0.f, 1.f, 0.f, 1.f);
+		glTexCoord2f(0.f, 0.f);
+		glVertex2f(-1.0f, -1.0f);
+		glTexCoord2f(0.f, 1.f);
+		glVertex2f(-1.0f, 1.0f);
+		glTexCoord2f(1.f, 1.f);
+		glVertex2f(1.0f, 1.0f);
+		glEnd();
+
+		SwapBuffers(deviceContext);
 	}
-	glEnable(GL_TEXTURE_2D);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, bitmap.width, bitmap.height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, bitmap.data);
-	
-
-	//glColor4f(1.f, 0.f, 0.f, 1.f);
-	glBegin(GL_TRIANGLES);
-	glBindTexture(GL_TEXTURE_2D, glTexture);
-	glTexCoord2f(0.f, 0.f);
-	glVertex2f(-1.f, -1.f);
-	glTexCoord2f(1.f, 0.f);
-	glVertex2f( 1.0f, -1.0f);
-	glTexCoord2f(1.f, 1.f);
-	glVertex2f( 1.0f,  1.0f);
-
-	//glColor4f(0.f, 1.f, 0.f, 1.f);
-	glTexCoord2f(0.f, 0.f);
-	glVertex2f(-1.0f, -1.0f);
-	glTexCoord2f(0.f, 1.f);
-	glVertex2f(-1.0f,  1.0f);
-	glTexCoord2f(1.f, 1.f);
-	glVertex2f( 1.0f,  1.0f);
-	glEnd();
-
-	SwapBuffers(deviceContext);
-#endif
+	ResetRenderCommands(renderCommands);
 }
 
 internal
@@ -1109,29 +1185,6 @@ void ResetInput(Controller& controller) {
 	controller.mouseWheelTicks = 0;
 }
 
-inline
-void* Win32AllocateMemory(u32 bytes) {
-	void* result = VirtualAlloc(0, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-	return result;
-}
-
-inline
-void Win32FreeMemory(void* memory) {
-	VirtualFree(memory, 0, MEM_RELEASE);
-}
-
-inline
-u64 Win32GetCurrentTimestamp() {
-	LARGE_INTEGER timestamp = {};
-	QueryPerformanceCounter(&timestamp);
-	return timestamp.QuadPart;
-}
-
-inline internal
-f32 Win32CalculateTimeElapsed(u64 startTime, u64 endTime) {
-	return static_cast<f32>(endTime - startTime) / static_cast<f32>(globalPerformanceFreq.QuadPart);
-}
-
 internal
 ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	ProgramMemory programMemory = {};
@@ -1183,6 +1236,7 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.platformAPI.MemoryFree = Win32FreeMemory;
 	programMemory.platformAPI.SystemExecuteCommand = Win32SystemExecuteCommand;
 	programMemory.platformAPI.SystemGetCommandState = Win32SystemGetCommandState;
+	Platform = &programMemory.platformAPI;
 
 	programMemory.highPriorityQueue = &globalHighPriorityQueue;
 	programMemory.lowPriorityQueue = &globalLowPriorityQueue;
@@ -1254,6 +1308,8 @@ int CALLBACK WinMain(
 		// TODO: Logging
 		return 0;
 	}
+	Platform = &programMemory.platformAPI;
+
 	Win32GameCode gameCode = {};
 	// // TODO change globalWin32State to win32State
 	globalWin32State.window = window;
@@ -1304,8 +1360,21 @@ int CALLBACK WinMain(
 	u32 soundSamplesToWriteEachFrame = u4(globalSoundData.dataFormat.Format.nSamplesPerSec * refreshSecondsWithSafetyMargin);
 	QueryPerformanceFrequency(&globalPerformanceFreq);
 
-	u64 frameStartTime = Win32GetCurrentTimestamp();
-	u64 rdtscStart = __rdtsc();
+
+	RenderCommandBuffer renderCommands = {};
+	renderCommands.maxPushBufferSize = MB(4);
+	renderCommands.pushBuffer = ptrcast(u8, Win32AllocateMemory(renderCommands.maxPushBufferSize));
+	renderCommands.sortBufferAt = renderCommands.maxPushBufferSize;
+	renderCommands.pushBufferCount = 0;
+	renderCommands.pushBufferSize = 0;
+	renderCommands.sortBufferCount = 256;
+	renderCommands.sortTempBuffer = ptrcast(SortElement, Win32AllocateMemory(sizeof(SortElement) * renderCommands.sortBufferCount));
+	
+	VsyncHelperArgs vsync = {};
+	vsync.frameStartTime = Win32GetCurrentTimestamp();
+	vsync.schedulerGranularityMs = schedulerGranularityMs;
+	vsync.sleepIsGranular = sleepIsGranular;
+	vsync.targetFrameRefreshSeconds = targetFrameRefreshSeconds;
 	while (globalRunning) {
 		Win32ReloadGameCode(gameCode);
 #if INTERNAL_BUILD
@@ -1331,40 +1400,19 @@ int CALLBACK WinMain(
 		TIMED_BLOCK_END(InputProcessing);
 		TIMED_BLOCK_BEGIN(GameMainLoop);
 		// PART: Game main loop
-		gameCode.GameMainLoopFrame(programMemory, globalBitmap, inputData);
+		gameCode.GameMainLoopFrame(programMemory, &renderCommands, inputData, globalBitmap.width, globalBitmap.height);
 		TIMED_BLOCK_END(GameMainLoop);
 #if INTERNAL_BUILD
-		gameCode.DebugFinishFrame(programMemory, globalBitmap, inputData);
+		gameCode.DebugFinishFrame(programMemory, &renderCommands, inputData, globalBitmap.width, globalBitmap.height);
 #endif
-
-		// PART: Timing stuff
-		//TIMED_BLOCK_BEGIN(WaitTillNextFrame);
-		//u64 frameEndTime = Win32GetCurrentTimestamp();
-		//f32 secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
-		//f32 desiredSleepTimeMs = 1000.0f * (targetFrameRefreshSeconds - secondsElapsedForFrame) - 5;
-		//if (sleepIsGranular && desiredSleepTimeMs > schedulerGranularityMs) {
-		//	u64 start = Win32GetCurrentTimestamp();
-		//	Sleep(static_cast<DWORD>(desiredSleepTimeMs));
-		//	u64 end = Win32GetCurrentTimestamp();
-		//	f32 elapsed = Win32CalculateTimeElapsed(start, end);
-		//	frameEndTime = Win32GetCurrentTimestamp();
-		//	secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
-		//	//Assert(secondsElapsedForFrame < targetFrameRefreshSeconds);
-		//}
-		//while (secondsElapsedForFrame < targetFrameRefreshSeconds) {
-		//	YieldProcessor();
-		//	frameEndTime = Win32GetCurrentTimestamp();
-		//	secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
-		//}
-		//frameStartTime = frameEndTime;
-		//TIMED_BLOCK_END(WaitTillNextFrame);
-		MARKUP_FRAME_END;
-		TIMED_BLOCK_BEGIN(DisplayWindow);
+		TIMED_BLOCK_BEGIN(RenderCommands);
 		// PART: Displaying window
 		auto dim = GetWindowDimension(window);
-		Win32DisplayWindow(deviceContext, globalWin32State, globalBitmap, dim.width, dim.height);
+		Win32RenderCommands(&renderCommands, globalBitmap, &globalHighPriorityQueue,
+			deviceContext, globalWin32State, dim.width, dim.height, vsync);
 		ReleaseDC(window, deviceContext);
-		TIMED_BLOCK_END(DisplayWindow);
+		TIMED_BLOCK_END(RenderCommands);
+		MARKUP_FRAME_END;
 
 		// PART: Preparing SoundData structure for game main loop
 		TIMED_BLOCK_BEGIN(GatherAndRenderSound);

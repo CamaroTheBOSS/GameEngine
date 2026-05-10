@@ -444,15 +444,15 @@ DebugTree* AddTree(DebugState* state, V2 pos, const char* name) {
 }
 
 internal 
-DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
+DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u32 bitmapWidth, u32 bitmapHeight) {
 	if (debugGlobalMemory->debugMemorySize == 0) {
 		return 0;
 	}
 	Assert(debugGlobalMemory->debugMemorySize >= sizeof(DebugState));
 	DebugState* state = ptrcast(DebugState, debugGlobalMemory->debugMemory);
+	TransientState* tranState = ptrcast(TransientState, debugGlobalMemory->transientMemory);
+	Assert(tranState->isInitialized);
 	if (!state->isInitialized) {
-		TransientState* tranState = ptrcast(TransientState, debugGlobalMemory->transientMemory);
-		Assert(tranState->isInitialized);
 #if 1
 		DebugState* debugState = state;
 		InitializeArena(
@@ -473,16 +473,16 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 		SubArena(state->collationFrameArena, state->mainArena, MB(2));
 #endif
 		state->controller = &input.controllers[KB_CONTROLLER_IDX];
-		state->renderGroup = AllocateRenderGroup(state->mainArena, &tranState->assets, MB(4), false);
+		state->renderGroup = BeginRendering(renderCommands, &tranState->assets);
 		state->highPriorityQueue = tranState->highPriorityQueue;
-		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
+		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(bitmapWidth, bitmapHeight));
 		
 		state->cpuProfiler.view.rect = Rect2{
 			V2{ state->overlayBoundaries.min + V2{ 30.f, 30.f } },
 			V2{ state->overlayBoundaries.max.X - 30.f, state->overlayBoundaries.min.Y + 250.f }
 		};
 		state->cpuProfiler.view.offset = V2{ 0, 0 };
-		state->cpuProfiler.view.projection = GetOrtographicProjection(screenBitmap.width, screenBitmap.height, 1);
+		state->cpuProfiler.view.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
 		state->cpuProfiler.view.zoom = state->cpuProfiler.view.projection.camera.focalLength;
 
 		state->memProfiler.view.rect = Rect2{
@@ -490,7 +490,7 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 			V2{ state->cpuProfiler.view.rect.max + V2{0, 60.f + 30.f} }
 		};
 		state->memProfiler.view.offset = V2{ 0, 0 };
-		state->memProfiler.view.projection = GetOrtographicProjection(screenBitmap.width, screenBitmap.height, 1);
+		state->memProfiler.view.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
 		state->memProfiler.view.zoom = state->memProfiler.view.projection.camera.focalLength;
 
 		state->threadStacks = PushArray(state->mainArena, MAX_DEBUG_THREADS, DebugThreadStack);
@@ -502,15 +502,14 @@ DebugState* DebugBegin(LoadedBitmap& screenBitmap, InputData& input) {
 		state->defaultMainVariablesGroup = &AddTree(state, leftTopCorner, "Debugging")->rootGroup;
 		state->defaultIntrospectionGroup = &AddTree(state, rightTopCorner, "Introspection")->rootGroup;
 
-		BeginRendering(state->renderGroup);
 		state->isInitialized = true;
 	}
 	EndRendering(state->renderGroup);
-	BeginRendering(state->renderGroup);
+	state->renderGroup = BeginRendering(renderCommands, &tranState->assets);
 	state->entityIntrospectionCountInFrame = 0;
-	state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(screenBitmap.width, screenBitmap.height));
-	ResetRenderGroup(state->renderGroup);
-	state->renderGroup.projection = GetOrtographicProjection(screenBitmap.width, screenBitmap.height, 1);
+	state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(bitmapWidth, bitmapHeight));
+	state->renderGroup.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
+	state->renderGroup.projection.offset = V3{ 0, 0, 10 }; //NOTE: Put a bias for debug stuff for sorting purposes
 	state->font = GetOrPrefetchFont(
 		state->renderGroup, GetFontWithType(*state->renderGroup.assets, Font_Debug)
 	);
@@ -1225,6 +1224,13 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		V4{0, 1, 1, 1},
 		V4{1, 0, 1, 1},
 		V4{1, 1, 0, 1},
+
+		V4{0.5, 1, 0.5, 1},
+		V4{0.5, 0.5, 1, 1},
+		V4{0.5, 1, 1, 1},
+		V4{1, 0.5, 1, 1},
+		V4{1, 1, 0.5, 1},
+
 		V4{1, 0.5f, 0.5f, 1},
 	};
 	f32 frameWidth = f4(state->threadStacksCount) * threadLaneTotalWidth + frameLaneSpace;
@@ -1869,7 +1875,7 @@ void DebugDumpStruct(DebugState* state, MemberDefinition* memberArray, u32 membe
 	
 }
 
-void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap) {
+void DebugRenderOverlay(DebugState* state) {
 	TIMED_FUNCTION;
 	if (!state->font) {
 		return;
@@ -1930,28 +1936,21 @@ void DebugRenderOverlay(DebugState* state, LoadedBitmap& dstBitmap) {
 		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 #endif
 	}
-
-	TiledRenderGroupToBuffer(state->renderGroup, dstBitmap, state->highPriorityQueue, state->mainArena);
 }
 
 extern "C" DebugGlobalState* DebugInit(ProgramMemory* memory) {
 	return debugGlobalState;
 }
 
-extern "C" void DebugFinishFrame(ProgramMemory* memory, BitmapData& rawBitmap, InputData& input) {
+extern "C" void DebugFinishFrame(ProgramMemory* memory, RenderCommandBuffer* renderCommands, InputData& input, u32 bitmapWidth, u32 bitmapHeight) {
 	TIMED_FUNCTION;
 	debugGlobalState->frameStartCyclesDebugFinishFrame[debugGlobalState->currentFrameIndex] = __rdtsc();
-	LoadedBitmap bitmap = {};
-	bitmap.height = rawBitmap.height;
-	bitmap.width = rawBitmap.width;
-	bitmap.data = ptrcast(u32, rawBitmap.data);
-	bitmap.pitch = rawBitmap.pitch;
 
-	DebugState* state = DebugBegin(bitmap, input);
+	DebugState* state = DebugBegin(input, renderCommands, bitmapWidth, bitmapHeight);
 	if (!state) {
 		return;
 	}
-	DebugRenderOverlay(state, bitmap);
+	DebugRenderOverlay(state);
 	DebugCollateEvents(state);
 	state->totalFrameCount++;
 	debugGlobalState->frameEndCyclesDebugFinishFrame[debugGlobalState->currentFrameIndex] = __rdtsc();

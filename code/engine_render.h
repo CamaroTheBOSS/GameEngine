@@ -81,6 +81,7 @@ struct Projection {
 	f32 metersToPixels;
 	V2 screenCenter;
 	bool orthographic;
+	V3 offset;
 };
 
 struct ObjectTransform {
@@ -89,21 +90,13 @@ struct ObjectTransform {
 	V2 offset;
 };
 
+struct RenderCommandBuffer;
 struct RenderGroup {
+	RenderCommandBuffer* commands;
 	Projection projection;
-	u8* pushBuffer;
-	u32 pushBufferCount;
-	u32 pushBufferSize;
-	u32 maxPushBufferSize;
-	u32 sortBufferAt;
 	bool renderInBackground;
 	GenerationId generationId;
 	Assets* assets;
-};
-
-struct SortElement {
-	f32 key;
-	u32 offset;
 };
 
 void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
@@ -123,13 +116,10 @@ inline bool PushRect(RenderGroup& group, ObjectTransform transform, Rect2 rectan
 inline bool PushRectBorders(RenderGroup& group, ObjectTransform transform, V3 center, V2 size, V4 color, f32 thickness);
 inline bool PushRectOutlineInside(RenderGroup& group, ObjectTransform transform, Rect2 rect, f32 Z, V4 color, f32 thickness);
 
-inline RenderGroup AllocateRenderGroup(MemoryArena& arena, Assets* assets, u32 size, bool renderInBackground = false);
-inline void BeginRendering(RenderGroup& group);
+struct RenderCommandBuffer;
+inline RenderGroup BeginRendering(RenderCommandBuffer* commands, Assets* assets, bool renderInBackground = false);
 inline void EndRendering(RenderGroup& group);
-inline void ResetRenderGroup(RenderGroup& group);
 
-struct PlatformQueue;
-internal void TiledRenderGroupToBuffer(RenderGroup& group, LoadedBitmap& dstBuffer, PlatformQueue* queue, MemoryArena& tempMemoryArena);
 inline V2 FromPixelSpaceToWorldSpace(Projection& projection, V2 pixelSpacePos, f32 atDistanceFromCamera);
 inline Rect2 GetRenderRectangleAtDistance(Projection& projection, u32 width, u32 height, f32 distance);
 inline Projection GetOrtographicProjection(u32 widthPix, u32 heightPix, f32 metersToPixels);

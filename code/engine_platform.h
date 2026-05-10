@@ -71,6 +71,21 @@ struct InputData {
 	f32 dtFrame;
 };
 
+struct SortElement {
+	f32 key;
+	u32 offset;
+};
+struct RenderCommandBuffer {
+	u8* pushBuffer;
+	u32 pushBufferCount;
+	u32 pushBufferSize;
+	u32 maxPushBufferSize;
+	u32 sortBufferAt;
+	u32 sortBufferCount;
+	SortElement* sortTempBuffer;
+};
+
+
 /* Functionalities served by the platform layer for program layer */
 // DEBUG API
 struct FileData {
@@ -185,10 +200,10 @@ struct ProgramMemory {
 };
 
 /* Functionalities served by the program layer for platform layer */
-#define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, InputData& input)
+#define GAME_MAIN_LOOP_FRAME(name) void name(ProgramMemory& memory, RenderCommandBuffer* renderCommands, InputData& input, u32 bitmapWidth, u32 bitmapHeight)
 #define GAME_FILL_SOUND_BUFFER(name) void name(ProgramMemory& memory, SoundData& soundData)
 #define DEBUG_INIT(name) DebugGlobalState* name(ProgramMemory& memory)
-#define DEBUG_FINISH_FRAME(name) void name(ProgramMemory& memory, BitmapData& bitmap, InputData& input)
+#define DEBUG_FINISH_FRAME(name) void name(ProgramMemory& memory, RenderCommandBuffer*, InputData& input, u32 bitmapWidth, u32 bitmapHeight)
 typedef GAME_MAIN_LOOP_FRAME(_GameMainLoopFrame);
 typedef GAME_FILL_SOUND_BUFFER(_GameFillSoundBuffer);
 typedef DEBUG_INIT(_DebugInit);

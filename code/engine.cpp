@@ -185,6 +185,7 @@ struct FillGroundBufferTaskArgs {
 	GroundBuffer* groundBuffer;
 };
 
+#if 0
 internal
 void FillGroundBufferBackgroundTask(void* data) {
 	TIMED_FUNCTION;
@@ -258,6 +259,7 @@ bool FillGroundBuffer(TransientState* tranState, ProgramState* state, GroundBuff
 	Platform->QueuePushTask(queue, FillGroundBufferBackgroundTask, args);
 	return true;
 }
+#endif
 
 inline
 V2 ToBottomUpAlignment(LoadedBitmap& bitmap, V2 topDownAlign) {
@@ -1172,17 +1174,12 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			groundBuffer->pos = NullPosition();
 		}
 	}
-	LoadedBitmap screenBitmap = {};
-	screenBitmap.height = bitmap.height;
-	screenBitmap.width = bitmap.width;
-	screenBitmap.data = ptrcast(u32, bitmap.data);
-	screenBitmap.pitch = bitmap.pitch;
 
 	TIMED_BLOCK_BEGIN(BeginSimAndInputProc);
 	SetCamera(state);
 	TemporaryMemory simMemory = BeginTempMemory(tranState->arena);
-	Projection projection = GetStandardProjection(bitmap.width, bitmap.height);
-	Rect2 cameraBounds = GetRenderRectangleAtTarget(projection, bitmap.width, bitmap.height);
+	Projection projection = GetStandardProjection(bitmapWidth, bitmapHeight);
+	Rect2 cameraBounds = GetRenderRectangleAtTarget(projection, bitmapWidth, bitmapHeight);
 	Rect3 simBounds = ToRect3(cameraBounds, V2{ -3, 1 } *state->world.tileSizeInMeters.Z);
 	simBounds.max.X += 5.f;
 	simBounds.min.X -= 5.f;
@@ -1261,7 +1258,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			MakeEntitySpatial(*simRegion, state->world, entity->sword->storageIndex, *entity->sword, entity->worldPos);
 		}
 		PlayingSound* first = state->audio.playingSounds;
-		f32 clampedMouseX = Clip(controller.mouse.X, 0.f, f4(bitmap.width)) / f4(bitmap.width);
+		f32 clampedMouseX = Clip(controller.mouse.X, 0.f, f4(bitmapWidth)) / f4(bitmapWidth);
 		ChangeVolume(first, V2{ 1 - clampedMouseX, clampedMouseX }, 0.1f);
 		
 		playerControls.acceleration.Z = 0.f;
@@ -1281,18 +1278,17 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TIMED_BLOCK_BEGIN(GroundChunks);
 	// TODO: Think about size of the main render group
 	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
-	RenderGroup renderGroup = AllocateRenderGroup(*renderMemory.arena, &tranState->assets, MB(4));
-	BeginRendering(renderGroup);
+	RenderGroup renderGroup = BeginRendering(renderCommands, &tranState->assets);
 	renderGroup.projection = projection;
 	f32 originalCameraDistance = renderGroup.projection.camera.distanceToTarget;
 	DEFINE_DEBUG_VARIABLE(f32, Camera_ZoomoutValue);
 	DEBUG_IF(Camera_Zoomout) {
 		renderGroup.projection.camera.distanceToTarget = Camera_ZoomoutValue.data_f32;
 	}
-	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, screenBitmap.width, screenBitmap.height, originalCameraDistance);
+	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, bitmapWidth, bitmapHeight, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
 
-#if 1
+#if 0
 	Rect3 groundChunkBounds = ToRect3(playerView, V2{0, 0});
 	WorldPosition minChunk = OffsetWorldPosition(world, state->cameraPos, GetMinCorner(groundChunkBounds));
 	WorldPosition maxChunk = OffsetWorldPosition(world, state->cameraPos, GetMaxCorner(groundChunkBounds));
@@ -1609,10 +1605,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			envMapXAxis, envMapYAxis, V4{ 1, 1, 1, 1 }, LOD, 0, 0, 0, 0);
 	}
 #endif
-	TIMED_BLOCK_BEGIN(Rendering);
-	TiledRenderGroupToBuffer(renderGroup, screenBitmap, tranState->highPriorityQueue, tranState->arena);
-	TIMED_BLOCK_END(Rendering);
-
 	EndRendering(renderGroup);
 	EndSimulation(*simRegion, world);
 	EndTempMemory(renderMemory);
