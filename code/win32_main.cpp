@@ -816,19 +816,42 @@ void Win32DisplayWindow(HDC deviceContext, Win32State& state, BitmapData bitmap,
 #else
 	glViewport(0, 0, width, height);
 
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+
 	glClearColor(0.5f, 0.1f, 0.5f, 1.f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	glColor4f(1.f, 0.f, 0.f, 1.f);
-	glBegin(GL_TRIANGLES);
-	glVertex2f(-0.9f, -0.9f);
-	glVertex2f( 0.9f, -0.9f);
-	glVertex2f( 0.9f,  0.9f);
+	static GLuint glTexture = 0;
+	if (glTexture == 0) {
+		glGenTextures(1, &glTexture);
+		glBindTexture(GL_TEXTURE_2D, glTexture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+	}
+	glEnable(GL_TEXTURE_2D);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, bitmap.width, bitmap.height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, bitmap.data);
+	
 
-	glColor4f(0.f, 1.f, 0.f, 1.f);
-	glVertex2f(-0.9f, -0.9f);
-	glVertex2f(-0.9f,  0.9f);
-	glVertex2f( 0.9f,  0.9f);
+	//glColor4f(1.f, 0.f, 0.f, 1.f);
+	glBegin(GL_TRIANGLES);
+	glBindTexture(GL_TEXTURE_2D, glTexture);
+	glTexCoord2f(0.f, 0.f);
+	glVertex2f(-1.f, -1.f);
+	glTexCoord2f(1.f, 0.f);
+	glVertex2f( 1.0f, -1.0f);
+	glTexCoord2f(1.f, 1.f);
+	glVertex2f( 1.0f,  1.0f);
+
+	//glColor4f(0.f, 1.f, 0.f, 1.f);
+	glTexCoord2f(0.f, 0.f);
+	glVertex2f(-1.0f, -1.0f);
+	glTexCoord2f(0.f, 1.f);
+	glVertex2f(-1.0f,  1.0f);
+	glTexCoord2f(1.f, 1.f);
+	glVertex2f( 1.0f,  1.0f);
 	glEnd();
 
 	SwapBuffers(deviceContext);
@@ -887,14 +910,6 @@ LRESULT CALLBACK Win32MainWindowCallback(
 	case WM_CLOSE:
 	case WM_DESTROY: {
 		globalRunning = false;
-	} break;
-	case WM_PAINT: {
-		PAINTSTRUCT paint;
-		HDC deviceContext = BeginPaint(window, &paint);
-		auto dim = GetWindowDimension(window);
-		Win32DisplayWindow(deviceContext, globalWin32State, globalBitmap, dim.width, dim.height);
-		EndPaint(window, &paint);
-
 	} break;
 	case WM_SYSKEYDOWN:
 	case WM_SYSKEYUP: 
@@ -1323,26 +1338,26 @@ int CALLBACK WinMain(
 #endif
 
 		// PART: Timing stuff
-		TIMED_BLOCK_BEGIN(WaitTillNextFrame);
-		u64 frameEndTime = Win32GetCurrentTimestamp();
-		f32 secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
-		f32 desiredSleepTimeMs = 1000.0f * (targetFrameRefreshSeconds - secondsElapsedForFrame) - 5;
-		if (sleepIsGranular && desiredSleepTimeMs > schedulerGranularityMs) {
-			u64 start = Win32GetCurrentTimestamp();
-			Sleep(static_cast<DWORD>(desiredSleepTimeMs));
-			u64 end = Win32GetCurrentTimestamp();
-			f32 elapsed = Win32CalculateTimeElapsed(start, end);
-			frameEndTime = Win32GetCurrentTimestamp();
-			secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
-			//Assert(secondsElapsedForFrame < targetFrameRefreshSeconds);
-		}
-		while (secondsElapsedForFrame < targetFrameRefreshSeconds) {
-			YieldProcessor();
-			frameEndTime = Win32GetCurrentTimestamp();
-			secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
-		}
-		frameStartTime = frameEndTime;
-		TIMED_BLOCK_END(WaitTillNextFrame);
+		//TIMED_BLOCK_BEGIN(WaitTillNextFrame);
+		//u64 frameEndTime = Win32GetCurrentTimestamp();
+		//f32 secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
+		//f32 desiredSleepTimeMs = 1000.0f * (targetFrameRefreshSeconds - secondsElapsedForFrame) - 5;
+		//if (sleepIsGranular && desiredSleepTimeMs > schedulerGranularityMs) {
+		//	u64 start = Win32GetCurrentTimestamp();
+		//	Sleep(static_cast<DWORD>(desiredSleepTimeMs));
+		//	u64 end = Win32GetCurrentTimestamp();
+		//	f32 elapsed = Win32CalculateTimeElapsed(start, end);
+		//	frameEndTime = Win32GetCurrentTimestamp();
+		//	secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
+		//	//Assert(secondsElapsedForFrame < targetFrameRefreshSeconds);
+		//}
+		//while (secondsElapsedForFrame < targetFrameRefreshSeconds) {
+		//	YieldProcessor();
+		//	frameEndTime = Win32GetCurrentTimestamp();
+		//	secondsElapsedForFrame = Win32CalculateTimeElapsed(frameStartTime, frameEndTime);
+		//}
+		//frameStartTime = frameEndTime;
+		//TIMED_BLOCK_END(WaitTillNextFrame);
 		MARKUP_FRAME_END;
 		TIMED_BLOCK_BEGIN(DisplayWindow);
 		// PART: Displaying window

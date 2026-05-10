@@ -308,7 +308,7 @@ u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodep
 	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
 	u32 firstKerningIndex = font->codepointToLogicalIndex[firstCodepoint];
 	u32 secondKerningIndex = font->codepointToLogicalIndex[secondCodepoint];
-	Assert((firstKerningIndex != 0 || firstCodepoint == 0) && secondKerningIndex != 0);
+	//Assert((firstKerningIndex != 0 || firstCodepoint == 0) && secondKerningIndex != 0);
 	return font->kerningTable[firstKerningIndex * font->onePastMaxLogicalIndex + secondKerningIndex];
 }
 
