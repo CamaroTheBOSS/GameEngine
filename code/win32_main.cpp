@@ -6,6 +6,7 @@
 #include <mmdeviceapi.h>
 #include <comdef.h>
 #include <sys/stat.h>
+#include <gl/GL.h>
 
 
 #if defined(INTERNAL_BUILD)
@@ -134,6 +135,26 @@ static x_input_get_state* XInputGetStatePtr = XInputGetStateStub;
 static x_input_set_state* XInputSetStatePtr = XInputSetStateStub;
 #define XInputGetState XInputGetStatePtr
 #define XInputSetState XInputSetStatePtr
+
+internal
+void Win32InitOpenGL(HWND window) {
+	HDC dc = GetDC(window);
+
+	PIXELFORMATDESCRIPTOR desiredPixelFormat = {};
+	desiredPixelFormat.nSize = sizeof(desiredPixelFormat);
+	desiredPixelFormat.nVersion = 1;
+	desiredPixelFormat.dwFlags = PFD_SUPPORT_OPENGL | PFD_DRAW_TO_WINDOW | PFD_DOUBLEBUFFER
+		| PFD_DEPTH_DONTCARE;
+	desiredPixelFormat.iPixelType = PFD_TYPE_RGBA;
+	desiredPixelFormat.cColorBits = 32;
+	i32 actualPixelFormatIndex = ChoosePixelFormat(dc, &desiredPixelFormat);
+	DescribePixelFormat(dc, actualPixelFormatIndex, sizeof(desiredPixelFormat), &desiredPixelFormat);
+	SetPixelFormat(dc, actualPixelFormatIndex, &desiredPixelFormat);
+
+	HGLRC glContext = wglCreateContext(dc);
+	bool success = wglMakeCurrent(dc, glContext);
+	ReleaseDC(window, dc);
+}
 
 internal
 bool Win32LoadGameCode(Win32GameCode& gameCode) {
@@ -777,6 +798,7 @@ void Win32ResizeBitmapMemory(BitmapData& bitmap, int newWidth, int newHeight) {
 internal
 void Win32DisplayWindow(HDC deviceContext, Win32State& state, BitmapData bitmap, int width, int height) {
 	// TODO change that to more shipping quality version of fullscreen
+#if 0
 	if (state.bltOffsetX || state.bltOffsetY) {
 		PatBlt(deviceContext, 0, 0, state.bltOffsetX, 600, BLACKNESS);
 		PatBlt(deviceContext, state.bltOffsetX, 0, 1000, state.bltOffsetY, BLACKNESS);
@@ -791,6 +813,26 @@ void Win32DisplayWindow(HDC deviceContext, Win32State& state, BitmapData bitmap,
 		&globalBitmapInfo,
 		DIB_RGB_COLORS, SRCCOPY
 	);
+#else
+	glViewport(0, 0, width, height);
+
+	glClearColor(0.5f, 0.1f, 0.5f, 1.f);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	glColor4f(1.f, 0.f, 0.f, 1.f);
+	glBegin(GL_TRIANGLES);
+	glVertex2f(-0.9f, -0.9f);
+	glVertex2f( 0.9f, -0.9f);
+	glVertex2f( 0.9f,  0.9f);
+
+	glColor4f(0.f, 1.f, 0.f, 1.f);
+	glVertex2f(-0.9f, -0.9f);
+	glVertex2f(-0.9f,  0.9f);
+	glVertex2f( 0.9f,  0.9f);
+	glEnd();
+
+	SwapBuffers(deviceContext);
+#endif
 }
 
 internal
@@ -1186,6 +1228,8 @@ int CALLBACK WinMain(
 		//TODO log GetLastError()
 		return -1;
 	}
+	Win32InitOpenGL(window);
+
 	RECT rect;
 	GetClientRect(window, &rect);
 	MoveWindow(window, rect.left, rect.top, 1024, 600, true);
