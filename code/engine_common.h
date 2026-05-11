@@ -135,10 +135,52 @@ struct TaskWithMemory {
 };
 
 // TODO: Move it to String common file
+struct String8 {
+	const char* str;
+	u32 length;
+};
+
+inline
+u32 StringLength(const char* str, char terminator) {
+	u32 result = 0;
+	while (*str++ != terminator) {
+		result++;
+	}
+	return result;
+}
+
 inline
 u32 StringLength(const char* str) {
+	return StringLength(str, 0);
+}
+
+inline
+String8 String8FromNullTerminated(const char* str) {
+	String8 result;
+	result.str = str;
+	result.length = StringLength(str);
+	return result;
+}
+
+inline
+bool IsEndLine(char c) {
+	bool result = (c == '\n') ||
+		(c == '\r');
+	return result;
+}
+
+inline
+bool IsWhiteSpace(char c) {
+	bool result = (c == ' ') ||
+		(c == '\t') ||
+		IsEndLine(c);
+	return result;
+}
+
+inline
+u32 StringLengthWhiteSpaceTerminator(const char* str) {
 	u32 result = 0;
-	while (*str++ != '\0') {
+	while (!IsWhiteSpace(*str++)) {
 		result++;
 	}
 	return result;
@@ -175,3 +217,4 @@ u64 ConcatenateString(char* first, u64 firstSize, char* second, u64 secondSize, 
 	length += CopyString(second, secondSize, dst, dstSize - length);
 	return length;
 }
+

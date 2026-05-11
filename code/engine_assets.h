@@ -8,6 +8,7 @@ struct LoadedBitmap {
 	i32 height;
 	i32 width;
 	i32 pitch;
+	u32 glTextureIndex; //TODO: Get rid of this
 	V2 align; // NOTE: bottom-up in pixels
 };
 

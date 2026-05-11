@@ -515,6 +515,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate) {
 	asset.memory->bitmap.pitch = metadata->pitch;
 	asset.memory->bitmap.widthOverHeight = f4(metadata->width) / f4(metadata->height);
 	asset.memory->bitmap.data = ptrcast(u32, asset.memory + 1);
+	asset.memory->bitmap.glTextureIndex = 0;
 	asset.memory->type = AssetData_Bitmap;
 	asset.memory->assetIndex = bid.id;
 	asset.memory->totalSize = allocSize;

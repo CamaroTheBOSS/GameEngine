@@ -87,21 +87,6 @@ char* ReadEntireFileAndNullTerminate(const char* filename) {
 }
 
 inline
-bool IsEndLine(char c) {
-	bool result = (c == '\n') ||
-				  (c == '\r');
-	return result;
-}
-
-inline
-bool IsWhiteSpace(char c) {
-	bool result = (c == ' ') ||
-				  (c == '\t') ||
-				  IsEndLine(c);
-	return result;
-}
-
-inline
 bool IsEndOfStream(char c) {
 	return c == 0;
 }

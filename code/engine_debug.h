@@ -227,6 +227,21 @@ internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, Debu
 	RecordDebugEventNoBracket(0, Event_AssetMemoryBlock, __FILE__, "AssetMemoryBlock", __LINE__) \
 	event12345->data_AssetMemoryBlock = *(block); }
 
+inline DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line, const char* GUID) {
+	RecordDebugEventNoBracket(0, Event_PermanentVariableDeclaration, file, name, line);
+	event12345->data_DebugEvent = subevent;
+	event12345->GUID = GUID;
+	subevent->blockName = name;
+	subevent->coreId = 0;
+	subevent->cycles = 0;
+	subevent->threadId = 0;
+	subevent->type = type;
+	subevent->file = file;
+	subevent->line = line;
+	subevent->GUID = GUID;
+	return subevent;
+}
+
 #else
 #define RecordMemoryDebugEvent(...)
 #define RecordSubArenaDebugEvent(...)

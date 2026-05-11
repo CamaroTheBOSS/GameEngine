@@ -35,6 +35,9 @@ extern "C" GAME_FILL_SOUND_BUFFER(GameFillSoundBufferStub) {
 extern "C" DEBUG_INIT(DebugInitStub) { return 0; }
 extern "C" DEBUG_FINISH_FRAME(DebugFinishFrameStub) { return; };
 
+typedef BOOL WglSwapIntervalExt(i32 interval);
+static WglSwapIntervalExt* wglSwapIntervalExt;
+
 struct SoundRenderData {
 	IMMDevice* device;
 	IAudioClient* audio;
@@ -124,6 +127,7 @@ static LARGE_INTEGER globalPerformanceFreq;
 WINDOWPLACEMENT globalWindowPos = { sizeof(globalWindowPos) };
 static PlatformQueue globalHighPriorityQueue = {};
 static PlatformQueue globalLowPriorityQueue = {};
+static OpenGLInfo globalOpenGLInfo = {};
 
 /* Some explanation on this code (for dynamic loading XInputGet/SetState() functions from XInput lib):
 	1. Defines are defining actual signature of these functions
@@ -156,12 +160,27 @@ void Win32InitOpenGL(HWND window) {
 		| PFD_DEPTH_DONTCARE;
 	desiredPixelFormat.iPixelType = PFD_TYPE_RGBA;
 	desiredPixelFormat.cColorBits = 32;
+
 	i32 actualPixelFormatIndex = ChoosePixelFormat(dc, &desiredPixelFormat);
 	DescribePixelFormat(dc, actualPixelFormatIndex, sizeof(desiredPixelFormat), &desiredPixelFormat);
 	SetPixelFormat(dc, actualPixelFormatIndex, &desiredPixelFormat);
 
 	HGLRC glContext = wglCreateContext(dc);
-	bool success = wglMakeCurrent(dc, glContext);
+	if (glContext) {
+		wglMakeCurrent(dc, glContext);
+
+		globalOpenGLInfo = OpenGLInit();
+
+		wglSwapIntervalExt = ptrcast(WglSwapIntervalExt, wglGetProcAddress("wglSwapIntervalEXT"));
+		if (wglSwapIntervalExt) {
+			wglSwapIntervalExt(1);
+		}
+	}
+	else {
+		Assert(false);
+		//TODO: logs, error, swap to software renderer
+	}
+	
 	ReleaseDC(window, dc);
 }
 
@@ -829,7 +848,7 @@ f32 Win32CalculateTimeElapsed(u64 startTime, u64 endTime) {
 
 inline
 void ManualVSync(VsyncHelperArgs& vsync) {
-	TIMED_BLOCK_BEGIN(WaitTillNextFrame);
+	TIMED_FUNCTION;
 	u64 frameEndTime = Win32GetCurrentTimestamp();
 	f32 secondsElapsedForFrame = Win32CalculateTimeElapsed(vsync.frameStartTime, frameEndTime);
 	f32 desiredSleepTimeMs = 1000.0f * (vsync.targetFrameRefreshSeconds - secondsElapsedForFrame) - 5;
@@ -848,7 +867,6 @@ void ManualVSync(VsyncHelperArgs& vsync) {
 		secondsElapsedForFrame = Win32CalculateTimeElapsed(vsync.frameStartTime, frameEndTime);
 	}
 	vsync.frameStartTime = frameEndTime;
-	TIMED_BLOCK_END(WaitTillNextFrame);
 }
 
 internal
@@ -862,8 +880,17 @@ void Win32RenderCommands(RenderCommandBuffer* renderCommands, BitmapData& bitmap
 	}
 	SortRenderCommands(renderCommands);
 
-	bool isSoftwareRendering = 1;
-	if (isSoftwareRendering) {
+	u32 displayOffsetX = state.bltOffsetX;
+	u32 displayOffsetY = state.bltOffsetY;
+	u32 displayWidth = state.displayWidth;
+	u32 displayHeight = state.displayHeight;
+	/*DEBUG_IF(Renderer_DifferentResolution) {
+		DEFINE_DEBUG_VARIABLE(f32, Renderer_ResolutionWidth);
+		DEFINE_DEBUG_VARIABLE(f32, Renderer_ResolutionHeight);
+		displayWidth = Maximum(0, u4(Renderer_ResolutionWidth.data_f32));
+		displayHeight = Maximum(0, u4(Renderer_ResolutionHeight.data_f32));
+	}*/
+	DEBUG_IF(Renderer_WithSoftware) {
 		LoadedBitmap dstBuffer = {};
 		dstBuffer.height = bitmap.height;
 		dstBuffer.width = bitmap.width;
@@ -872,64 +899,30 @@ void Win32RenderCommands(RenderCommandBuffer* renderCommands, BitmapData& bitmap
 
 		TiledRenderGroupToBuffer(renderCommands, dstBuffer, queue);
 		ManualVSync(vsync);
-
-		if (state.bltOffsetX || state.bltOffsetY) {
-			PatBlt(deviceContext, 0, 0, state.bltOffsetX, 600, BLACKNESS);
-			PatBlt(deviceContext, state.bltOffsetX, 0, 1000, state.bltOffsetY, BLACKNESS);
-			PatBlt(deviceContext, state.bltOffsetX + bitmap.width, 0, 1920, 1080, BLACKNESS);
-			PatBlt(deviceContext, 0, state.bltOffsetY + bitmap.height, 1000, 600, BLACKNESS);
+		TIMED_BLOCK_BEGIN(DisplayWindow)
+		if (displayOffsetX || displayOffsetY) {
+			PatBlt(deviceContext, 0, 0, displayOffsetX, 600, BLACKNESS);
+			PatBlt(deviceContext, displayOffsetX, 0, 1000, displayOffsetY, BLACKNESS);
+			PatBlt(deviceContext, displayOffsetX + bitmap.width, 0, 1920, 1080, BLACKNESS);
+			PatBlt(deviceContext, 0, displayOffsetY + bitmap.height, 1000, 600, BLACKNESS);
 		}
 		StretchDIBits(
 			deviceContext,
-			state.bltOffsetX, state.bltOffsetY, state.displayWidth, state.displayHeight,
+			displayOffsetX, displayOffsetY, displayWidth, displayHeight,
 			0, 0, bitmap.width, bitmap.height,
 			bitmap.data,
 			&globalBitmapInfo,
 			DIB_RGB_COLORS, SRCCOPY
 		);
+		TIMED_BLOCK_END(DisplayWindow)
 	}
 	else {
-		glViewport(0, 0, windowWidth, windowHeight);
-
-		glMatrixMode(GL_MODELVIEW);
-		glLoadIdentity();
-
-		glClearColor(0.5f, 0.1f, 0.5f, 1.f);
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		static GLuint glTexture = 0;
-		if (glTexture == 0) {
-			glGenTextures(1, &glTexture);
-			glBindTexture(GL_TEXTURE_2D, glTexture);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-		}
-		glEnable(GL_TEXTURE_2D);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, bitmap.width, bitmap.height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, bitmap.data);
-
-
-		//glColor4f(1.f, 0.f, 0.f, 1.f);
-		glBegin(GL_TRIANGLES);
-		glBindTexture(GL_TEXTURE_2D, glTexture);
-		glTexCoord2f(0.f, 0.f);
-		glVertex2f(-1.f, -1.f);
-		glTexCoord2f(1.f, 0.f);
-		glVertex2f(1.0f, -1.0f);
-		glTexCoord2f(1.f, 1.f);
-		glVertex2f(1.0f, 1.0f);
-
-		//glColor4f(0.f, 1.f, 0.f, 1.f);
-		glTexCoord2f(0.f, 0.f);
-		glVertex2f(-1.0f, -1.0f);
-		glTexCoord2f(0.f, 1.f);
-		glVertex2f(-1.0f, 1.0f);
-		glTexCoord2f(1.f, 1.f);
-		glVertex2f(1.0f, 1.0f);
-		glEnd();
-
+		OpenGLRenderCommandsToBuffer(renderCommands, 
+			displayOffsetX, displayOffsetY, displayWidth, displayHeight,
+			bitmap.width, bitmap.height, globalOpenGLInfo);
+		TIMED_BLOCK_BEGIN(GLSwapBuffers)
 		SwapBuffers(deviceContext);
+		TIMED_BLOCK_END(GLSwapBuffers)
 	}
 	ResetRenderCommands(renderCommands);
 }
@@ -980,8 +973,6 @@ LRESULT CALLBACK Win32MainWindowCallback(
 	LRESULT result = 0;
 	switch (msg) {
 	case WM_SIZE: {
-		/*auto dim = GetWindowDimension(window);
-		Win32ResizeBitmapMemory(globalBitmap, dim.width, dim.height);*/
 	} break;
 	case WM_CLOSE:
 	case WM_DESTROY: {
@@ -1251,13 +1242,6 @@ int CALLBACK WinMain(
 ) {
 	InitializeQueue(globalHighPriorityQueue, 8);
 	InitializeQueue(globalLowPriorityQueue, 2);
-#if 0
-	u32 globalBitmapWidth = 1920;
-	u32 globalBitmapHeight = 1080;
-#else
-	u32 globalBitmapWidth = 960;
-	u32 globalBitmapHeight = 540;
-#endif
 	Win32LoadXInput();
 
 	HRESULT hr = CoInitialize(nullptr);
@@ -1310,13 +1294,14 @@ int CALLBACK WinMain(
 	}
 	Platform = &programMemory.platformAPI;
 
+	//TODO: Concept of view to be able to dynamically change the resolution like a pro
 	Win32GameCode gameCode = {};
 	// // TODO change globalWin32State to win32State
 	globalWin32State.window = window;
 	globalWin32State.bltOffsetX = 10;
 	globalWin32State.bltOffsetY = 10;
-	globalWin32State.displayWidth = globalBitmapWidth;
-	globalWin32State.displayHeight = globalBitmapHeight;
+	globalWin32State.displayWidth = 960;//1920;
+	globalWin32State.displayHeight = 540;//1080;
 	DWORD length = GetModuleFileNameA(0, globalWin32State.exeFilePath, MY_MAX_PATH);
 	char* tmpChar = globalWin32State.exeFilePath;
 	for (u32 charIndex = 0; charIndex < length; charIndex++) {
@@ -1341,7 +1326,7 @@ int CALLBACK WinMain(
 
 	// NOTE: We can use one devicecontext because we specified CS_OWNDC so we dont share context with anyone
 	HDC deviceContext = GetDC(window);
-	Win32ResizeBitmapMemory(globalBitmap, globalBitmapWidth, globalBitmapHeight);
+	Win32ResizeBitmapMemory(globalBitmap, globalWin32State.displayWidth, globalWin32State.displayHeight);
 	globalRunning = true;
 	
 	UINT schedulerGranularityMs = 1;
@@ -1400,18 +1385,18 @@ int CALLBACK WinMain(
 		TIMED_BLOCK_END(InputProcessing);
 		TIMED_BLOCK_BEGIN(GameMainLoop);
 		// PART: Game main loop
-		gameCode.GameMainLoopFrame(programMemory, &renderCommands, inputData, globalBitmap.width, globalBitmap.height);
+		u32 renderWidth = globalBitmap.width;
+		u32 renderHeight = globalBitmap.height;
+		gameCode.GameMainLoopFrame(programMemory, &renderCommands, inputData, renderWidth, renderHeight);
 		TIMED_BLOCK_END(GameMainLoop);
 #if INTERNAL_BUILD
-		gameCode.DebugFinishFrame(programMemory, &renderCommands, inputData, globalBitmap.width, globalBitmap.height);
+		gameCode.DebugFinishFrame(programMemory, &renderCommands, inputData, renderWidth, renderHeight);
 #endif
-		TIMED_BLOCK_BEGIN(RenderCommands);
 		// PART: Displaying window
 		auto dim = GetWindowDimension(window);
 		Win32RenderCommands(&renderCommands, globalBitmap, &globalHighPriorityQueue,
 			deviceContext, globalWin32State, dim.width, dim.height, vsync);
 		ReleaseDC(window, deviceContext);
-		TIMED_BLOCK_END(RenderCommands);
 		MARKUP_FRAME_END;
 
 		// PART: Preparing SoundData structure for game main loop

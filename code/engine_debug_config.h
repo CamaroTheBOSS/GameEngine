@@ -6,3 +6,7 @@
 #define CONSTANT_Profiler_Cpu 0
 #define CONSTANT_Profiler_CpuSpansList 0
 #define CONSTANT_Profiler_Pause 0
+#define CONSTANT_Renderer_WithSoftware 0
+#define CONSTANT_Renderer_DifferentResolution 0
+#define CONSTANT_Renderer_ResolutionWidth 960.f
+#define CONSTANT_Renderer_ResolutionHeight 540.f

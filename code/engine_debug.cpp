@@ -233,21 +233,6 @@ DebugInteraction InteractionWithLink(Rect2 bBox, DebugTree* tree, DebugVariableL
 	return interaction;
 }
 
-internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line, const char* GUID) {
-	RecordDebugEventNoBracket(0, Event_PermanentVariableDeclaration, file, name, line);
-	event12345->data_DebugEvent = subevent;
-	event12345->GUID = GUID;
-	subevent->blockName = name;
-	subevent->coreId = 0;
-	subevent->cycles = 0;
-	subevent->threadId = 0;
-	subevent->type = type;
-	subevent->file = file;
-	subevent->line = line;
-	subevent->GUID = GUID;
-	return subevent;
-}
-
 inline DebugState* GetDebugState() {
 	if (debugGlobalMemory->debugMemorySize == 0) {
 		return 0;
@@ -509,7 +494,7 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 	state->entityIntrospectionCountInFrame = 0;
 	state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(bitmapWidth, bitmapHeight));
 	state->renderGroup.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
-	state->renderGroup.projection.offset = V3{ 0, 0, 10 }; //NOTE: Put a bias for debug stuff for sorting purposes
+	state->renderGroup.projection.offset = V3{ 0, 0, 100 }; //NOTE: Put a bias for debug stuff for sorting purposes
 	state->font = GetOrPrefetchFont(
 		state->renderGroup, GetFontWithType(*state->renderGroup.assets, Font_Debug)
 	);

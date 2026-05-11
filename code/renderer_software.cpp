@@ -942,7 +942,7 @@ void ResetRenderCommands(RenderCommandBuffer* commands) {
 }
 
 internal
-void RenderCommandsToBuffer(RenderCommandBuffer* commands, LoadedBitmap& dstBuffer, Rect2i clipRect) {
+void SoftwareRenderCommandsToBuffer(RenderCommandBuffer* commands, LoadedBitmap& dstBuffer, Rect2i clipRect) {
 	TIMED_FUNCTION;
 	SortElement* sortElement = ptrcast(SortElement, commands->pushBuffer + commands->sortBufferAt);
 	for (u32 sortIndex = 0; sortIndex < commands->pushBufferCount; sortIndex++, sortElement++) {
@@ -996,7 +996,7 @@ void RenderCommandsToBuffer(RenderCommandBuffer* commands, LoadedBitmap& dstBuff
 			RenderRectangleOpaque(dstBuffer, points[2], points[2] + size, color.RGB);
 			RenderRectangleOpaque(dstBuffer, points[3], points[3] + size, color.RGB);
 		} break;
-													  //InvalidDefaultCase;
+		InvalidDefaultCase;
 		}
 	}
 }
@@ -1254,9 +1254,9 @@ void SortRenderCommands(RenderCommandBuffer* commands) {
 }
 
 internal
-void RenderCommandsToBuffer(RenderCommandBuffer* commands, LoadedBitmap& dstBuffer) {
+void SoftwareRenderCommandsToBuffer(RenderCommandBuffer* commands, LoadedBitmap& dstBuffer) {
 	Rect2i clipRect = { 0, 0, dstBuffer.width, dstBuffer.height };
-	RenderCommandsToBuffer(commands, dstBuffer, clipRect);
+	SoftwareRenderCommandsToBuffer(commands, dstBuffer, clipRect);
 }
 
 struct RenderTiledArgs {
@@ -1269,7 +1269,7 @@ internal
 void RenderTiled(void* data) {
 	TIMED_FUNCTION;
 	RenderTiledArgs* args = ptrcast(RenderTiledArgs, data);
-	RenderCommandsToBuffer(args->commands, *args->dstBuffer, args->clipRect);
+	SoftwareRenderCommandsToBuffer(args->commands, *args->dstBuffer, args->clipRect);
 }
 
 internal

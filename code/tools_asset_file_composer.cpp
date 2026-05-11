@@ -9,10 +9,6 @@ u32 ASSET_MAX_COUNT = 256 * Asset_Count;
 u32 MAX_UNICODE_CODEPOINT = 0x10FFFF;
 bool duringFontAdding = false;
 
-void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
-	Rect2i clipRect) {}
-void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
-	LoadedBitmap& texture, Rect2i clipRect) {}
 #if defined(INTERNAL_BUILD)
 ProgramMemory* debugGlobalMemory;
 #endif
