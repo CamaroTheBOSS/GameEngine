@@ -1,5 +1,12 @@
 #pragma once
 #include "engine_platform.h"
+#ifndef WINGDIAPI
+#define WINGDIAPI
+#endif
+#ifndef APIENTRY
+#define APIENTRY
+#endif
+#include "gl/GL.h"
 //
 // 
 // OpenGL renderer windows specific

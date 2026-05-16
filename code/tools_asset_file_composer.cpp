@@ -1,4 +1,4 @@
-#include "engine_render.cpp"
+#include "renderer_software.cpp"
 #include "engine_assets.cpp"
 
 #include <stdlib.h>
@@ -8,10 +8,6 @@
 u32 ASSET_MAX_COUNT = 256 * Asset_Count;
 u32 MAX_UNICODE_CODEPOINT = 0x10FFFF;
 bool duringFontAdding = false;
-
-#if defined(INTERNAL_BUILD)
-ProgramMemory* debugGlobalMemory;
-#endif
 DebugGlobalState* debugGlobalState;
 
 struct Win32FontInfo {

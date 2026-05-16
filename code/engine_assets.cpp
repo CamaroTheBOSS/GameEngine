@@ -158,7 +158,7 @@ AssetGroup* GetAssetGroup(Assets& assets, AssetTypeID typeId) {
 	Assert(group);
 	// TESTING NOTE: These are handy in development, comment it out when want to test
 	// whether asset system is resistent on lack of assets loaded
-#if 1
+#if 0
 	Assert(group->firstAssetIndex != 0);
 	Assert(group->firstAssetIndex < group->onePastLastAssetIndex);
 #endif
@@ -220,6 +220,9 @@ FontId GetFirstFontId(Assets& assets) {
 inline
 FontId GetFontWithType(Assets& assets, FontType type) {
 	AssetGroup* group = GetAssetGroup(assets, Asset_Font);
+	if (group->firstAssetIndex == 0 && group->onePastLastAssetIndex == 0) {
+		return {};
+	}
 	Assert(u4(type) <= group->onePastLastAssetIndex - group->firstAssetIndex);
 	Assert(group->firstAssetIndex + type < group->onePastLastAssetIndex);
 	FontId id = { group->firstAssetIndex + type };
@@ -854,6 +857,13 @@ void AllocateAssets(TransientState* tranState) {
 		}
 	}
 	Assert(assets.assetCount == readAssetsCount);
+
+	for (u32 groupIndex = 1; groupIndex < Asset_Count; groupIndex++) {
+		AssetGroup* assetGroup = assets.groups + groupIndex;
+		if (assetGroup->firstAssetIndex == assetGroup->onePastLastAssetIndex) {
+			assetGroup->firstAssetIndex = assetGroup->onePastLastAssetIndex = 0;
+		}
+	}
 
 	// NOTE: Keep files open!
 	EndTempMemory(scratchMemory);

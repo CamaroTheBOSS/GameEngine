@@ -35,7 +35,7 @@ pushd ..\build
   popd
   
   REM Asset Composer
-  REM cl %CompilerFlags% ..\code\tools_asset_file_composer.cpp /link -incremental:no gdi32.lib user32.lib %WIN_LIB_FLAGS% 
+  cl %CompilerFlags% ..\code\tools_asset_file_composer.cpp /link -incremental:no gdi32.lib user32.lib %WIN_LIB_FLAGS% 
 
   REM Platform layer + game code
   cl %CompilerFlags% ..\code\engine.cpp -LD /link %WIN_LIB_FLAGS% -incremental:no -opt:ref -PDB:engine%random%.pdb -EXPORT:GameMainLoopFrame -EXPORT:GameFillSoundBuffer -EXPORT:DebugInit -EXPORT:DebugFinishFrame

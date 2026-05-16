@@ -1,13 +1,5 @@
 #include "renderer.h"
 
-#ifndef WINGDIAPI
-#define WINGDIAPI
-#endif
-#ifndef APIENTRY
-#define APIENTRY
-#endif
-#include "gl/GL.h"
-
 internal
 OpenGLInfo OpenGLInit() {
 	OpenGLInfo info = {};
