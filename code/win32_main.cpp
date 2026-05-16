@@ -38,9 +38,14 @@ extern "C" DEBUG_FINISH_FRAME(DebugFinishFrameStub) { return; };
 typedef BOOL WglSwapIntervalExt(i32 interval);
 typedef BOOL WglChoosePixelFormatARB(HDC hdc, const int* ppiAttribIList, const FLOAT* pfAttribFList, UINT nMaxFormats, int* piFormats, UINT* nNumFormats);
 typedef HGLRC WglCreateContextAttribsARB(HDC hDC, HGLRC hshareContext, const int* attribList);
+typedef const char* WglGetExtensionsStringExt(void);
 static WglSwapIntervalExt* wglSwapIntervalExt;
 static WglChoosePixelFormatARB* wglChoosePixelFormatARB;
 static WglCreateContextAttribsARB* wglCreateContextAttribsARB;
+static WglGetExtensionsStringExt* wglGetExtensionsStringExt;
+struct WglOpenGLExtensions {
+	bool WGL_EXT_framebuffer_sRGB;
+};
 
 struct SoundRenderData {
 	IMMDevice* device;
@@ -128,10 +133,22 @@ static Win32State globalWin32State;
 static BITMAPINFO globalBitmapInfo;
 static SoundRenderData globalSoundData;
 static LARGE_INTEGER globalPerformanceFreq;
-WINDOWPLACEMENT globalWindowPos = { sizeof(globalWindowPos) };
+static WINDOWPLACEMENT globalWindowPos = { sizeof(globalWindowPos) };
 static PlatformQueue globalHighPriorityQueue = {};
 static PlatformQueue globalLowPriorityQueue = {};
 static OpenGLInfo globalOpenGLInfo = {};
+static WglOpenGLExtensions globalOpenGLExtensions = {};
+static i32 globalOpenGLContextAttribs[] = {
+			WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+			WGL_CONTEXT_MINOR_VERSION_ARB, 0,
+			WGL_CONTEXT_FLAGS_ARB, 0
+#if INTERNAL_BUILD
+			| WGL_CONTEXT_DEBUG_BIT_ARB
+#endif
+			,
+			WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
+			0
+};
 
 /* Some explanation on this code (for dynamic loading XInputGet/SetState() functions from XInput lib):
 	1. Defines are defining actual signature of these functions
@@ -158,18 +175,20 @@ void Win32OpenGLSetPixelFormat(HDC dc) {
 	i32 suggestedPixelFormatIndex = 0;
 	u32 numFormats = 0;
 	if (wglChoosePixelFormatARB) {
+		i32 FRAMEBUFFER_SRGB_CAPABLE_ARB = WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB;
+		if (!globalOpenGLExtensions.WGL_EXT_framebuffer_sRGB) {
+			FRAMEBUFFER_SRGB_CAPABLE_ARB = 0;
+		}
 		i32 attribs[] = {
 			WGL_DRAW_TO_WINDOW_ARB, GL_TRUE,
 			WGL_ACCELERATION_ARB, WGL_FULL_ACCELERATION_ARB,
 			WGL_SUPPORT_OPENGL_ARB, GL_TRUE,
 			WGL_DOUBLE_BUFFER_ARB, GL_TRUE,
 			WGL_PIXEL_TYPE_ARB, WGL_TYPE_RGBA_ARB,
-			WGL_COLOR_BITS_ARB, 32,
+			FRAMEBUFFER_SRGB_CAPABLE_ARB, GL_TRUE,
 			0
 		};
-		f32 floatAttribs[] = { 0 };
-		wglChoosePixelFormatARB(dc, attribs, floatAttribs, 1, 
-			&suggestedPixelFormatIndex, &numFormats);
+		wglChoosePixelFormatARB(dc, attribs, 0, 1, &suggestedPixelFormatIndex, &numFormats);
 	}
 	if (!numFormats) {
 		PIXELFORMATDESCRIPTOR desiredPixelFormat = {};
@@ -222,6 +241,19 @@ void Win32LoadOpenGLExtensions() {
 		wglChoosePixelFormatARB = ptrcast(WglChoosePixelFormatARB, wglGetProcAddress("wglChoosePixelFormatARB"));
 		wglCreateContextAttribsARB = ptrcast(WglCreateContextAttribsARB, wglGetProcAddress("wglCreateContextAttribsARB"));
 		wglSwapIntervalExt = ptrcast(WglSwapIntervalExt, wglGetProcAddress("wglSwapIntervalEXT"));
+		wglGetExtensionsStringExt = ptrcast(WglGetExtensionsStringExt, wglGetProcAddress("wglGetExtensionsStringEXT"));
+		if (wglGetExtensionsStringExt) {
+			const char* extensions = wglGetExtensionsStringExt();
+			const char* at = extensions;
+			while (*at) {
+				while (IsWhiteSpace(*at)) { at++; }
+				u32 length = 0;
+				const char* end = at;
+				while (*end && !IsWhiteSpace(*end++)) { length++; }
+				if (StringsAreEqual(at, length, "WGL_EXT_framebuffer_sRGB")) { globalOpenGLExtensions.WGL_EXT_framebuffer_sRGB = true; }
+				at += length;
+			}
+		}
 	}
 	wglDeleteContext(glContext);
 	ReleaseDC(window, dc);
@@ -236,18 +268,7 @@ HGLRC Win32InitOpenGL(HWND window) {
 	HGLRC openGlContext = 0;
 	bool modernContext = false;
 	if (wglCreateContextAttribsARB) {
-		int flags = 0;
-#if INTERNAL_BUILD
-		flags |= WGL_CONTEXT_DEBUG_BIT_ARB;
-#endif
-		int attribs[] = {
-			WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
-			WGL_CONTEXT_MINOR_VERSION_ARB, 0,
-			WGL_CONTEXT_FLAGS_ARB, flags,
-			WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
-			0
-		};
-		openGlContext = wglCreateContextAttribsARB(dc, 0, attribs);
+		openGlContext = wglCreateContextAttribsARB(dc, 0, globalOpenGLContextAttribs);
 		modernContext = true;
 	}
 	if (!openGlContext) {
@@ -260,7 +281,6 @@ HGLRC Win32InitOpenGL(HWND window) {
 		return 0;
 	}
 	globalOpenGLInfo = OpenGLInit();
-	ReleaseDC(window, dc);
 	return openGlContext;
 }
 
@@ -500,12 +520,24 @@ bool Win32TryPopAndExecuteTaskFromQueue(PlatformQueue* queue) {
 	return workDone;
 }
 
+struct ThreadProcArgs {
+	PlatformQueue* queue;
+	HDC glDc;
+	HGLRC glContext;
+};
+
+
 internal
 DWORD Win32ThreadProc(LPVOID params) {
-	PlatformQueue* queue = ptrcast(PlatformQueue, params);
+	ThreadProcArgs* args = ptrcast(ThreadProcArgs, params);
+	PlatformQueue* queue = args->queue;
 #if INTERNAL_BUILD
 	THREAD_LOCAL_ID = AtomicAddU32(&GLOBAL_THREAD_ID_GEN, 1) + 1;
 #endif
+	if (wglMakeCurrent(args->glDc, args->glContext)) {
+		i32 breakHere = 0;
+		//TODO logs
+	}
 	while (true) {
 		if (!Win32TryPopAndExecuteTaskFromQueue(queue)) {
 			WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
@@ -554,22 +586,40 @@ void Win32WaitForQueueCompletion(PlatformQueue* queue) {
 }
 
 internal
-void InitializeQueue(PlatformQueue& queue, DWORD threadCount) {
+void InitializeQueue(ThreadProcArgs* threadArgs, DWORD threadCount) {
+	Assert(threadCount);
 	for (u32 threadIndex = 0; threadIndex < threadCount; threadIndex++) {
-		CreateThread(0, 0, Win32ThreadProc, &queue, 0, 0);
+		CreateThread(0, 0, Win32ThreadProc, threadArgs + threadIndex, 0, 0);
 	}
-	queue.semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
+	threadArgs->queue->semaphore = CreateSemaphoreExA(0, 0, threadCount, 0, 0, EVENT_ALL_ACCESS);
 }
 
-inline
+internal
 void* Win32AllocateMemory(u32 bytes) {
 	void* result = VirtualAlloc(0, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	return result;
 }
 
-inline
+internal
 void Win32FreeMemory(void* memory) {
 	VirtualFree(memory, 0, MEM_RELEASE);
+}
+
+internal
+u32 Win32AllocateTexture(void* data, u32 width, u32 height) {
+	if (globalOpenGLInfo.initialized) {
+		GLuint handle = OpenGLAllocateTexture(data, width, height, globalOpenGLInfo);
+		return u4(handle);
+	}
+	return 0;
+}
+
+internal
+void Win32FreeTexture(u32 textureHandle) {
+	if (globalOpenGLInfo.initialized) {
+		GLuint handle = GLuint(textureHandle);
+		OpenGLFreeTexture(textureHandle);
+	}
 }
 
 // Platform API
@@ -1307,11 +1357,23 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.platformAPI.MemoryFree = Win32FreeMemory;
 	programMemory.platformAPI.SystemExecuteCommand = Win32SystemExecuteCommand;
 	programMemory.platformAPI.SystemGetCommandState = Win32SystemGetCommandState;
+	programMemory.platformAPI.TextureAllocate = Win32AllocateTexture;
+	programMemory.platformAPI.TextureFree = Win32FreeTexture;
 	Platform = &programMemory.platformAPI;
 
 	programMemory.highPriorityQueue = &globalHighPriorityQueue;
 	programMemory.lowPriorityQueue = &globalLowPriorityQueue;
 	return programMemory;
+}
+
+ThreadProcArgs CreateThreadProcArgs(PlatformQueue* queue, HDC dc, HGLRC sharedContext) {
+	if (wglCreateContextAttribsARB) {
+		HGLRC glContext = wglCreateContextAttribsARB(dc, sharedContext, globalOpenGLContextAttribs);
+		return { queue, dc, glContext };
+	}
+	else {
+		return { queue, 0, 0 };
+	}
 }
 
 int CALLBACK WinMain(
@@ -1320,8 +1382,6 @@ int CALLBACK WinMain(
 	LPSTR cmdLine,
 	int showCmd
 ) {
-	InitializeQueue(globalHighPriorityQueue, 8);
-	InitializeQueue(globalLowPriorityQueue, 2);
 	Win32LoadXInput();
 
 	HRESULT hr = CoInitialize(nullptr);
@@ -1361,7 +1421,24 @@ int CALLBACK WinMain(
 		//TODO log GetLastError()
 		return -1;
 	}
-	Win32InitOpenGL(window);
+	HGLRC glContext = Win32InitOpenGL(window);
+	{
+		constexpr u32 threadCount = 8;
+		ThreadProcArgs threadArgs[threadCount] = {};
+		for (u32 thread = 0; thread < ArrayCount(threadArgs); thread++) {
+			threadArgs[thread] = CreateThreadProcArgs(&globalHighPriorityQueue, 0, 0);
+		}
+		InitializeQueue(threadArgs, ArrayCount(threadArgs));
+	}
+	{
+		HDC dc = GetDC(window);
+		constexpr u32 threadCount = 2;
+		ThreadProcArgs threadArgs[threadCount] = {};
+		for (u32 thread = 0; thread < ArrayCount(threadArgs); thread++) {
+			threadArgs[thread] = CreateThreadProcArgs(&globalLowPriorityQueue, dc, glContext);
+		}
+		InitializeQueue(threadArgs, ArrayCount(threadArgs));
+	}
 
 	RECT rect;
 	GetClientRect(window, &rect);
@@ -1476,7 +1553,6 @@ int CALLBACK WinMain(
 		auto dim = GetWindowDimension(window);
 		Win32RenderCommands(&renderCommands, globalBitmap, &globalHighPriorityQueue,
 			deviceContext, globalWin32State, dim.width, dim.height, vsync);
-		ReleaseDC(window, deviceContext);
 		MARKUP_FRAME_END;
 
 		// PART: Preparing SoundData structure for game main loop

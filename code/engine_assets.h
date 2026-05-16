@@ -8,7 +8,7 @@ struct LoadedBitmap {
 	i32 height;
 	i32 width;
 	i32 pitch;
-	u32 glTextureIndex; //TODO: Get rid of this
+	u32 textureHandle;
 	V2 align; // NOTE: bottom-up in pixels
 };
 
@@ -89,6 +89,8 @@ enum AssetState {
 };
 
 enum AssetDataType {
+	AssetData_None,
+
 	AssetData_Sound,
 	AssetData_Bitmap,
 	AssetData_Font
@@ -155,7 +157,7 @@ struct AssetMemoryHeader {
 	u32 totalSize;
 	u32 assetIndex;
 	u32 generationId;
-	u32 type;
+	AssetDataType type;
 	union {
 		LoadedBitmap bitmap;
 		LoadedSound sound;

@@ -119,8 +119,10 @@ typedef bool					(*_PlatformFileErrors)(PlatformFileHandle* file);
 typedef void					(*_PlatformFileRead)(PlatformFileHandle* file, u32 offset, u32 size, void* dst);
 
 // Memory API
-typedef void* (*_PlatformMemoryAllocate)(u32 size);
+typedef void*	(*_PlatformMemoryAllocate)(u32 size);
 typedef void	(*_PlatformMemoryFree)(void* memory);
+typedef u32		(*_PlatformTextureAllocate)(void* data, u32 width, u32 height);
+typedef void	(*_PlatformTextureFree)(u32 textureHandle);
 
 // Queue API
 struct PlatformQueue;
@@ -172,6 +174,8 @@ struct PlatformAPI {
 	// Memory API
 	_PlatformMemoryAllocate MemoryAllocate;
 	_PlatformMemoryFree MemoryFree;
+	_PlatformTextureAllocate TextureAllocate;
+	_PlatformTextureFree TextureFree;
 
 	// System API
 	_PlatformSystemExecuteCommand SystemExecuteCommand;

@@ -178,21 +178,22 @@ bool IsWhiteSpace(char c) {
 }
 
 inline
-u32 StringLengthWhiteSpaceTerminator(const char* str) {
-	u32 result = 0;
-	while (!IsWhiteSpace(*str++)) {
-		result++;
-	}
-	return result;
-}
-
-inline
 bool StringsAreEqual(const char* A, u32 ALength, const char* B, u32 BLength) {
 	if (ALength != BLength) {
 		return false;
 	}
 	for (u32 idx = 0; idx < ALength; idx++) {
 		if (*A++ != *B++) {
+			return false;
+		}
+	}
+	return true;
+}
+
+inline
+bool StringsAreEqual(const char* A, u32 ALength, const char* B) {
+	for (u32 idx = 0; idx < ALength; idx++) {
+		if (*B == 0 || *A++ != *B++) {
 			return false;
 		}
 	}

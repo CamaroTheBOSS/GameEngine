@@ -8,8 +8,6 @@
 #endif
 #include "gl/GL.h"
 
-static u32 globalTextureIndex = 0;
-
 internal
 OpenGLInfo OpenGLInit() {
 	OpenGLInfo info = {};
@@ -20,19 +18,13 @@ OpenGLInfo OpenGLInit() {
 	info.shadingLangVersion = ptrcast(const char, glGetString(GL_SHADING_LANGUAGE_VERSION));
 	const char* extensions = ptrcast(const char, glGetString(GL_EXTENSIONS));
 	const char* at = extensions;
-
-	String8 exts[] = {
-		String8FromNullTerminated("GL_EXT_texture_sRGB"),
-		String8FromNullTerminated("GL_EXT_framebuffer_sRGB"),
-		String8FromNullTerminated("WGL_ARB_create_context"),
-	};
 	while (*at) {
 		while (IsWhiteSpace(*at)) { at++; }
-		if (!(*at)) { break; }
-		u32 length = StringLengthWhiteSpaceTerminator(at);
-		if (StringsAreEqual(at, length, exts[0].str, exts[0].length)) { info.GL_EXT_texture_sRGB = true; }
-		else if (StringsAreEqual(at, length, exts[1].str, exts[1].length)) { info.GL_EXT_framebuffer_sRGB = true; }
-		else if (StringsAreEqual(at, length, exts[2].str, exts[2].length)) { info.WGL_ARB_create_context = true; }
+		u32 length = 0;
+		const char* end = at;
+		while (*end && !IsWhiteSpace(*end++)) { length++; }
+		if (StringsAreEqual(at, length, "GL_EXT_texture_sRGB")) { info.GL_EXT_texture_sRGB = true; }
+		else if (StringsAreEqual(at, length, "GL_EXT_framebuffer_sRGB")) { info.GL_EXT_framebuffer_sRGB = true; }
 		at += length;
 	}
 	if (info.GL_EXT_texture_sRGB) {
@@ -41,7 +33,33 @@ OpenGLInfo OpenGLInit() {
 	if (info.GL_EXT_framebuffer_sRGB) {
 		glEnable(GL_FRAMEBUFFER_SRGB_EXT);
 	}
+	info.initialized = true;
 	return info;
+}
+
+inline 
+GLuint OpenGLAllocateTexture(void* data, u32 width, u32 height, OpenGLInfo& info) {
+	GLuint handle;
+	glGenTextures(1, &handle);
+	if (handle != 1) {
+		int breakhere = 2;
+	}
+	glBindTexture(GL_TEXTURE_2D, handle);
+	glTexImage2D(GL_TEXTURE_2D, 0, info.defaultInternalTextureFormat,
+		width, height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, data);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glFlush();
+	return handle;
+}
+
+inline 
+void OpenGLFreeTexture(GLuint handle) {
+	glDeleteTextures(1, &handle);
 }
 
 inline
@@ -126,20 +144,7 @@ void OpenGLRenderCommandsToBuffer(RenderCommandBuffer* commands,
 			V2 origin = call->center - Hadamard(call->bitmap->align, call->size);
 
 			LoadedBitmap* bitmap = call->bitmap;
-			if (bitmap->glTextureIndex == 0) {
-				bitmap->glTextureIndex = ++globalTextureIndex;
-				glGenTextures(1, &bitmap->glTextureIndex);
-				glBindTexture(GL_TEXTURE_2D, bitmap->glTextureIndex);
-				glTexImage2D(GL_TEXTURE_2D, 0, info.defaultInternalTextureFormat, bitmap->width, bitmap->height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, bitmap->data);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-				glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-			}
-			else {
-				glBindTexture(GL_TEXTURE_2D, bitmap->glTextureIndex);
-			}
+			glBindTexture(GL_TEXTURE_2D, bitmap->textureHandle);
 			OpenGLRenderRectangle(origin, origin + call->size, call->color);
 		} break;
 		InvalidDefaultCase;

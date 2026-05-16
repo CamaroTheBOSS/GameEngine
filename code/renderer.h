@@ -18,6 +18,7 @@
 #define WGL_COLOR_BITS_ARB                      0x2014
 #define WGL_FULL_ACCELERATION_ARB               0x2027
 #define WGL_TYPE_RGBA_ARB                       0x202B
+#define WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB        0x20A9
 
 //
 // 
@@ -32,17 +33,18 @@ struct OpenGLInfo {
 	const char* version;
 	const char* shadingLangVersion;
 	u32 defaultInternalTextureFormat;
-
+	
+	bool initialized;
 	bool GL_EXT_texture_sRGB;
 	bool GL_EXT_framebuffer_sRGB;
-
-	bool WGL_ARB_create_context;
 };
 
 internal OpenGLInfo OpenGLInit();
 internal void OpenGLRenderCommandsToBuffer(RenderCommandBuffer* commands, 
 	u32 dstOffsetX, u32 dstOffsetY, u32 dstWidth, u32 dstHeight,
 	u32 srcWidth, u32 srcHeight, OpenGLInfo& info);
+inline GLuint OpenGLAllocateTexture(void* data, u32 width, u32 height, OpenGLInfo& info);
+inline void OpenGLFreeTexture(GLuint handle);
 //
 //
 // Software renderer platform-agnostic API

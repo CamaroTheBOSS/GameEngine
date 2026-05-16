@@ -304,6 +304,8 @@ struct LoadAssetTaskArgs {
 	u32 size;
 	TaskWithMemory* task;
 	u32* state;
+	AssetDataType type;
+	LoadedBitmap* bitmap;
 };
 
 internal
@@ -311,6 +313,13 @@ void LoadAssetBackgroundTask(void* data) {
 	LoadAssetTaskArgs* args = ptrcast(LoadAssetTaskArgs, data);
 	Platform->FileRead(args->source, args->offset, args->size, args->buffer);
 	if (!Platform->FileErrors(args->source)) {
+		if (args->type == AssetData_Bitmap) {
+			Assert(args->bitmap->textureHandle == 0);
+			u32 textureHandle = Platform->TextureAllocate(
+				args->bitmap->data, args->bitmap->width, args->bitmap->height
+			);
+			AtomicExchangeU32(&args->bitmap->textureHandle, textureHandle);
+		}
 		WriteCompilatorFence;
 		*args->state = AssetState_Ready;
 	}
@@ -454,6 +463,9 @@ void* AcquireAssetMemory(Assets& assets, u32 size) {
 				) {
 				Assert(asset->memory == leastUsed);
 				RemoveMemoryHeaderFromList(leastUsed);
+				if (asset->memory->type == AssetData_Bitmap) {
+					Platform->TextureFree(asset->memory->bitmap.textureHandle);
+				}
 				// NOTE: When we don't find any block and we evicted one asset, only the block
 				// from evicted asset can be used to check whether more assets needs to be evicted
 				// or allocation can take place
@@ -515,7 +527,7 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate) {
 	asset.memory->bitmap.pitch = metadata->pitch;
 	asset.memory->bitmap.widthOverHeight = f4(metadata->width) / f4(metadata->height);
 	asset.memory->bitmap.data = ptrcast(u32, asset.memory + 1);
-	asset.memory->bitmap.glTextureIndex = 0;
+	asset.memory->bitmap.textureHandle = 0;
 	asset.memory->type = AssetData_Bitmap;
 	asset.memory->assetIndex = bid.id;
 	asset.memory->totalSize = allocSize;
@@ -539,6 +551,8 @@ bool PrefetchBitmap(Assets& assets, BitmapId bid, bool immediate) {
 	args->buffer = asset.memory->bitmap.data;
 	args->task = task;
 	args->state = &asset.state;
+	args->type = AssetData_Bitmap;
+	args->bitmap = &asset.memory->bitmap;
 
 	if (immediate) {
 		LoadAssetBackgroundTask(args);
@@ -614,6 +628,8 @@ bool PrefetchSound(Assets& assets, SoundId sid, bool immediate) {
 	args->buffer = asset.memory->sound.samples[0];
 	args->task = task;
 	args->state = &asset.state;
+	args->type = AssetData_Sound;
+	args->bitmap = 0;
 
 	if (immediate) {
 		LoadAssetBackgroundTask(&args);
@@ -694,6 +710,8 @@ bool PrefetchFont(Assets& assets, FontId fid, bool immediate) {
 	args->buffer = asset.memory->font.codepointToLogicalIndex;
 	args->task = task;
 	args->state = &asset.state;
+	args->type = AssetData_Font;
+	args->bitmap = 0;
 
 	if (immediate) {
 		LoadAssetBackgroundTask(args);
