@@ -1,4 +1,11 @@
 #include "renderer.h"
+
+#ifndef WINGDIAPI
+#define WINGDIAPI
+#endif
+#ifndef APIENTRY
+#define APIENTRY
+#endif
 #include "gl/GL.h"
 
 static u32 globalTextureIndex = 0;
