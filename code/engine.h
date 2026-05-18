@@ -106,14 +106,11 @@ struct DebugState {
 	DebugProfilerSpan* spanFreeList;
 	DebugVariable* variableHash[512];
 	DebugVariableGroup* groupHash[128];
-	u32 entityIntrospectionCountInFrame;
 	
 	// UI
 	u32 selectedCount;
 	DebugId selectedId[8];
 	DebugTree UISentinel;
-	DebugVariableGroup* defaultMainVariablesGroup;
-	DebugVariableGroup* defaultIntrospectionGroup;
 
 	// Drawing
 	RenderGroup renderGroup;

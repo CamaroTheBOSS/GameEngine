@@ -89,7 +89,6 @@ struct DebugVariable {
 	const char* GUID;
 	const char* name;
 	bool permanent;
-	u32 introspectionObjectIndex;
 
 	DebugVariable* nextInHash;
 	DebugStoredEvent* oldestEvent;
@@ -124,10 +123,12 @@ struct DebugProfilerSpanChildren {
 	DebugProfilerSpan* children[MAX_CHILD_SPANS];
 };
 
+struct DebugVariableGroup;
 struct OpenDebugEvent {
 	DebugEvent event;
 	union {
 		DebugProfilerSpanChildren childSpans;
+		DebugVariableGroup* group;
 	};
 	OpenDebugEvent* next;
 };
@@ -159,7 +160,7 @@ struct DebugThreadStack {
 	event12345->threadId = u2(GetFastThreadId());
 
 #if INTERNAL_BUILD
-#define TIMED_FUNCTION__(line) TimedBlock block##line(__FILE__, __FUNCTION__, __LINE__, __COUNTER__)
+#define TIMED_FUNCTION__(line) TimedBlock block##line(__FILE__, __FUNCTION__, __LINE__)
 #define TIMED_FUNCTION_(line) TIMED_FUNCTION__(line)
 #define TIMED_FUNCTION TIMED_FUNCTION_(__LINE__)
 
@@ -182,26 +183,18 @@ inline DebugId DEBUG_POINTER_ID(void* ptr, u32 objId);
 inline void DEBUG_HIT(DebugId did, Rect2 boundingBox);
 inline bool DEBUG_HIGHLIGHTED(DebugId did, V4* color);
 inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
-internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line, const char* GUID);
 
-#define DEBUG_BEGIN_DATA_BLOCK(Name, debugid) { \
-	RecordDebugEvent(Event_Data_BlockBegin, __FILE__, #Name, __LINE__) \
+#define DEBUG_DATA_BLOCK__(line, Name, debugid) DataBlock block##line(__FILE__, Name, __LINE__, debugid)
+#define DEBUG_DATA_BLOCK_(line, Name, debugid) DEBUG_DATA_BLOCK__(line, Name, debugid)
+#define DEBUG_DATA_BLOCK(Name, debugid) DEBUG_DATA_BLOCK_(__LINE__, Name, debugid)
+#define DEBUG_BEGIN_DATA_BLOCK(Name, debugid, file, line) { \
+	RecordDebugEvent(Event_Data_BlockBegin, file, Name, line) \
 	event12345->data_DebugId = debugid; }
 #define DEBUG_END_DATA_BLOCK { \
 	RecordDebugEvent(Event_Data_BlockEnd, __FILE__, "DataEndBlock", __LINE__) }
 #define DEBUG_DATA(type, data) { \
 	RecordDebugEvent(Event_Data_##type, __FILE__, #data, __LINE__); \
 	event12345->data_##type = data; }
-#define DEFINE_DEBUG_VARIABLE_WITH_INIT(type, variable, init) \
-	local_persist DebugEvent variable = *InitializePermanentDebugVariable((variable.data_##type = init, &variable), Event_Data_##type, #variable, __FILE__, __LINE__, UniqueGUID)
-#define DEFINE_DEBUG_VARIABLE_(type, variable, init) DEFINE_DEBUG_VARIABLE_WITH_INIT(type, variable, init)
-#define DEFINE_DEBUG_VARIABLE(type, variable) DEFINE_DEBUG_VARIABLE_(type, variable, CONSTANT_##variable)
-#define DEBUG_IF(variable) \
-	DEFINE_DEBUG_VARIABLE(bool, variable); \
-	if (variable.data_bool)
-#define DEBUG_IF_NOT(variable) \
-	DEFINE_DEBUG_VARIABLE(bool, variable); \
-	if (!variable.data_bool)
 
 #define RecordMemoryDebugEvent(type, arenaArg) \
 	RecordDebugEvent(type, __FILE__, #arenaArg, __LINE__) \
@@ -214,21 +207,6 @@ internal DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, Debu
 #define RecordAssetMemoryBlockEvent(block) { \
 	RecordDebugEvent(Event_AssetMemoryBlock, __FILE__, "AssetMemoryBlock", __LINE__) \
 	event12345->data_AssetMemoryBlock = *(block); }
-
-inline DebugEvent* InitializePermanentDebugVariable(DebugEvent* subevent, DebugEventType type, const char* name, const char* file, u16 line, const char* GUID) {
-	RecordDebugEvent(Event_PermanentVariableDeclaration, file, name, line);
-	event12345->data_DebugEvent = subevent;
-	event12345->GUID = GUID;
-	subevent->blockName = name;
-	subevent->coreId = 0;
-	subevent->cycles = 0;
-	subevent->threadId = 0;
-	subevent->type = type;
-	subevent->file = file;
-	subevent->line = line;
-	subevent->GUID = GUID;
-	return subevent;
-}
 
 #else
 #define TIMED_FUNCTION
@@ -261,17 +239,23 @@ struct TimedBlock {
 	}
 };
 
+struct DataBlock {
+	DataBlock(const char* file, const char* blockName, u16 line, DebugId debugid) {
+		DEBUG_BEGIN_DATA_BLOCK(blockName, debugid, file, line);
+	}
+
+	~DataBlock() {
+		DEBUG_END_DATA_BLOCK;
+	}
+};
+
 struct DebugVariableLink;
 struct DebugVariableGroup {
 	const char* name;
 	u32 nameLength;
 	bool expanded;
 
-	u32 introspectionObjectIndex;
-	u32 dataReceivingFrameIndex;
-	DebugId introspectionId;
 	DebugVariableGroup* nextInHash;
-
 	DebugVariableGroup* parentGroup;
 
 	DebugVariableLink* containingLink;
@@ -451,3 +435,16 @@ struct FontDrawContext {
 	f32 lineAdvance;
 	LoadedFont* font;
 };
+
+debug_variable bool DEBUG_Debug_ShowInteractions = 1;
+debug_variable bool DEBUG_Debug_ShowEventsCount = 1;
+debug_variable bool DEBUG_Profiler_Memory;
+debug_variable bool DEBUG_Profiler_Cpu;
+debug_variable bool DEBUG_Profiler_CpuSpansList;
+debug_variable bool DEBUG_Profiler_Pause;
+debug_variable bool DEBUG_Camera_Zoomout;
+debug_variable f32 DEBUG_Camera_ZoomoutValue = 10.f;
+debug_variable bool DEBUG_Renderer_WithSoftware;
+debug_variable bool DEBUG_Renderer_DifferentResolution;
+debug_variable f32 DEBUG_Renderer_ResolutionWidth = 960.f;
+debug_variable f32 DEBUG_Renderer_ResolutionHeight = 540.f;

@@ -32,6 +32,7 @@
 #if !defined(internal)
 #define internal static
 #define local_persist static
+#define debug_variable static
 #endif
 #define PI 3.14159f
 #define TAU 6.28318f
@@ -108,9 +109,6 @@ typedef long long i64;
 typedef float f32;
 typedef double f64;
 
-#if INTERNAL_BUILD
-#include "engine_debug_config.h"
-#endif
 #include "engine_meta.h"
 #include "engine_intrinsics.h"
 #include "engine_math.h"

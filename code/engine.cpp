@@ -989,6 +989,17 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TIMED_FUNCTION;
 #if defined(INTERNAL_BUILD)
 	debugGlobalMemory = &memory;
+	{DEBUG_DATA_BLOCK("Debug", DEBUG_POINTER_ID(debugGlobalMemory + __COUNTER__, 0));
+		DEBUG_DATA(bool, DEBUG_Debug_ShowEventsCount);
+		DEBUG_DATA(bool, DEBUG_Debug_ShowInteractions);}
+	{DEBUG_DATA_BLOCK("Camera", DEBUG_POINTER_ID(debugGlobalMemory + __COUNTER__, 0));
+		DEBUG_DATA(bool, DEBUG_Camera_Zoomout);
+		DEBUG_DATA(f32, DEBUG_Camera_ZoomoutValue);}
+	{DEBUG_DATA_BLOCK("Profiler", DEBUG_POINTER_ID(debugGlobalMemory + __COUNTER__, 0));
+		DEBUG_DATA(bool, DEBUG_Profiler_Memory);
+		DEBUG_DATA(bool, DEBUG_Profiler_Cpu);
+		DEBUG_DATA(bool, DEBUG_Profiler_CpuSpansList);
+		DEBUG_DATA(bool, DEBUG_Profiler_Pause);}
 #endif
 	Platform = &memory.platformAPI;
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
@@ -1281,9 +1292,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	RenderGroup renderGroup = BeginRendering(renderCommands, &tranState->assets);
 	renderGroup.projection = projection;
 	f32 originalCameraDistance = renderGroup.projection.camera.distanceToTarget;
-	DEFINE_DEBUG_VARIABLE(f32, Camera_ZoomoutValue);
-	DEBUG_IF(Camera_Zoomout) {
-		renderGroup.projection.camera.distanceToTarget = Camera_ZoomoutValue.data_f32;
+	if (DEBUG_Camera_Zoomout) {
+		renderGroup.projection.camera.distanceToTarget = DEBUG_Camera_ZoomoutValue;
 	}
 	Rect2 playerView = GetRenderRectangleAtDistance(renderGroup.projection, bitmapWidth, bitmapHeight, originalCameraDistance);
 	PushClearCall(renderGroup, V4{ 0.2f, 0.2f, 0.2f, 1.f });
@@ -1487,7 +1497,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #endif
 		}
 		if (DEBUG_DATA_BLOCK_REQUESTED(dId)) {
-			DEBUG_BEGIN_DATA_BLOCK(Simulation_Entity, dId);
+			DEBUG_DATA_BLOCK("Simulation/Entity", dId);
 			DEBUG_DATA(u32, entity->flags);
 			//DEBUG_DATA(hotEntity->collision);
 			DEBUG_DATA(f32, entity->distanceRemaining);
@@ -1502,7 +1512,6 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			DEBUG_DATA(V3, entity->vel);
 			DEBUG_DATA(V3, entity->walkableDim);
 			//DEBUG_DATA(hotEntity->worldPos);
-			DEBUG_END_DATA_BLOCK;
 		}
 	}
 #endif

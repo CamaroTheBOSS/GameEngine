@@ -18,7 +18,6 @@
 
 DebugGlobalState debugGlobalState_ = {};
 DebugGlobalState* debugGlobalState = &debugGlobalState_;
-DEFINE_DEBUG_VARIABLE(bool, Profiler_Pause);
 
 // TODO: Delete stdlib
 #include <stdio.h>
@@ -147,12 +146,6 @@ bool IsSelected(DebugState* state, DebugId did, u32* outIndex = 0) {
 	return false;
 }
 
-inline
-bool IsIntrospectionGroup(DebugVariableGroup* group) {
-	bool result = group->introspectionObjectIndex > 0;
-	return result;
-}
-
 inline 
 DebugInteraction InteractionMoveTree(V2 mousePos, DebugTree* tree, V2 treeInitialPos) {
 	DebugInteraction interaction = {};
@@ -230,6 +223,7 @@ DebugInteraction InteractionWithLink(Rect2 bBox, DebugTree* tree, DebugVariableL
 	interaction.linkInTree.link = link;
 	interaction.linkInTree.tree = tree;
 	interaction.startBoundingBox = bBox;
+	Assert(link);
 	return interaction;
 }
 
@@ -484,14 +478,12 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 		V2 rightTopCorner = V2{ state->overlayBoundaries.max.X - 400.f, state->overlayBoundaries.max.Y };
-		state->defaultMainVariablesGroup = &AddTree(state, leftTopCorner, "Debugging")->rootGroup;
-		state->defaultIntrospectionGroup = &AddTree(state, rightTopCorner, "Introspection")->rootGroup;
+		AddTree(state, leftTopCorner, "Debugging");
 
 		state->isInitialized = true;
 	}
 	EndRendering(state->renderGroup);
 	state->renderGroup = BeginRendering(renderCommands, &tranState->assets);
-	state->entityIntrospectionCountInFrame = 0;
 	state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(bitmapWidth, bitmapHeight));
 	state->renderGroup.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
 	state->renderGroup.projection.offset = V3{ 0, 0, 100 }; //NOTE: Put a bias for debug stuff for sorting purposes
@@ -583,7 +575,12 @@ u32 GetStringHash(const char* string, u32 length) {
 	u32 hash = 0;
 	internal u32 primes[] = {
 		3, 5, 7, 11, 13, 17, 19, 23, 29, 31,37,	41,	43,	47,	53,	59,	61,	
-		67,	71, 73,	79,	83,	89,	97,	101,103,107,109,113,127,131,137
+		67,	71, 73,	79,	83,	89,	97,	101,103,107,109,113,127,131,137,139, 
+		149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 
+		223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281, 
+		283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367, 
+		373, 379, 383, 389, 397, 401, 409, 419, 421, 431, 433, 439, 443, 
+		449, 457, 461, 463, 467, 479, 487, 491, 499, 503, 509, 521, 523, 541
 	};
 	Assert(length < ArrayCount(primes))
 	for (u32 idx = 0; idx < length; idx++) {
@@ -594,14 +591,13 @@ u32 GetStringHash(const char* string, u32 length) {
 }
 
 internal
-DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, const char* name, u32 nameLength, u32 introspectionObjectIndex = 0) {
+DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, const char* name, u32 nameLength) {
 	TIMED_FUNCTION;
 	// TODO: Could I avoid hashing string?
-	u32 hashSlot = (GetStringHash(name, nameLength) + 13 * introspectionObjectIndex) % ArrayCount(state->groupHash);
+	u32 hashSlot = (GetStringHash(name, nameLength)) % ArrayCount(state->groupHash);
 	DebugVariableGroup* result = 0;
 	for (DebugVariableGroup* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
-		if (StringsAreEqual(group->name, group->nameLength, name, nameLength) && 
-			introspectionObjectIndex == group->introspectionObjectIndex) 
+		if (StringsAreEqual(group->name, group->nameLength, name, nameLength))
 		{
 			result = group;
 			break;
@@ -614,7 +610,6 @@ DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGro
 		result->name = name;
 		result->nameLength = nameLength;
 		result->parentGroup = parentGroup;
-		result->introspectionObjectIndex = introspectionObjectIndex;
 		AddGroupToGroup(state, parentGroup, result);
 		result->nextInHash = state->groupHash[hashSlot];
 		state->groupHash[hashSlot] = result;
@@ -623,10 +618,10 @@ DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGro
 }
 
 inline
-DebugVariable* GetDebugVariable_(DebugState* state, const char* GUID, u32 hashSlot, u32 introspectionObjIndex) {
+DebugVariable* GetDebugVariable_(DebugState* state, const char* GUID, u32 hashSlot) {
 	DebugVariable* result = 0;
 	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-		if (var->GUID == GUID && var->introspectionObjectIndex == introspectionObjIndex) {
+		if (var->GUID == GUID) {
 			result = var;
 			break;
 		}
@@ -635,16 +630,15 @@ DebugVariable* GetDebugVariable_(DebugState* state, const char* GUID, u32 hashSl
 }
 
 inline
-u32 GetDebugVariableHash_(DebugState* state, const char* GUID, u32 introspectionObjIndex) {
-	u32 hashSlot = (u4(uptr(GUID) >> 2) + 13 * introspectionObjIndex) % ArrayCount(state->variableHash);
+u32 GetDebugVariableHash_(DebugState* state, const char* GUID) {
+	u32 hashSlot = (u4(uptr(GUID) >> 2)) % ArrayCount(state->variableHash);
 	return hashSlot;
 }
 
 inline
 DebugVariable* GetDebugVariable(DebugState* state, DebugVariableGroup* group, const char* GUID) {
-	u32 introspectionObjIndex = group ? group->introspectionObjectIndex : 0;
-	u32 hashSlot = GetDebugVariableHash_(state, GUID, introspectionObjIndex);
-	DebugVariable* result = GetDebugVariable_(state, GUID, hashSlot, introspectionObjIndex);
+	u32 hashSlot = GetDebugVariableHash_(state, GUID);
+	DebugVariable* result = GetDebugVariable_(state, GUID, hashSlot);
 	return result;
 }
 
@@ -655,15 +649,13 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 	// -> TODO: Do the same with CLANG
 	// -> It is with MSVC
 	DebugEvent* event = &storedEvent->event;
-	u32 introspectionObjIndex = group ? group->introspectionObjectIndex : 0;
-	u32 hashSlot = GetDebugVariableHash_(state, event->GUID, introspectionObjIndex);
-	DebugVariable* result = GetDebugVariable_(state, event->GUID, hashSlot, introspectionObjIndex);
+	u32 hashSlot = GetDebugVariableHash_(state, event->GUID);
+	DebugVariable* result = GetDebugVariable_(state, event->GUID, hashSlot);
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariable);
 		result->GUID = event->GUID;
 		result->name = PushString(state->mainArena, event->GUID, StringLength(event->GUID) + 1);
 		result->nextInHash = state->variableHash[hashSlot];
-		result->introspectionObjectIndex = introspectionObjIndex;
 		result->oldestEvent = 0;
 		result->newestEvent = 0;
 		state->variableHash[hashSlot] = result;
@@ -854,38 +846,33 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 }
 
 internal
-DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableGroup* group, const char* name, u32 introspectionObjectIndex = 0) {
+DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableGroup* group, const char* name) {
 	const char* firstUnderscore = 0;
 	const char* at = name;
 	while (*at != 0) {
-		if (*at == '_') {
+		if (*at == '/') {
 			firstUnderscore = at;
 			break;
 		}
 		at++;
+		if (*at == 0) {
+			firstUnderscore = at;
+			break;
+		}
 	}
 	DebugVariableGroup* result = group;
 	if (firstUnderscore) {
 		u32 descentGroupNameLength = u4(firstUnderscore - name);
-		DebugVariableGroup* descentGroup = GetOrCreateVariableGroup(state, group, name, descentGroupNameLength, introspectionObjectIndex);
-		result = GetGroupForHierachicalName(state, descentGroup, name + descentGroupNameLength + 1, introspectionObjectIndex);
+		DebugVariableGroup* descentGroup = GetOrCreateVariableGroup(state, group, name, descentGroupNameLength);
+		result = GetGroupForHierachicalName(state, descentGroup, name + descentGroupNameLength + 1);
 	}
-	return result;
-}
-
-internal
-DebugVariableGroup* GetGroupForObjectIntrospection(DebugState* state, DebugVariableGroup* group, const char* name, u32 introspectionObjectIndex) {
-	DebugVariableGroup* parentGroup = GetGroupForHierachicalName(state, group, name);
-	const char* lastGroupName = parentGroup->name + parentGroup->nameLength + 1;
-	u32 lastGroupNameLength = StringLength(lastGroupName);
-	DebugVariableGroup* result = GetOrCreateVariableGroup(state, parentGroup, lastGroupName, lastGroupNameLength, introspectionObjectIndex);
 	return result;
 }
 
 internal
 void DebugCollateEvents(DebugState* state) {
 	TIMED_FUNCTION;
-	if(Profiler_Pause.data_bool) {
+	if(DEBUG_Profiler_Pause) {
 		return;
 	}
 
@@ -894,7 +881,6 @@ void DebugCollateEvents(DebugState* state) {
 	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];
 	u32 eventsInFrameCount = debugGlobalState->eventsCount[frameIndex];
 	DebugCollationFrame* newFrame = AllocateNewDebugFrame(state);
-	DebugVariableGroup* introspectionGroup = state->defaultIntrospectionGroup;
 	for (u32 eventIndex = 0;
 		eventIndex < eventsInFrameCount;
 		eventIndex++
@@ -935,21 +921,17 @@ void DebugCollateEvents(DebugState* state) {
 			PopFromEventStack(state, &stack->timeEvents);
 		} break;
 		case Event_Data_BlockBegin: {
-			state->entityIntrospectionCountInFrame++;
-			u32 selectedIndex = 0;
-			u32 inFrameEntityIndex = IsSelected(state, event->data_DebugId, &selectedIndex) ? 99 + selectedIndex : state->entityIntrospectionCountInFrame;
-			introspectionGroup = GetGroupForObjectIntrospection(state, introspectionGroup, event->blockName, inFrameEntityIndex);
-			introspectionGroup->dataReceivingFrameIndex = state->totalFrameCount;
-			introspectionGroup->introspectionId = event->data_DebugId;
-			PushToEventStack(state, &stack->dataEvents, event);
+			OpenDebugEvent* block = PushToEventStack(state, &stack->dataEvents, event);
+			block->group = GetGroupForHierachicalName(state, 
+				block->group ? block->group : &state->UISentinel.next->rootGroup,
+				event->blockName
+			);
 		} break;
 		case Event_Data_BlockEnd: {
-			// TODO: Stack on EventStack
-			introspectionGroup = state->defaultIntrospectionGroup;
 			PopFromEventStack(state, &stack->dataEvents);
 		} break;
 		case Event_PermanentVariableDeclaration: {
-			DebugVariableGroup* group = GetGroupForHierachicalName(state, state->defaultMainVariablesGroup, event->blockName);
+			DebugVariableGroup* group = GetGroupForHierachicalName(state, &state->UISentinel.next->rootGroup, event->blockName);
 			DebugStoredEvent* storedEvent = StoreEvent(state, group, event, newFrame->frameIndex, true);
 		} break;
 		case Event_MemoryArenaInitialize: {
@@ -1008,7 +990,7 @@ void DebugCollateEvents(DebugState* state) {
 		case Event_Data_V2:
 		case Event_Data_V3:
 		case Event_Data_V4: {
-			StoreEvent(state, introspectionGroup, event, newFrame->frameIndex);
+			StoreEvent(state, stack->dataEvents->group, event, newFrame->frameIndex, true);
 		} break;
 		}
 	}
@@ -1073,44 +1055,6 @@ u64 DebugEventToText(DebugEvent* event, char* buffer, u64 size, u32 flags) {
 		*at++ = '\n';
 	}
 	return at - buffer;
-}
-
-void WriteDebugConfig(DebugState* state) {
-	char buffer[4096];
-	char* at = buffer;
-	char* end = buffer + sizeof(buffer);
-	for (DebugTree* tree = state->UISentinel.next; tree != &state->UISentinel; tree = tree->next) {
-		DebugVariableLink* node = tree->rootGroup.containingLink;
-		u32 depth = 0;
-		DebugVariableLink* parent[64] = {};
-		while (node) {
-			bool isGroup = node->group != 0;
-			if (node->variable && node->variable->permanent) {
-				at += DebugEventToText(&node->variable->newestEvent->event, at, end - at,
-					DebugVarToText_ConfigPrefix |
-					DebugVarToText_AddFloatSuffix |
-					DebugVarToText_AddNewLine
-				);
-			}
-
-			if (node) {
-				if (node->group) {
-					parent[++depth] = node;
-					node = parent[depth]->group->firstLink;
-				}
-				else {
-					node = node->next;
-				}
-			}
-			while (!node && depth > 0) {
-				node = parent[depth--];
-				if (node) {
-					node = node->next;
-				}
-			}
-		}
-	}
-	debugGlobalMemory->debug.WriteFile(DEBUG_CONFIG_PATH, buffer, at - buffer);
 }
 
 Rect2 GetCpuSpanRectangle(Rect2 boundaries, f32 currentWidth,
@@ -1189,13 +1133,13 @@ void RenderResizeAnchor(DebugState* state, V2 center, V2 size, V2 mousePos, Rect
 internal
 void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mousePos) {
 	TIMED_FUNCTION;
+	if (!DEBUG_Profiler_Cpu) {
+		return;
+	}
 	DebugVirtualView& view = state->cpuProfiler.view;
 	bool isHot = IsInRectangle(view.rect, mousePos);
 	if (isHot) {
 		state->nextHotInteraction = InteractionMovedRect2(view.rect, &view.rect);
-	}
-	DEBUG_IF_NOT(Profiler_Cpu) {
-		return;
 	}
 	V2 viewDim = GetDim(view.rect);
 	f32 threadLaneWidth = 8.f;
@@ -1320,13 +1264,13 @@ Rect2 ZoomTowardsDirection(DebugVirtualView& view, i32 ticks, V2 mousePos) {
 internal
 void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mousePos) {
 	TIMED_FUNCTION;
+	if (!DEBUG_Profiler_Memory) {
+		return;
+	}
 	DebugVirtualView& view = state->memProfiler.view;
 	bool isHot = IsInRectangle(view.rect, mousePos);
 	if (isHot) {
 		state->nextHotInteraction = InteractionMovedRect2(view.rect, &view.rect);
-	}
-	DEBUG_IF_NOT(Profiler_Memory) {
-		return;
 	}
 
 	f32 spanHeight = 40.f;
@@ -1460,14 +1404,6 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, 1.f);
 }
 
-inline
-bool GroupShouldBeRendered(DebugState* state, DebugVariableGroup* group, DebugTree* tree) {
-	bool result = group && (!IsIntrospectionGroup(group) ||
-							group->dataReceivingFrameIndex == (state->totalFrameCount - 1) ||
-							&tree->rootGroup != state->defaultIntrospectionGroup);
-	return result;
-}
-
 internal
 void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mousePos) {
 	for (DebugTree* tree = state->UISentinel.next; tree != &state->UISentinel; tree = tree->next) {
@@ -1480,10 +1416,9 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 			char* end = buffer + sizeof(buffer);
 			V4 itemColor = V4{ 1, 1, 1, 1 };
 			V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
-			bool elementRendered = false;
 
 			bool isGroup = node->group != 0;
-			if ((!isGroup && node->variable->newestEvent) || GroupShouldBeRendered(state, node->group, tree)) {
+			if (isGroup || node->variable->newestEvent) {
 				bool isHot = IsVariableHot(state, isGroup ? node->group->containingLink : node);
 				if (isHot) {
 					itemColor = hotItemColor;
@@ -1495,12 +1430,7 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 					*at++ = ' ';
 				}
 				if (isGroup) {
-					at += sprintf_s(at, end - at, "%.*s", node->group->nameLength, node->group->name);
-					if (IsIntrospectionGroup(node->group)) {
-						at += sprintf_s(at, end - at, " [%d]", node->group->introspectionObjectIndex);
-					}
-					*at++ = ':';
-					*at++ = 0;
+					at += sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
 				}
 				else {
 					DebugEvent* event = &node->variable->newestEvent->event;
@@ -1509,24 +1439,21 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
 				if (IsInRectangle(bb, mousePos)) {
+					{
+						//PRINTDEBUGGING
+						char _buffer[256];
+						sprintf_s(_buffer, 256, "Setting NextHotInteraction link for: %s", isGroup ? node->group->name : node->variable->name);
+						DebugRenderLine(state, _buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+					}
 					state->nextHotInteraction = InteractionWithLink(bb, tree, isGroup ? node->group->containingLink : node);
 				}
-				DebugVariableGroup* selectedGroup = isGroup ? node->group : node->parentGroup;
 				V4 bbColor = V4{ 0.5f, 0, 0, 1 };
-				if (IsSelected(state, selectedGroup->introspectionId)) {
-					bbColor = V4{ 0.5f, 0.5f, 0, 1 };
-				}
-				else {
-					selectedGroup->introspectionId = {};
-				}
-
 				PushRect(state->renderGroup, DefaultFlatTransform(), AddRadius(bb, V2{ 4.f, 4.f }), 0, bbColor);
 				DebugRenderLine(state, buffer, fontContext, itemColor);
-				elementRendered = true;
 			}
 
 			if (node) {
-				if (node->group && node->group->expanded && elementRendered) {
+				if (node->group && node->group->expanded) {
 					// TODO: Display group names
 					parent[++depth] = node;
 					node = parent[depth]->group->firstLink;
@@ -1547,6 +1474,13 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 
 internal
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
+	{
+		//PRINTDEBUGGING
+		char _buffer[256];
+		sprintf_s(_buffer, 256, "NextHotInteraction link: %p", state->nextHotInteraction.linkInTree.link);
+		DebugRenderLine(state, _buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+	}
+
 	if (WasPressed(controller.B.kEsc)) {
 		state->selectedCount = 0;
 		if (state->cpuProfiler.selectedSpanCount > 0) {
@@ -1568,10 +1502,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		}
 	}
 	if (WasPressed(state->controller->B.kP)) {
-		Profiler_Pause.data_bool = !Profiler_Pause.data_bool;
-	}
-	if (WasPressed(state->controller->B.kS) && IsPressed(state->controller->B.kCtrl)) {
-		WriteDebugConfig(state);
+		//DEBUG_Profiler_Pause.data_bool = !Profiler_Pause.data_bool;
 	}
 
 	// Set hot interaction
@@ -1579,13 +1510,10 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	if (nextInteractionObj != DebugInteractionObject::None) {
 		switch (nextInteractionObj) {
 		case DebugInteractionObject::LinkInTree: {
-			DebugVariableGroup* group = state->nextHotInteraction.linkInTree.link->group;
-			bool isIntrospectGroup = group && IsIntrospectionGroup(group);
-			bool isSelectedGroup = group && IsSelected(state, group->introspectionId);
-			if (group) {
-				if ((!isIntrospectGroup || isSelectedGroup) &&
-					WasPressed(controller.B.mouseLeft))
-				{
+			DebugTree* tree = state->nextHotInteraction.linkInTree.tree;
+			DebugVariableLink* link = state->nextHotInteraction.linkInTree.link;
+			if (link->group) {
+				if (WasPressed(controller.B.mouseLeft)) {
 					state->nextHotInteraction.type = DebugInteractionType::Toggle;
 				}
 			}
@@ -1609,10 +1537,10 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				} break;
 				}
 			}
-			if (!group || !isIntrospectGroup || isSelectedGroup) {
-				if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
-					state->nextHotInteraction.type = DebugInteractionType::Tear;
-				}
+			if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
+				state->nextHotInteraction = InteractionWithLink(
+					state->nextHotInteraction.startBoundingBox, tree, link);
+				state->nextHotInteraction.type = DebugInteractionType::Tear;
 			}
 		} break;
 		case DebugInteractionObject::ArenaView: {
@@ -1721,7 +1649,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		}
 	}
 
-	DEBUG_IF(Debug_ShowInteractions) {
+	if(DEBUG_Debug_ShowInteractions) {
 		char buffer[256];
 		const char* interaction = "Unknown";
 #define CASE_VALUE_TO_STRING(value, assignable) case value: { assignable = #value; } break
@@ -1787,7 +1715,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	} break;
 	case DebugInteractionType::SelectProfilerSpan: {
 		if (SelectedById(state->interaction.selectedSpan)) {
-			Profiler_Pause.data_bool = true;
+			//Profiler_Pause.data_bool = true;
 		}
 		Assert(state->cpuProfiler.selectedSpanCount < ArrayCount(state->cpuProfiler.selectedSpans) - 1);
 		state->cpuProfiler.selectedSpans[++state->cpuProfiler.selectedSpanCount] = state->interaction.selectedSpan;
@@ -1872,7 +1800,7 @@ void DebugRenderOverlay(DebugState* state) {
 	DebugRenderMemoryProfiler(state, controller, mousePos);
 	DebugInteract(state, mousePos, controller);
 
-	DEBUG_IF(Debug_ShowEventsCount) {
+	if(DEBUG_Debug_ShowEventsCount) {
 		char buffer[256];
 		u32 currentFrame = !debugGlobalState->currentFrameIndex;
 		sprintf_s(buffer, 256, "Events in frame: %d", debugGlobalState->eventsCount[currentFrame]);

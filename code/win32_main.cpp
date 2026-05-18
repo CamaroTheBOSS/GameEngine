@@ -1020,7 +1020,7 @@ void Win32RenderCommands(RenderCommandBuffer* renderCommands, BitmapData& bitmap
 		displayWidth = Maximum(0, u4(Renderer_ResolutionWidth.data_f32));
 		displayHeight = Maximum(0, u4(Renderer_ResolutionHeight.data_f32));
 	}*/
-	DEBUG_IF(Renderer_WithSoftware) {
+	if(DEBUG_Renderer_WithSoftware) {
 		LoadedBitmap dstBuffer = {};
 		dstBuffer.height = bitmap.height;
 		dstBuffer.width = bitmap.width;
@@ -1521,6 +1521,14 @@ int CALLBACK WinMain(
 		Win32ReloadGameCode(gameCode);
 #if INTERNAL_BUILD
 		debugGlobalState = gameCode.DebugInit(programMemory);
+		{
+			DebugId id = DebugId{ &vsync + __COUNTER__, 0 };
+			DEBUG_DATA_BLOCK("Renderer", id);
+			DEBUG_DATA(bool, DEBUG_Renderer_WithSoftware);
+			DEBUG_DATA(bool, DEBUG_Renderer_DifferentResolution);
+			DEBUG_DATA(f32, DEBUG_Renderer_ResolutionWidth);
+			DEBUG_DATA(f32, DEBUG_Renderer_ResolutionHeight);
+		}
 #endif
 
 		TIMED_BLOCK_BEGIN(InputProcessing);
