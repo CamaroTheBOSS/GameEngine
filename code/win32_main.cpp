@@ -1044,7 +1044,7 @@ void Win32RenderCommands(RenderCommandBuffer* renderCommands, BitmapData& bitmap
 			&globalBitmapInfo,
 			DIB_RGB_COLORS, SRCCOPY
 		);
-		TIMED_BLOCK_END(DisplayWindow)
+		TIMED_BLOCK_END()
 	}
 	else {
 		OpenGLRenderCommandsToBuffer(renderCommands, 
@@ -1052,7 +1052,7 @@ void Win32RenderCommands(RenderCommandBuffer* renderCommands, BitmapData& bitmap
 			bitmap.width, bitmap.height, globalOpenGLInfo);
 		TIMED_BLOCK_BEGIN(GLSwapBuffers)
 		SwapBuffers(deviceContext);
-		TIMED_BLOCK_END(GLSwapBuffers)
+		TIMED_BLOCK_END()
 	}
 	ResetRenderCommands(renderCommands);
 }
@@ -1539,13 +1539,13 @@ int CALLBACK WinMain(
 
 		inputData.dtFrame = targetFrameRefreshSeconds;
 		programMemory.executableReloaded = gameCode.reloaded;
-		TIMED_BLOCK_END(InputProcessing);
+		TIMED_BLOCK_END();
 		TIMED_BLOCK_BEGIN(GameMainLoop);
 		// PART: Game main loop
 		u32 renderWidth = globalBitmap.width;
 		u32 renderHeight = globalBitmap.height;
 		gameCode.GameMainLoopFrame(programMemory, &renderCommands, inputData, renderWidth, renderHeight);
-		TIMED_BLOCK_END(GameMainLoop);
+		TIMED_BLOCK_END();
 #if INTERNAL_BUILD
 		gameCode.DebugFinishFrame(programMemory, &renderCommands, inputData, renderWidth, renderHeight);
 #endif
@@ -1582,7 +1582,7 @@ int CALLBACK WinMain(
 			_com_error err(hr);
 			LPCTSTR errMsg = err.ErrorMessage();
 		}
-		TIMED_BLOCK_END(GatherAndRenderSound);
+		TIMED_BLOCK_END();
 	}
 	return 0;
 }

@@ -1274,7 +1274,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		playerControls.acceleration -= 10.0f * entity->vel;
 	}
-	TIMED_BLOCK_END(BeginSimAndInputProc);
+	TIMED_BLOCK_END();
 	TIMED_BLOCK_BEGIN(GroundChunks);
 	// TODO: Think about size of the main render group
 	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
@@ -1350,7 +1350,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 #endif
-	TIMED_BLOCK_END(GroundChunks);
+	TIMED_BLOCK_END();
 	TIMED_BLOCK_BEGIN(UpdateEntities);
 	PushRectBorders(renderGroup, DefaultUprightTransform(), V3{ 0.f, 0.f, 0.f }, GetDim(playerView), V4{ 1, 1, 0, 1 }, 0.4f);
 	PushRectBorders(renderGroup, DefaultUprightTransform(), V3{ 0.f, 0.f, 0.f }, GetDim(simBounds).XY, V4{ 1, 0, 0, 1 }, 0.4f);
@@ -1460,53 +1460,53 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		if (IsFlagSet(*entity, EntityFlag_Movable) && !IsFlagSet(*entity, EntityFlag_NonSpatial)) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);
 		}
-		if (DEBUG_UI_ENABLED) {
-			DebugId dId = DEBUG_POINTER_ID(state->world.storageEntities + entity->storageIndex, entity->storageIndex);
-			Controller& controller = input.controllers[KB_CONTROLLER_IDX];
-			EntityBasis basis = {};
-			basis.center = controller.mouse / renderGroup.projection.metersToPixels;
-			basis.size = V2{ 200.0f, 200.0f };
-			for (u32 volumeIndex = 0; volumeIndex < entity->collision->volumeCount; volumeIndex++) {
-				CollisionVolume* volume = entity->collision->volumes + volumeIndex;
-				V3 center = groundLevelPos + volume->offsetPos;
-				Rect2 volumeRect = GetRectFromCenterDim(center.XY, volume->size.XY);
-				f32 distanceZ = groundLevelPos.Z + volume->offsetPos.Z;
-				V2 unprojected = FromPixelSpaceToWorldSpace(renderGroup.projection, controller.mouse, distanceZ);
-				V3 mousePos = ToV3(unprojected, distanceZ);
 
-				V4 color = V4{ 1, 0, 1, layerAlpha };
-				if (IsInRectangle(volumeRect, mousePos.XY)) {
-					DEBUG_HIT(dId, volumeRect);
-				}
-				if (DEBUG_HIGHLIGHTED(dId, &color)) {
-					PushRectBorders(renderGroup, DefaultUprightTransform(), center, volume->size.XY, color, 0.05f);
-				}
+#if INTERNAL_BUILD
+		DebugId dId = DEBUG_POINTER_ID(state->world.storageEntities + entity->storageIndex, entity->storageIndex);
+		Controller& controller = input.controllers[KB_CONTROLLER_IDX];
+		EntityBasis basis = {};
+		basis.center = controller.mouse / renderGroup.projection.metersToPixels;
+		basis.size = V2{ 200.0f, 200.0f };
+		for (u32 volumeIndex = 0; volumeIndex < entity->collision->volumeCount; volumeIndex++) {
+			CollisionVolume* volume = entity->collision->volumes + volumeIndex;
+			V3 center = groundLevelPos + volume->offsetPos;
+			Rect2 volumeRect = GetRectFromCenterDim(center.XY, volume->size.XY);
+			f32 distanceZ = groundLevelPos.Z + volume->offsetPos.Z;
+			V2 unprojected = FromPixelSpaceToWorldSpace(renderGroup.projection, controller.mouse, distanceZ);
+			V3 mousePos = ToV3(unprojected, distanceZ);
+
+			V4 color = V4{ 1, 0, 1, layerAlpha };
+			if (IsInRectangle(volumeRect, mousePos.XY)) {
+				DEBUG_HIT(dId, volumeRect);
+			}
+			if (DEBUG_HIGHLIGHTED(dId, &color)) {
+				PushRectBorders(renderGroup, DefaultUprightTransform(), center, volume->size.XY, color, 0.05f);
+			}
 #if 0
-				PushRect(renderGroup, mousePos, V2{ 1.f, 1.f }, V2{ 0, 0 }, V4{ 1, 0, 0, 1 });
+			PushRect(renderGroup, mousePos, V2{ 1.f, 1.f }, V2{ 0, 0 }, V4{ 1, 0, 0, 1 });
 #endif
-			}
-			if (DEBUG_DATA_BLOCK_REQUESTED(dId)) {
-				DEBUG_BEGIN_DATA_BLOCK(Simulation_Entity, dId);
-				DEBUG_DATA(u32, entity->flags);
-				//DEBUG_DATA(hotEntity->collision);
-				DEBUG_DATA(f32, entity->distanceRemaining);
-				DEBUG_DATA(f32, entity->faceDir);
-				DEBUG_DATA(u32, entity->highEntityIndex);
-				//DEBUG_DATA(hotEntity->hitPoints);
-				DEBUG_DATA(V3, entity->pos);
-				DEBUG_DATA(u32, entity->storageIndex);
-				//DEBUG_DATA(hotEntity->sword);
-				DEBUG_DATA(f32, entity->timeRemaining);
-				DEBUG_DATA(u32, entity->type);
-				DEBUG_DATA(V3, entity->vel);
-				DEBUG_DATA(V3, entity->walkableDim);
-				//DEBUG_DATA(hotEntity->worldPos);
-				DEBUG_END_DATA_BLOCK;
-			}
+		}
+		if (DEBUG_DATA_BLOCK_REQUESTED(dId)) {
+			DEBUG_BEGIN_DATA_BLOCK(Simulation_Entity, dId);
+			DEBUG_DATA(u32, entity->flags);
+			//DEBUG_DATA(hotEntity->collision);
+			DEBUG_DATA(f32, entity->distanceRemaining);
+			DEBUG_DATA(f32, entity->faceDir);
+			DEBUG_DATA(u32, entity->highEntityIndex);
+			//DEBUG_DATA(hotEntity->hitPoints);
+			DEBUG_DATA(V3, entity->pos);
+			DEBUG_DATA(u32, entity->storageIndex);
+			//DEBUG_DATA(hotEntity->sword);
+			DEBUG_DATA(f32, entity->timeRemaining);
+			DEBUG_DATA(u32, entity->type);
+			DEBUG_DATA(V3, entity->vel);
+			DEBUG_DATA(V3, entity->walkableDim);
+			//DEBUG_DATA(hotEntity->worldPos);
+			DEBUG_END_DATA_BLOCK;
 		}
 	}
-
-	TIMED_BLOCK_END(UpdateEntities);
+#endif
+	TIMED_BLOCK_END();
 #if 0
 	EnvironmentMap* maps[3] = {
 		&tranState->topEnvMap,

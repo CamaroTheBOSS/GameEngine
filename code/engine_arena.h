@@ -122,14 +122,14 @@ void CheckArena(MemoryArena& arena) {
 
 #define ZeroStruct(obj) ZeroSize_(ptrcast(u8, &obj), sizeof(obj))
 #define PushStructSize(arena, type, ...) ptrcast(type, PushSize_(arena, sizeof(type), ##__VA_ARGS__)); \
-	RecordMemoryDebugEvent(Event_MemoryArenaUpdate, arena)
+	{ RecordMemoryDebugEvent(Event_MemoryArenaUpdate, arena) }
 #define PushSize(arena, size, ...) PushSize_(arena, size, ##__VA_ARGS__); \
-	RecordMemoryDebugEvent(Event_MemoryArenaUpdate, arena)
+	{ RecordMemoryDebugEvent(Event_MemoryArenaUpdate, arena) }
 #define PushArray(arena, length, type, ...) ptrcast(type, PushSize_(arena, (length) * sizeof(type), ##__VA_ARGS__)); \
-	RecordMemoryDebugEvent(Event_MemoryArenaUpdate, arena)
+	{ RecordMemoryDebugEvent(Event_MemoryArenaUpdate, arena) }
 #define PushString(arena, string, size, ...) ptrcast(char, CopySize(ptrcast(const u8,string), PushSize_(arena, (size) * sizeof(char), ##__VA_ARGS__), size)); \
-	RecordMemoryDebugEvent(Event_MemoryArenaUpdate, arena)
+	{ RecordMemoryDebugEvent(Event_MemoryArenaUpdate, arena) }
 #define InitializeArena(arena, data, capacity) InitializeArena_(arena, data, capacity); \
-	RecordMemoryDebugEvent(Event_MemoryArenaInitialize, arena)
+	{ RecordMemoryDebugEvent(Event_MemoryArenaInitialize, arena) }
 #define SubArena(subarena, arena, capacity) SubArena_(subarena, arena, capacity); \
-	RecordSubArenaDebugEvent(subarena, arena)
+	{ RecordSubArenaDebugEvent(subarena, arena) }
