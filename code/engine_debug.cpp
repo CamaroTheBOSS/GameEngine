@@ -654,7 +654,8 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariable);
 		result->GUID = event->GUID;
-		result->name = PushString(state->mainArena, event->GUID, StringLength(event->GUID) + 1);
+		result->nameLength = StringLength(event->GUID);
+		result->name = PushString(state->mainArena, event->GUID, result->nameLength);
 		result->nextInHash = state->variableHash[hashSlot];
 		result->oldestEvent = storedEvent;
 		result->newestEvent = storedEvent;
@@ -1431,12 +1432,6 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
 				if (IsInRectangle(bb, mousePos)) {
-					{
-						//PRINTDEBUGGING
-						char _buffer[256];
-						sprintf_s(_buffer, 256, "Setting NextHotInteraction link for: %s", isGroup ? node->group->name : node->variable->name);
-						DebugRenderLine(state, _buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-					}
 					state->nextHotInteraction = InteractionWithLink(bb, tree, isGroup ? node->group->containingLink : node);
 				}
 				V4 bbColor = V4{ 0.5f, 0, 0, 1 };

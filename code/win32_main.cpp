@@ -1522,8 +1522,7 @@ int CALLBACK WinMain(
 #if INTERNAL_BUILD
 		debugGlobalState = gameCode.DebugInit(programMemory);
 		{
-			DebugId id = DebugId{ &vsync + __COUNTER__, 0 };
-			DEBUG_DATA_BLOCK("Renderer", id);
+			DEBUG_DATA_BLOCK("Renderer");
 			DEBUG_DATA(bool, DEBUG_Renderer_WithSoftware);
 			DEBUG_DATA(bool, DEBUG_Renderer_DifferentResolution);
 			DEBUG_DATA(f32, DEBUG_Renderer_ResolutionWidth);

@@ -989,13 +989,13 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TIMED_FUNCTION;
 #if defined(INTERNAL_BUILD)
 	debugGlobalMemory = &memory;
-	{DEBUG_DATA_BLOCK("Debug", DEBUG_POINTER_ID(debugGlobalMemory + 0, 0));
+	{DEBUG_DATA_BLOCK("Debug");
 		DEBUG_DATA(bool, DEBUG_Debug_ShowEventsCount);
 		DEBUG_DATA(bool, DEBUG_Debug_ShowInteractions);}
-	{DEBUG_DATA_BLOCK("Camera", DEBUG_POINTER_ID(debugGlobalMemory + 2131, 0));
+	{DEBUG_DATA_BLOCK("Camera");
 		DEBUG_DATA(bool, DEBUG_Camera_Zoomout);
 		DEBUG_DATA(f32, DEBUG_Camera_ZoomoutValue);}
-	{DEBUG_DATA_BLOCK("Profiler", DEBUG_POINTER_ID(debugGlobalMemory + 432423423, 0));
+	{DEBUG_DATA_BLOCK("Profiler");
 		DEBUG_DATA(bool, DEBUG_Profiler_Memory);
 		DEBUG_DATA(bool, DEBUG_Profiler_Cpu);
 		DEBUG_DATA(bool, DEBUG_Profiler_CpuSpansList);
@@ -1498,7 +1498,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #endif
 		}
 		if (DEBUG_DATA_BLOCK_REQUESTED(dId)) {
-			DEBUG_DATA_BLOCK("Simulation/Entity", dId);
+			DEBUG_DATA_BLOCK("Simulation/Entity");
 			DEBUG_DATA(u32, entity->flags);
 			//DEBUG_DATA(hotEntity->collision);
 			DEBUG_DATA(f32, entity->distanceRemaining);

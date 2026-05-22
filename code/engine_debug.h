@@ -87,6 +87,7 @@ struct DebugStoredEvent {
 struct DebugVariable {
 	const char* GUID;
 	const char* name;
+	u32 nameLength;
 	bool permanent;
 
 	DebugVariable* nextInHash;
@@ -184,12 +185,11 @@ inline void DEBUG_HIT(DebugId did, Rect2 boundingBox);
 inline bool DEBUG_HIGHLIGHTED(DebugId did, V4* color);
 inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
 
-#define DEBUG_DATA_BLOCK__(line, Name, debugid) DataBlock block##line(__FILE__, Name, __LINE__, debugid)
-#define DEBUG_DATA_BLOCK_(line, Name, debugid) DEBUG_DATA_BLOCK__(line, Name, debugid)
-#define DEBUG_DATA_BLOCK(Name, debugid) DEBUG_DATA_BLOCK_(__LINE__, Name, debugid)
-#define DEBUG_BEGIN_DATA_BLOCK(Name, debugid, file, line) { \
-	RecordDebugEvent(Event_Data_BlockBegin, file, Name, line) \
-	event12345->data_DebugId = debugid; }
+#define DEBUG_DATA_BLOCK__(line, Name) DataBlock block##line(__FILE__, Name, __LINE__)
+#define DEBUG_DATA_BLOCK_(line, Name) DEBUG_DATA_BLOCK__(line, Name)
+#define DEBUG_DATA_BLOCK(Name) DEBUG_DATA_BLOCK_(__LINE__, Name)
+#define DEBUG_BEGIN_DATA_BLOCK(Name, file, line) { \
+	RecordDebugEvent(Event_Data_BlockBegin, file, Name, line) }
 #define DEBUG_END_DATA_BLOCK { \
 	RecordDebugEvent(Event_Data_BlockEnd, __FILE__, "DataEndBlock", __LINE__) }
 #define DEBUG_DATA(type, data) { \
@@ -244,8 +244,8 @@ struct TimedBlock {
 };
 
 struct DataBlock {
-	DataBlock(const char* file, const char* blockName, u16 line, DebugId debugid) {
-		DEBUG_BEGIN_DATA_BLOCK(blockName, debugid, file, line);
+	DataBlock(const char* file, const char* blockName, u16 line) {
+		DEBUG_BEGIN_DATA_BLOCK(blockName, file, line);
 	}
 
 	~DataBlock() {
