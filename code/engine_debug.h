@@ -35,7 +35,6 @@ enum DebugEventType : u8 {
 	Event_Data_Rect2,
 	Event_Data_Rect3,
 	
-	Event_PermanentVariableDeclaration,
 	Event_MemoryArenaInitialize,
 	Event_MemoryArenaUpdate,
 	Event_Count,

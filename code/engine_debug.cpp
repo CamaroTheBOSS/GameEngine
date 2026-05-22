@@ -930,10 +930,6 @@ void DebugCollateEvents(DebugState* state) {
 		case Event_Data_BlockEnd: {
 			PopFromEventStack(state, &stack->dataEvents);
 		} break;
-		case Event_PermanentVariableDeclaration: {
-			DebugVariableGroup* group = GetGroupForHierachicalName(state, &state->UISentinel.next->rootGroup, event->blockName);
-			DebugStoredEvent* storedEvent = StoreEvent(state, group, event, newFrame->frameIndex, true);
-		} break;
 		case Event_MemoryArenaInitialize: {
 			DebugArenaView* newArenaView = PushStructSize(state->mainArena, DebugArenaView);
 			newArenaView->event = StoreEvent(state, 0, event, newFrame->frameIndex, true);
@@ -1042,11 +1038,6 @@ u64 DebugEventToText(DebugEvent* event, char* buffer, u64 size, u32 flags) {
 	} break;
 	case Event_Data_BlockBegin: {
 		at += sprintf_s(at, end - at, "%s%s", event->blockName, colon);
-	} break;
-	case Event_PermanentVariableDeclaration: {
-		u32 newFlags = flags;
-		newFlags &= ~(DebugVarToText_ConfigPrefix | DebugVarToText_AddNewLine);
-		at += DebugEventToText(event->data_DebugEvent, at, u4(end - at), newFlags);
 	} break;
 	default: {
 		at += sprintf_s(at, end - at, "Unknown: %s", event->blockName);
@@ -1520,9 +1511,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 			else {
 				DebugEvent* event = &state->nextHotInteraction.linkInTree.link->variable->newestEvent->event;
-				if (event->type == Event_PermanentVariableDeclaration) {
-					event = event->data_DebugEvent;
-				}
 				switch (event->type) {
 				case Event_Data_bool: {
 					if (WasPressed(controller.B.mouseLeft)) {
@@ -1688,9 +1676,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 			else {
 				DebugEvent* event = &state->interaction.linkInTree.link->variable->newestEvent->event;
-				if (event->type == Event_PermanentVariableDeclaration) {
-					event = event->data_DebugEvent;
-				}
 				boolean = &event->data_bool;
 			}
 			if (boolean) {
