@@ -656,8 +656,8 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 		result->GUID = event->GUID;
 		result->name = PushString(state->mainArena, event->GUID, StringLength(event->GUID) + 1);
 		result->nextInHash = state->variableHash[hashSlot];
-		result->oldestEvent = 0;
-		result->newestEvent = 0;
+		result->oldestEvent = storedEvent;
+		result->newestEvent = storedEvent;
 		state->variableHash[hashSlot] = result;
 		if (group) {
 			AddVariableToGroup(state, group, result);
@@ -984,6 +984,7 @@ void DebugCollateEvents(DebugState* state) {
 			// exponential growth of events incoming to the debug system until the memory is drained
 			// StoreEvent(state, 0, event, newFrame->frameIndex);
 		} break;
+		case Event_Data_bool:
 		case Event_Data_u32:
 		case Event_Data_i32:
 		case Event_Data_f32:
@@ -1730,10 +1731,17 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		interactionEnded = true;
 	} break;
 	}
+	if (state->interaction.obj == DebugInteractionObject::LinkInTree) {
+		DebugVariable* var = state->interaction.linkInTree.link->variable;
+		if (var) {
+			debugGlobalState->swapEvent = var->newestEvent->event;
+		}
+	}
 	if (interactionEnded) {
 		state->interaction = {};
 		state->interacting = false;
 	}
+	
 	state->nextHotInteraction = {};
 }
 

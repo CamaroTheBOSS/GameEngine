@@ -103,6 +103,7 @@ struct PermanentDebugVariable {
 
 struct DebugGlobalState {
 	DebugEvent events[2][MAX_DEBUG_EVENTS];
+	DebugEvent swapEvent;
 	u32 eventsCount[2];
 	u64 frameStartCycles[2];
 	u64 frameEndCycles[2];
@@ -194,6 +195,10 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
 	RecordDebugEvent(Event_Data_BlockEnd, __FILE__, "DataEndBlock", __LINE__) }
 #define DEBUG_DATA(type, data) { \
 	RecordDebugEvent(Event_Data_##type, __FILE__, #data, __LINE__); \
+	if(debugGlobalState->swapEvent.GUID == event12345->GUID){ \
+		data = debugGlobalState->swapEvent.data_##type; \
+		debugGlobalState->swapEvent.GUID = 0;\
+	}\
 	event12345->data_##type = data; }
 
 #define RecordMemoryDebugEvent(type, arenaArg) \

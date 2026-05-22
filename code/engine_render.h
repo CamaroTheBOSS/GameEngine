@@ -102,14 +102,14 @@ struct RenderGroup {
 /*                Renderer API                  */
 inline bool PushClearCall(RenderGroup& group, V4 color = V4{ 1, 1, 1, 1 });
 inline bool PushBitmap(RenderGroup& group, LoadedBitmap* bitmap, ObjectTransform transform, V3 center,
-	V4 color = V4{ 1, 1, 1, 1 });
+	V4 color = V4{ 1, 1, 1, 1 }, f32 sortBias = 0.f);
 inline bool PushBitmap(RenderGroup& group, ObjectTransform transform, BitmapId bid, V3 center,
-	V4 color = V4{ 1, 1, 1, 1 });
+	V4 color = V4{ 1, 1, 1, 1 }, f32 sortBias = 0.f);
 inline bool PushRect(RenderGroup& group, ObjectTransform transform, V3 center, V2 size,
-	V4 color = V4{ 1, 1, 1, 1 });
-inline bool PushRect(RenderGroup& group, ObjectTransform transform, Rect2 rectangle, f32 Z, V4 color);
-inline bool PushRectBorders(RenderGroup& group, ObjectTransform transform, V3 center, V2 size, V4 color, f32 thickness);
-inline bool PushRectOutlineInside(RenderGroup& group, ObjectTransform transform, Rect2 rect, f32 Z, V4 color, f32 thickness);
+	V4 color = V4{ 1, 1, 1, 1 }, f32 sortBias = 0.f);
+inline bool PushRect(RenderGroup& group, ObjectTransform transform, Rect2 rectangle, f32 Z, V4 color, f32 sortBias = 0.f);
+inline bool PushRectBorders(RenderGroup& group, ObjectTransform transform, V3 center, V2 size, V4 color, f32 thickness, f32 sortBias = 0.f);
+inline bool PushRectOutlineInside(RenderGroup& group, ObjectTransform transform, Rect2 rect, f32 Z, V4 color, f32 thickness, f32 sortBias = 0.f);
 
 struct RenderCommandBuffer;
 inline RenderGroup BeginRendering(RenderCommandBuffer* commands, Assets* assets, bool renderInBackground = false);

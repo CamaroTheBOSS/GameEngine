@@ -989,18 +989,19 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	TIMED_FUNCTION;
 #if defined(INTERNAL_BUILD)
 	debugGlobalMemory = &memory;
-	{DEBUG_DATA_BLOCK("Debug", DEBUG_POINTER_ID(debugGlobalMemory + __COUNTER__, 0));
+	{DEBUG_DATA_BLOCK("Debug", DEBUG_POINTER_ID(debugGlobalMemory + 0, 0));
 		DEBUG_DATA(bool, DEBUG_Debug_ShowEventsCount);
 		DEBUG_DATA(bool, DEBUG_Debug_ShowInteractions);}
-	{DEBUG_DATA_BLOCK("Camera", DEBUG_POINTER_ID(debugGlobalMemory + __COUNTER__, 0));
+	{DEBUG_DATA_BLOCK("Camera", DEBUG_POINTER_ID(debugGlobalMemory + 2131, 0));
 		DEBUG_DATA(bool, DEBUG_Camera_Zoomout);
 		DEBUG_DATA(f32, DEBUG_Camera_ZoomoutValue);}
-	{DEBUG_DATA_BLOCK("Profiler", DEBUG_POINTER_ID(debugGlobalMemory + __COUNTER__, 0));
+	{DEBUG_DATA_BLOCK("Profiler", DEBUG_POINTER_ID(debugGlobalMemory + 432423423, 0));
 		DEBUG_DATA(bool, DEBUG_Profiler_Memory);
 		DEBUG_DATA(bool, DEBUG_Profiler_Cpu);
 		DEBUG_DATA(bool, DEBUG_Profiler_CpuSpansList);
 		DEBUG_DATA(bool, DEBUG_Profiler_Pause);}
 #endif
+
 	Platform = &memory.platformAPI;
 	ProgramState* state = ptrcast(ProgramState, memory.permanentMemory);
 	World& world = state->world;
@@ -1490,7 +1491,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 				DEBUG_HIT(dId, volumeRect);
 			}
 			if (DEBUG_HIGHLIGHTED(dId, &color)) {
-				PushRectBorders(renderGroup, DefaultUprightTransform(), center, volume->size.XY, color, 0.05f);
+				PushRectBorders(renderGroup, DefaultUprightTransform(), center, volume->size.XY, color, 0.05f, 1000.f);
 			}
 #if 0
 			PushRect(renderGroup, mousePos, V2{ 1.f, 1.f }, V2{ 0, 0 }, V4{ 1, 0, 0, 1 });
@@ -1508,7 +1509,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			DEBUG_DATA(u32, entity->storageIndex);
 			//DEBUG_DATA(hotEntity->sword);
 			DEBUG_DATA(f32, entity->timeRemaining);
-			DEBUG_DATA(u32, entity->type);
+			DEBUG_DATA(u32, *(u32*)&entity->type);
 			DEBUG_DATA(V3, entity->vel);
 			DEBUG_DATA(V3, entity->walkableDim);
 			//DEBUG_DATA(hotEntity->worldPos);
