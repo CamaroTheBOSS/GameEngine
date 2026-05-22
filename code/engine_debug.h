@@ -143,17 +143,17 @@ struct DebugThreadStack {
 #define UniqueGUID(name) UniqueGUID_(name, __FILE__, __LINE__, __COUNTER__)
 #define DEBUG_NAME(name) UniqueGUID(name)
 #define RecordDebugEvent(eventtype, InputGUID) \
-	u64 frameAndEventIndex12345 = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);\
-	u32 frameIndex12345 = frameAndEventIndex12345 >> 32;\
-	u32 eventIndex12345 = frameAndEventIndex12345 & U32_MAX;\
-	Assert(eventIndex12345 < MAX_DEBUG_EVENTS);\
-	DebugEvent* event12345 = debugGlobalState->events[frameIndex12345] + eventIndex12345;\
+	u64 frameAndEventIndex_ = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);\
+	u32 frameIndex_ = frameAndEventIndex_ >> 32;\
+	u32 eventIndex_ = frameAndEventIndex_ & U32_MAX;\
+	Assert(eventIndex_ < MAX_DEBUG_EVENTS);\
+	DebugEvent* event_ = debugGlobalState->events[frameIndex_] + eventIndex_;\
 	u32 coreId;\
-	event12345->cycles = __rdtscp(&coreId);\
-	event12345->coreId = u8(coreId);\
-	event12345->type = eventtype;\
-	event12345->GUID = InputGUID; \
-	event12345->threadId = u2(GetFastThreadId());
+	event_->cycles = __rdtscp(&coreId);\
+	event_->coreId = u8(coreId);\
+	event_->type = eventtype;\
+	event_->GUID = InputGUID; \
+	event_->threadId = u2(GetFastThreadId());
 
 #if INTERNAL_BUILD
 #define TIMED_FUNCTION__(line, GUID) TimedBlock block##line(GUID)
@@ -183,11 +183,11 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
 #define DEBUG_DATA_BLOCK_DISPATCH_DEF(type) \
 	void DEBUG_DATA_BLOCK_DISPATCH(type& data, const char* GUID) { \
 		RecordDebugEvent(Event_Data_##type, GUID); \
-		if(debugGlobalState->swapEvent.GUID == event12345->GUID){ \
+		if(debugGlobalState->swapEvent.GUID == event_->GUID){ \
 			data = debugGlobalState->swapEvent.data_##type; \
 			debugGlobalState->swapEvent.GUID = 0;\
 		}\
-		event12345->data_##type = data;	\
+		event_->data_##type = data;	\
 	}
 DEBUG_DATA_BLOCK_DISPATCH_DEF(bool);
 DEBUG_DATA_BLOCK_DISPATCH_DEF(f32);
@@ -210,15 +210,15 @@ DEBUG_DATA_BLOCK_DISPATCH_DEF(Rect3);
 
 #define RecordMemoryDebugEvent(type, arenaArg) \
 	RecordDebugEvent(type, DEBUG_NAME(#arenaArg)) \
-	event12345->GUID = ptrcast(const char, &(arenaArg)); \
-	event12345->data_MemoryArenaSnapshot.arena = arenaArg; \
-	event12345->data_MemoryArenaSnapshot.parent = 0;
+	event_->GUID = ptrcast(const char, &(arenaArg)); \
+	event_->data_MemoryArenaSnapshot.arena = arenaArg; \
+	event_->data_MemoryArenaSnapshot.parent = 0;
 #define RecordSubArenaDebugEvent(subarenaArg, arenaArg) { \
 	RecordMemoryDebugEvent(Event_MemoryArenaInitialize, subarenaArg) \
-	event12345->data_MemoryArenaSnapshot.parent = &(arenaArg); }
+	event_->data_MemoryArenaSnapshot.parent = &(arenaArg); }
 #define RecordAssetMemoryBlockEvent(block) { \
 	RecordDebugEvent(Event_AssetMemoryBlock, DEBUG_NAME("AssetMemoryBlock")) \
-	event12345->data_AssetMemoryBlock = *(block); }
+	event_->data_AssetMemoryBlock = *(block); }
 
 #else
 #define TIMED_FUNCTION
