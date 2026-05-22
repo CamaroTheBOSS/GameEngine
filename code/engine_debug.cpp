@@ -847,9 +847,9 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 }
 
 internal
-DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableGroup* group, const char* name) {
+DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableGroup* group, const char* GUID) {
 	const char* firstUnderscore = 0;
-	const char* at = name;
+	const char* at = GUID;
 	while (*at != 0) {
 		if (*at == '/') {
 			firstUnderscore = at;
@@ -863,9 +863,9 @@ DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableG
 	}
 	DebugVariableGroup* result = group;
 	if (firstUnderscore) {
-		u32 descentGroupNameLength = u4(firstUnderscore - name);
-		DebugVariableGroup* descentGroup = GetOrCreateVariableGroup(state, group, name, descentGroupNameLength);
-		result = GetGroupForHierachicalName(state, descentGroup, name + descentGroupNameLength + 1);
+		u32 descentGroupNameLength = u4(firstUnderscore - GUID);
+		DebugVariableGroup* descentGroup = GetOrCreateVariableGroup(state, group, GUID, descentGroupNameLength);
+		result = GetGroupForHierachicalName(state, descentGroup, GUID + descentGroupNameLength + 1);
 	}
 	return result;
 }
@@ -907,9 +907,9 @@ void DebugCollateEvents(DebugState* state) {
 					span->minT = minT;
 					span->maxT = maxT;
 					span->thread = stack->laneId;
-					span->name = openEvent->blockName;
+					span->name = "TODO";//openEvent->blockName;
 					if (parentBlock) {
-						span->parentName = parentBlock->event.blockName;
+						span->parentName = "TODO"; //parentBlock->event.blockName;
 						Assert(parentBlock->childSpans.count < ArrayCount(parentBlock->childSpans.children));
 						parentBlock->childSpans.children[parentBlock->childSpans.count++] = span;
 					}
@@ -923,9 +923,10 @@ void DebugCollateEvents(DebugState* state) {
 		} break;
 		case Event_Data_BlockBegin: {
 			OpenDebugEvent* block = PushToEventStack(state, &stack->dataEvents, event);
+			//DebugStoredEvent* storedEvent = StoreEvent(state, block->group, event, frameIndex, true);
 			block->group = GetGroupForHierachicalName(state, 
 				block->group ? block->group : &state->UISentinel.next->rootGroup,
-				event->blockName
+				event->GUID
 			);
 		} break;
 		case Event_Data_BlockEnd: {
@@ -936,7 +937,7 @@ void DebugCollateEvents(DebugState* state) {
 			newArenaView->event = StoreEvent(state, 0, event, newFrame->frameIndex, true);
 			newArenaView->firstChild = 0;
 			newArenaView->next = 0;
-			newArenaView->name = event->blockName;
+			newArenaView->name = "TODO";//TODO TO BE RESOLVED event->blockName;
 			newArenaView->GUID = event->GUID;
 			MemoryArenaSnapshot* snapshot = &event->data_MemoryArenaSnapshot;
 			MemoryArena* parentArena = snapshot->parent;
@@ -1001,51 +1002,53 @@ enum DebugVarToTextFlags {
 	DebugVarToText_AddColon = 0x8,
 };
 
-u64 DebugEventToText(DebugEvent* event, char* buffer, u64 size, u32 flags) {
+u64 DebugVariableToText(DebugVariable* variable, char* buffer, u64 size, u32 flags) {
 	char* at = buffer;
 	char* end = buffer + size;
-	if (flags & DebugVarToText_ConfigPrefix) {
-		at += sprintf_s(at, end - at, "#define CONSTANT_");
-	}
-	const char* colon = (flags & DebugVarToText_AddColon) ? ":" : "";
-
-	switch (event->type) {
-	case Event_Data_bool: {
-		at += sprintf_s(at, end - at, "%s%s %d", event->blockName, colon, event->data_bool);
-	} break;
-	case Event_Data_i32: {
-		at += sprintf_s(at, end - at, "%s%s %d", event->blockName, colon, event->data_i32);
-	} break;
-	case Event_Data_u32: {
-		at += sprintf_s(at, end - at, "%s%s %d", event->blockName, colon, event->data_u32);
-	} break;
-	case Event_Data_f32: {
-		at += sprintf_s(at, end - at, "%s%s %f", event->blockName, colon, event->data_f32);
-		if (flags & DebugVarToText_AddFloatSuffix && (end - at) > 0) {
-			*at++ = 'f';
+	if (variable->newestEvent) {
+		DebugEvent* event = &variable->newestEvent->event;
+		if (flags & DebugVarToText_ConfigPrefix) {
+			at += sprintf_s(at, end - at, "#define CONSTANT_");
 		}
-	} break;
-	case Event_Data_V2: {
-		at += sprintf_s(at, end - at, "%s%s {%f, %f}", event->blockName, colon,
-			event->data_V2.X, event->data_V2.Y);
-	} break;
-	case Event_Data_V3: {
-		at += sprintf_s(at, end - at, "%s%s {%f, %f, %f}", event->blockName, colon,
-			event->data_V3.X, event->data_V3.Y, event->data_V3.Z);
-	} break;
-	case Event_Data_V4: {
-		at += sprintf_s(at, end - at, "%s%s {%f, %f, %f, %f}", event->blockName, colon,
-			event->data_V4.X, event->data_V4.Y, event->data_V4.Z, event->data_V4.W);
-	} break;
-	case Event_Data_BlockBegin: {
-		at += sprintf_s(at, end - at, "%s%s", event->blockName, colon);
-	} break;
-	default: {
-		at += sprintf_s(at, end - at, "Unknown: %s", event->blockName);
-	} break;
-	}
-	if (flags & DebugVarToText_AddNewLine && (end - at) > 0) {
-		*at++ = '\n';
+		const char* colon = (flags & DebugVarToText_AddColon) ? ":" : "";
+		switch (event->type) {
+		case Event_Data_bool: {
+			at += sprintf_s(at, end - at, "%.*s%s %d", variable->nameLength, variable->name, colon, event->data_bool);
+		} break;
+		case Event_Data_i32: {
+			at += sprintf_s(at, end - at, "%.*s%s %d", variable->nameLength, variable->name, colon, event->data_i32);
+		} break;
+		case Event_Data_u32: {
+			at += sprintf_s(at, end - at, "%.*s%s %d", variable->nameLength, variable->name, colon, event->data_u32);
+		} break;
+		case Event_Data_f32: {
+			at += sprintf_s(at, end - at, "%.*s%s %f", variable->nameLength, variable->name, colon, event->data_f32);
+			if (flags & DebugVarToText_AddFloatSuffix && (end - at) > 0) {
+				*at++ = 'f';
+			}
+		} break;
+		case Event_Data_V2: {
+			at += sprintf_s(at, end - at, "%.*s%s {%f, %f}", variable->nameLength, variable->name, colon,
+				event->data_V2.X, event->data_V2.Y);
+		} break;
+		case Event_Data_V3: {
+			at += sprintf_s(at, end - at, "%.*s%s {%f, %f, %f}", variable->nameLength, variable->name, colon,
+				event->data_V3.X, event->data_V3.Y, event->data_V3.Z);
+		} break;
+		case Event_Data_V4: {
+			at += sprintf_s(at, end - at, "%.*s%s {%f, %f, %f, %f}", variable->nameLength, variable->name, colon,
+				event->data_V4.X, event->data_V4.Y, event->data_V4.Z, event->data_V4.W);
+		} break;
+		case Event_Data_BlockBegin: {
+			at += sprintf_s(at, end - at, "%.*s%s", variable->nameLength, variable->name, colon);
+		} break;
+		default: {
+			at += sprintf_s(at, end - at, "Unknown: %.*s", variable->nameLength, variable->name);
+		} break;
+		}
+		if (flags & DebugVarToText_AddNewLine && (end - at) > 0) {
+			*at++ = '\n';
+		}
 	}
 	return at - buffer;
 }
@@ -1426,8 +1429,7 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 					at += sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
 				}
 				else {
-					DebugEvent* event = &node->variable->newestEvent->event;
-					DebugEventToText(event, at, u4(end - at), DebugVarToText_AddColon);
+					DebugVariableToText(node->variable, at, u4(end - at), DebugVarToText_AddColon);
 				}
 
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);

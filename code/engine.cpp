@@ -990,16 +990,16 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #if defined(INTERNAL_BUILD)
 	debugGlobalMemory = &memory;
 	{DEBUG_DATA_BLOCK("Debug");
-		DEBUG_DATA(bool, DEBUG_Debug_ShowEventsCount);
-		DEBUG_DATA(bool, DEBUG_Debug_ShowInteractions);}
+		DEBUG_DATA(DEBUG_Debug_ShowEventsCount);
+		DEBUG_DATA(DEBUG_Debug_ShowInteractions);}
 	{DEBUG_DATA_BLOCK("Camera");
-		DEBUG_DATA(bool, DEBUG_Camera_Zoomout);
-		DEBUG_DATA(f32, DEBUG_Camera_ZoomoutValue);}
+		DEBUG_DATA(DEBUG_Camera_Zoomout);
+		DEBUG_DATA(DEBUG_Camera_ZoomoutValue);}
 	{DEBUG_DATA_BLOCK("Profiler");
-		DEBUG_DATA(bool, DEBUG_Profiler_Memory);
-		DEBUG_DATA(bool, DEBUG_Profiler_Cpu);
-		DEBUG_DATA(bool, DEBUG_Profiler_CpuSpansList);
-		DEBUG_DATA(bool, DEBUG_Profiler_Pause);}
+		DEBUG_DATA(DEBUG_Profiler_Memory);
+		DEBUG_DATA(DEBUG_Profiler_Cpu);
+		DEBUG_DATA(DEBUG_Profiler_CpuSpansList);
+		DEBUG_DATA(DEBUG_Profiler_Pause);}
 #endif
 
 	Platform = &memory.platformAPI;
@@ -1286,7 +1286,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		playerControls.acceleration -= 10.0f * entity->vel;
 	}
-	TIMED_BLOCK_END();
+	TIMED_BLOCK_END;
 	TIMED_BLOCK_BEGIN(GroundChunks);
 	// TODO: Think about size of the main render group
 	TemporaryMemory renderMemory = BeginTempMemory(tranState->arena);
@@ -1361,7 +1361,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 	}
 #endif
-	TIMED_BLOCK_END();
+	TIMED_BLOCK_END;
 	TIMED_BLOCK_BEGIN(UpdateEntities);
 	PushRectBorders(renderGroup, DefaultUprightTransform(), V3{ 0.f, 0.f, 0.f }, GetDim(playerView), V4{ 1, 1, 0, 1 }, 0.4f);
 	PushRectBorders(renderGroup, DefaultUprightTransform(), V3{ 0.f, 0.f, 0.f }, GetDim(simBounds).XY, V4{ 1, 0, 0, 1 }, 0.4f);
@@ -1499,24 +1499,24 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 		}
 		if (DEBUG_DATA_BLOCK_REQUESTED(dId)) {
 			DEBUG_DATA_BLOCK("Simulation/Entity");
-			DEBUG_DATA(u32, entity->flags);
+			DEBUG_DATA(entity->flags);
 			//DEBUG_DATA(hotEntity->collision);
-			DEBUG_DATA(f32, entity->distanceRemaining);
-			DEBUG_DATA(f32, entity->faceDir);
-			DEBUG_DATA(u32, entity->highEntityIndex);
+			DEBUG_DATA(entity->distanceRemaining);
+			DEBUG_DATA(entity->faceDir);
+			DEBUG_DATA(entity->highEntityIndex);
 			//DEBUG_DATA(hotEntity->hitPoints);
-			DEBUG_DATA(V3, entity->pos);
-			DEBUG_DATA(u32, entity->storageIndex);
+			DEBUG_DATA(entity->pos);
+			DEBUG_DATA(entity->storageIndex);
 			//DEBUG_DATA(hotEntity->sword);
-			DEBUG_DATA(f32, entity->timeRemaining);
-			DEBUG_DATA(u32, *(u32*)&entity->type);
-			DEBUG_DATA(V3, entity->vel);
-			DEBUG_DATA(V3, entity->walkableDim);
+			DEBUG_DATA(entity->timeRemaining);
+			DEBUG_DATA(*(u32*)&entity->type);
+			DEBUG_DATA(entity->vel);
+			DEBUG_DATA(entity->walkableDim);
 			//DEBUG_DATA(hotEntity->worldPos);
 		}
 	}
 #endif
-	TIMED_BLOCK_END();
+	TIMED_BLOCK_END;
 #if 0
 	EnvironmentMap* maps[3] = {
 		&tranState->topEnvMap,

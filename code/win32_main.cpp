@@ -1044,7 +1044,7 @@ void Win32RenderCommands(RenderCommandBuffer* renderCommands, BitmapData& bitmap
 			&globalBitmapInfo,
 			DIB_RGB_COLORS, SRCCOPY
 		);
-		TIMED_BLOCK_END()
+		TIMED_BLOCK_END
 	}
 	else {
 		OpenGLRenderCommandsToBuffer(renderCommands, 
@@ -1052,7 +1052,7 @@ void Win32RenderCommands(RenderCommandBuffer* renderCommands, BitmapData& bitmap
 			bitmap.width, bitmap.height, globalOpenGLInfo);
 		TIMED_BLOCK_BEGIN(GLSwapBuffers)
 		SwapBuffers(deviceContext);
-		TIMED_BLOCK_END()
+		TIMED_BLOCK_END
 	}
 	ResetRenderCommands(renderCommands);
 }
@@ -1523,10 +1523,10 @@ int CALLBACK WinMain(
 		debugGlobalState = gameCode.DebugInit(programMemory);
 		{
 			DEBUG_DATA_BLOCK("Renderer");
-			DEBUG_DATA(bool, DEBUG_Renderer_WithSoftware);
-			DEBUG_DATA(bool, DEBUG_Renderer_DifferentResolution);
-			DEBUG_DATA(f32, DEBUG_Renderer_ResolutionWidth);
-			DEBUG_DATA(f32, DEBUG_Renderer_ResolutionHeight);
+			DEBUG_DATA(DEBUG_Renderer_WithSoftware);
+			DEBUG_DATA(DEBUG_Renderer_DifferentResolution);
+			DEBUG_DATA(DEBUG_Renderer_ResolutionWidth);
+			DEBUG_DATA(DEBUG_Renderer_ResolutionHeight);
 		}
 #endif
 
@@ -1546,13 +1546,13 @@ int CALLBACK WinMain(
 
 		inputData.dtFrame = targetFrameRefreshSeconds;
 		programMemory.executableReloaded = gameCode.reloaded;
-		TIMED_BLOCK_END();
+		TIMED_BLOCK_END;
 		TIMED_BLOCK_BEGIN(GameMainLoop);
 		// PART: Game main loop
 		u32 renderWidth = globalBitmap.width;
 		u32 renderHeight = globalBitmap.height;
 		gameCode.GameMainLoopFrame(programMemory, &renderCommands, inputData, renderWidth, renderHeight);
-		TIMED_BLOCK_END();
+		TIMED_BLOCK_END;
 #if INTERNAL_BUILD
 		gameCode.DebugFinishFrame(programMemory, &renderCommands, inputData, renderWidth, renderHeight);
 #endif
@@ -1589,7 +1589,7 @@ int CALLBACK WinMain(
 			_com_error err(hr);
 			LPCTSTR errMsg = err.ErrorMessage();
 		}
-		TIMED_BLOCK_END();
+		TIMED_BLOCK_END;
 	}
 	return 0;
 }

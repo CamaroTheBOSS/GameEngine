@@ -56,9 +56,6 @@ struct DebugEvent {
 	u16 threadId;
 	u64 cycles;
 	const char* GUID;
-	const char* file;
-	const char* blockName;
-	u32 line;
 	union {
 		void* generic;
 		DebugId data_DebugId;
@@ -141,10 +138,11 @@ struct DebugThreadStack {
 	OpenDebugEvent* dataEvents;
 };
 
-#define UniqueGUID__(file, line, counter) file ":" #line " (" #counter ")"
-#define UniqueGUID_(file, line, counter) UniqueGUID__(file, line, counter)
-#define UniqueGUID UniqueGUID_(__FILE__, __LINE__, __COUNTER__)
-#define RecordDebugEvent(eventtype, filename, blockname, linenumber) \
+#define UniqueGUID__(name, file, line, counter) file "|" #line "|" #counter "|" name
+#define UniqueGUID_(name, file, line, counter) UniqueGUID__(name, file, line, counter)
+#define UniqueGUID(name) UniqueGUID_(name, __FILE__, __LINE__, __COUNTER__)
+#define DEBUG_NAME(name) UniqueGUID(name)
+#define RecordDebugEvent(eventtype, InputGUID) \
 	u64 frameAndEventIndex12345 = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);\
 	u32 frameIndex12345 = frameAndEventIndex12345 >> 32;\
 	u32 eventIndex12345 = frameAndEventIndex12345 & U32_MAX;\
@@ -154,21 +152,18 @@ struct DebugThreadStack {
 	event12345->cycles = __rdtscp(&coreId);\
 	event12345->coreId = u8(coreId);\
 	event12345->type = eventtype;\
-	event12345->file = filename;	\
-	event12345->GUID = UniqueGUID; \
-	event12345->blockName = blockname; \
-	event12345->line = linenumber;	\
+	event12345->GUID = InputGUID; \
 	event12345->threadId = u2(GetFastThreadId());
 
 #if INTERNAL_BUILD
-#define TIMED_FUNCTION__(line) TimedBlock block##line(__FILE__, __FUNCTION__, __LINE__)
-#define TIMED_FUNCTION_(line) TIMED_FUNCTION__(line)
-#define TIMED_FUNCTION TIMED_FUNCTION_(__LINE__)
+#define TIMED_FUNCTION__(line, GUID) TimedBlock block##line(GUID)
+#define TIMED_FUNCTION_(line, GUID) TIMED_FUNCTION__(line, GUID)
+#define TIMED_FUNCTION TIMED_FUNCTION_(__LINE__, DEBUG_NAME(__FUNCTION__))
 
-#define TIMED_BLOCK_BEGIN__(fileName, name, lineNumber) { RecordDebugEvent(Event_Time_BlockBegin, fileName, name, lineNumber); }
-#define TIMED_BLOCK_BEGIN_(fileName, name, lineNumber) TIMED_BLOCK_BEGIN__(fileName, name, lineNumber)
-#define TIMED_BLOCK_BEGIN(blockName) TIMED_BLOCK_BEGIN_(__FILE__, #blockName, __LINE__)
-#define TIMED_BLOCK_END() { RecordDebugEvent(Event_Time_BlockEnd, __FILE__, "TimedBlockEnd", __LINE__); }
+#define TIMED_BLOCK_BEGIN__(GUID) { RecordDebugEvent(Event_Time_BlockBegin, GUID); }
+#define TIMED_BLOCK_BEGIN_(GUID) TIMED_BLOCK_BEGIN__(GUID)
+#define TIMED_BLOCK_BEGIN(name) TIMED_BLOCK_BEGIN_(DEBUG_NAME(#name))
+#define TIMED_BLOCK_END { RecordDebugEvent(Event_Time_BlockEnd, DEBUG_NAME("EndTimedBlock")); }
 
 #define MARKUP_FRAME_BEGIN \
 	debugGlobalState->frameStartCycles[debugGlobalState->currentFrameIndex] = __rdtsc();
@@ -185,23 +180,36 @@ inline void DEBUG_HIT(DebugId did, Rect2 boundingBox);
 inline bool DEBUG_HIGHLIGHTED(DebugId did, V4* color);
 inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
 
-#define DEBUG_DATA_BLOCK__(line, Name) DataBlock block##line(__FILE__, Name, __LINE__)
-#define DEBUG_DATA_BLOCK_(line, Name) DEBUG_DATA_BLOCK__(line, Name)
-#define DEBUG_DATA_BLOCK(Name) DEBUG_DATA_BLOCK_(__LINE__, Name)
-#define DEBUG_BEGIN_DATA_BLOCK(Name, file, line) { \
-	RecordDebugEvent(Event_Data_BlockBegin, file, Name, line) }
-#define DEBUG_END_DATA_BLOCK { \
-	RecordDebugEvent(Event_Data_BlockEnd, __FILE__, "DataEndBlock", __LINE__) }
-#define DEBUG_DATA(type, data) { \
-	RecordDebugEvent(Event_Data_##type, __FILE__, #data, __LINE__); \
-	if(debugGlobalState->swapEvent.GUID == event12345->GUID){ \
-		data = debugGlobalState->swapEvent.data_##type; \
-		debugGlobalState->swapEvent.GUID = 0;\
-	}\
-	event12345->data_##type = data; }
+#define DEBUG_DATA_BLOCK_DISPATCH_DEF(type) \
+	void DEBUG_DATA_BLOCK_DISPATCH(type& data, const char* GUID) { \
+		RecordDebugEvent(Event_Data_##type, GUID); \
+		if(debugGlobalState->swapEvent.GUID == event12345->GUID){ \
+			data = debugGlobalState->swapEvent.data_##type; \
+			debugGlobalState->swapEvent.GUID = 0;\
+		}\
+		event12345->data_##type = data;	\
+	}
+DEBUG_DATA_BLOCK_DISPATCH_DEF(bool);
+DEBUG_DATA_BLOCK_DISPATCH_DEF(f32);
+DEBUG_DATA_BLOCK_DISPATCH_DEF(u32);
+DEBUG_DATA_BLOCK_DISPATCH_DEF(i32);
+DEBUG_DATA_BLOCK_DISPATCH_DEF(V2);
+DEBUG_DATA_BLOCK_DISPATCH_DEF(V3);
+DEBUG_DATA_BLOCK_DISPATCH_DEF(V4);
+DEBUG_DATA_BLOCK_DISPATCH_DEF(Rect2);
+DEBUG_DATA_BLOCK_DISPATCH_DEF(Rect3);
+
+#define DEBUG_DATA_BLOCK__(line, GUID) DataBlock block##line(GUID)
+#define DEBUG_DATA_BLOCK_(line, GUID) DEBUG_DATA_BLOCK__(line, GUID)
+#define DEBUG_DATA_BLOCK(name) DEBUG_DATA_BLOCK_(__LINE__, DEBUG_NAME(name))
+#define DEBUG_BEGIN_DATA_BLOCK(GUID) { RecordDebugEvent(Event_Data_BlockBegin, GUID) }
+#define DEBUG_END_DATA_BLOCK { RecordDebugEvent(Event_Data_BlockEnd, DEBUG_NAME("EndDataBlock")) }
+#define DEBUG_DATA__(data, GUID) { DEBUG_DATA_BLOCK_DISPATCH(data, GUID); }
+#define DEBUG_DATA_(data, GUID) DEBUG_DATA__(data, GUID)
+#define DEBUG_DATA(data) DEBUG_DATA_(data, DEBUG_NAME(#data))
 
 #define RecordMemoryDebugEvent(type, arenaArg) \
-	RecordDebugEvent(type, __FILE__, #arenaArg, __LINE__) \
+	RecordDebugEvent(type, DEBUG_NAME(#arenaArg)) \
 	event12345->GUID = ptrcast(const char, &(arenaArg)); \
 	event12345->data_MemoryArenaSnapshot.arena = arenaArg; \
 	event12345->data_MemoryArenaSnapshot.parent = 0;
@@ -209,7 +217,7 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
 	RecordMemoryDebugEvent(Event_MemoryArenaInitialize, subarenaArg) \
 	event12345->data_MemoryArenaSnapshot.parent = &(arenaArg); }
 #define RecordAssetMemoryBlockEvent(block) { \
-	RecordDebugEvent(Event_AssetMemoryBlock, __FILE__, "AssetMemoryBlock", __LINE__) \
+	RecordDebugEvent(Event_AssetMemoryBlock, DEBUG_NAME("AssetMemoryBlock")) \
 	event12345->data_AssetMemoryBlock = *(block); }
 
 #else
@@ -234,18 +242,18 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) { return false; }
 #endif
 
 struct TimedBlock {
-	TimedBlock(const char* file, const char* blockName, u16 line, u32 hitCount = 1) {
-		TIMED_BLOCK_BEGIN__(file, blockName, line)
+	TimedBlock(const char* GUID, u32 hitCount = 1) {
+		TIMED_BLOCK_BEGIN__(GUID)
 	}
 
 	~TimedBlock() {
-		TIMED_BLOCK_END();
+		TIMED_BLOCK_END;
 	}
 };
 
 struct DataBlock {
-	DataBlock(const char* file, const char* blockName, u16 line) {
-		DEBUG_BEGIN_DATA_BLOCK(blockName, file, line);
+	DataBlock(const char* GUID) {
+		DEBUG_BEGIN_DATA_BLOCK(GUID);
 	}
 
 	~DataBlock() {
