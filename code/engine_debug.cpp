@@ -607,31 +607,6 @@ u32 GetStringHash(String8 string) {
 	return hash;
 }
 
-internal
-DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, String8 name) {
-	TIMED_FUNCTION;
-	// TODO: Could I avoid hashing string?
-	u32 hashSlot = GetStringHash(name) % ArrayCount(state->groupHash);
-	DebugVariableGroup* result = 0;
-	for (DebugVariableGroup* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
-		if (StringsAreEqual(group->name, name)) {
-			result = group;
-			break;
-		}
-	}
-	if (!result) {
-		result = PushStructSize(state->mainArena, DebugVariableGroup);
-		result->expanded = false;
-		result->firstLink = 0;
-		result->name = name;
-		result->parentGroup = parentGroup;
-		AddGroupToGroup(state, parentGroup, result);
-		result->nextInHash = state->groupHash[hashSlot];
-		state->groupHash[hashSlot] = result;
-	}
-	return result;
-}
-
 inline
 DebugVariable* GetDebugVariable_(DebugState* state, const char* GUID, u32 hashSlot) {
 	DebugVariable* result = 0;
@@ -795,6 +770,58 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableGroup* group, Debug
 		var->newestEvent = var->newestEvent->next = storedEvent;
 	}
 	return storedEvent;
+}
+
+internal
+DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableGroup* group) {
+	u32 hashSlot = GetDebugVariableHash_(state, group->name.str);
+	DebugVariable* result = GetDebugVariable_(state, group->name.str, hashSlot);
+	if (!result) {
+		result = PushStructSize(state->mainArena, DebugVariable);
+		result->GUID = {};
+		result->GUID.GUID = group->name.str;
+		result->GUID.nameLength = u2(group->name.length);
+		result->permanent = true;
+
+		DebugEvent event = {};
+		event.GUID = group->name.str;
+		event.data_bool = false;
+		DebugStoredEvent* stored = StoreEvent(state, group, &event, 0, true);
+		result->oldestEvent = stored;
+		result->newestEvent = stored;
+
+		result->nextInHash = state->variableHash[hashSlot];
+		state->variableHash[hashSlot] = result;
+	}
+	return result;
+}
+
+
+internal
+DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, String8 name) {
+	TIMED_FUNCTION;
+	// TODO: Could I avoid hashing string?
+	u32 hashSlot = GetStringHash(name) % ArrayCount(state->groupHash);
+	DebugVariableGroup* result = 0;
+	for (DebugVariableGroup* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
+		if (StringsAreEqual(group->name, name)) {
+			result = group;
+			break;
+		}
+	}
+	if (!result) {
+		result = PushStructSize(state->mainArena, DebugVariableGroup);
+		result->expanded = false;
+		result->firstLink = 0;
+		result->name = name;
+		result->parentGroup = parentGroup;
+		AddGroupToGroup(state, parentGroup, result);
+		result->nextInHash = state->groupHash[hashSlot];
+		state->groupHash[hashSlot] = result;
+
+		DebugVariable* variable = GetOrCreateDebugVariableForGroup(state, result);
+	}
+	return result;
 }
 
 internal 

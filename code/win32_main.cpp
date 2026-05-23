@@ -1490,7 +1490,7 @@ int CALLBACK WinMain(
 	bool sleepIsGranular = timeBeginPeriod(schedulerGranularityMs) == NO_ERROR;
 	u32 frameRefreshHz = 60;
 	f32 targetFrameRefreshSeconds = 1.0f / f4(frameRefreshHz);
-	f32 safetyMarginRefreshSeconds = 0.015f;
+	f32 safetyMarginRefreshSeconds = 0.025f;
 	f32 refreshSecondsWithSafetyMargin = targetFrameRefreshSeconds + safetyMarginRefreshSeconds;
 
 	Win32InitAudioClient(refreshSecondsWithSafetyMargin);
