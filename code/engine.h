@@ -105,7 +105,7 @@ struct DebugState {
 	DebugStoredEvent* freeStoredEventList;
 	DebugProfilerSpan* spanFreeList;
 	DebugVariable* variableHash[512];
-	DebugVariableGroup* groupHash[128];
+	DebugVariableLink* groupHash[128];
 	
 	// UI
 	u32 selectedCount;

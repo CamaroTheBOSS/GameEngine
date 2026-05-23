@@ -29,7 +29,18 @@ inline bool WasReleased(Button& button);
 #define DEBUG_CONFIG_PATH "..\\code\\engine_debug_config.h"
 #define DEBUG_COLLATION_SCALE (1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ));
 
-internal DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableGroup* group);
+internal DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* link, DebugParsedGUID& guid);
+
+inline
+String8 GetName(DebugParsedGUID& GUID) {
+	return { GUID.GUID + GUID.nameStart, GUID.nameLength };
+}
+
+inline
+void ExpandGroup(DebugVariableLink* link, bool expansion) {
+	Assert(link->isGroup);
+	link->variable->newestEvent->event.data_bool = expansion;
+}
 
 inline
 bool AreDebugIdsEqual(DebugId id1, DebugId id2) {
@@ -429,18 +440,13 @@ FontDrawContext InitializeStandardFontDrawContext(DebugState* state, V2 topline)
 internal
 DebugTree* AddTree(DebugState* state, V2 pos, const char* name) {
 	DebugTree* tree = PushStructSize(state->mainArena, DebugTree);
-	DebugVariableLink* link = PushStructSize(state->mainArena, DebugVariableLink);
-	link->group = &tree->rootGroup;
-	link->next = 0;
-	link->parentGroup = 0;
-	link->variable = 0;
-
 	tree->pos = pos;
 	tree->rootGroup = {};
-	tree->rootGroup.expanded = false;
-	tree->rootGroup.name = String8{name, StringLength(name)};
-	tree->rootGroup.containingLink = link;
-	tree->rootGroup.containingLink->variable = GetOrCreateDebugVariableForGroup(state, &tree->rootGroup);
+	tree->rootGroup.isGroup = true;
+	DebugParsedGUID guid = {};
+	guid.GUID = name;
+	guid.nameLength = u2(StringLength(name));
+	tree->rootGroup.variable = GetOrCreateDebugVariableForGroup(state, &tree->rootGroup, guid);
 	DLINKED_LIST_ADD(&state->UISentinel, tree);
 	return tree;
 }
@@ -571,24 +577,15 @@ struct DebugVariableDefinitionContext {
 };
 
 internal
-DebugVariableLink* AddVariableToGroup(DebugState* state, DebugVariableGroup* group, DebugVariable* var) {
+DebugVariableLink* AddVariableToGroup(DebugState* state, DebugVariableLink* parent, DebugVariable* var) {
+	Assert(parent->isGroup);
 	DebugVariableLink* link = PushStructSize(state->mainArena, DebugVariableLink);
 	link->variable = var;
-	link->parentGroup = group;
-	link->group = 0;
-	link->next = group->firstLink;
-	group->firstLink = link;
-	return link;
-}
-
-DebugVariableLink* AddGroupToGroup(DebugState* state, DebugVariableGroup* parent, DebugVariableGroup* group) {
-	DebugVariableLink* link = PushStructSize(state->mainArena, DebugVariableLink);
-	link->variable = 0;
-	link->parentGroup = parent;
-	link->group = group;
-	group->containingLink = link;
-	link->next = parent->firstLink;
-	parent->firstLink = link;
+	link->parent = parent;
+	link->nextInHash = 0;
+	link->isGroup = false;
+	link->next = parent->firstChild;
+	parent->firstChild = link;
 	return link;
 }
 
@@ -632,14 +629,14 @@ u32 GetDebugVariableHash_(DebugState* state, const char* GUID) {
 }
 
 inline
-DebugVariable* GetDebugVariable(DebugState* state, DebugVariableGroup* group, const char* GUID) {
+DebugVariable* GetDebugVariable(DebugState* state, const char* GUID) {
 	u32 hashSlot = GetDebugVariableHash_(state, GUID);
 	DebugVariable* result = GetDebugVariable_(state, GUID, hashSlot);
 	return result;
 }
 
 internal
-DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariableGroup* group, 
+DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariableLink* group, 
 	DebugStoredEvent* storedEvent) {
 	// TODO: Verify that this is compiled as AND and not as MOD 
 	// -> TODO: Do the same with CLANG
@@ -744,7 +741,7 @@ void FreeOldestFrame(DebugState* state) {
 }
 
 internal
-DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableGroup* group, DebugEvent* event,
+DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugEvent* event,
 	u32 captureFrameIndex, bool permanent = false) {
 	DebugStoredEvent* storedEvent = 0;
 	while (!storedEvent) {
@@ -779,41 +776,46 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableGroup* group, Debug
 }
 
 internal
-DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableGroup* group) {
-	u32 hashSlot = GetDebugVariableHash_(state, group->name.str);
-	DebugVariable* result = GetDebugVariable_(state, group->name.str, hashSlot);
+DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid) {
+	String8 name = GetName(guid);
+	u32 hashSlot = GetDebugVariableHash_(state, name.str);
+	DebugVariable* result = GetDebugVariable_(state, name.str, hashSlot);
 	if (!result) {
 		DebugEvent event = {};
-		event.GUID = group->name.str;
+		event.GUID = name.str;
 		event.data_bool = false;
 		DebugStoredEvent* stored = StoreEvent(state, 0, &event, 0, true);
+		result = GetDebugVariable_(state, name.str, hashSlot);
 	}
 	return result;
 }
 
 
 internal
-DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, String8 name) {
+DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink* parentGroup, String8 name) {
 	TIMED_FUNCTION;
 	// TODO: Could I avoid hashing string?
 	u32 hashSlot = GetStringHash(name) % ArrayCount(state->groupHash);
-	DebugVariableGroup* result = 0;
-	for (DebugVariableGroup* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
-		if (StringsAreEqual(group->name, name)) {
+	DebugVariableLink* result = 0;
+	for (DebugVariableLink* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
+		if (StringsAreEqual(GetName(group->variable->GUID), name)) {
 			result = group;
 			break;
 		}
 	}
 	if (!result) {
-		result = PushStructSize(state->mainArena, DebugVariableGroup);
-		result->expanded = false;
-		result->firstLink = 0;
-		result->name = name;
-		result->parentGroup = parentGroup;
-		AddGroupToGroup(state, parentGroup, result);
+		result = PushStructSize(state->mainArena, DebugVariableLink);
+		result->isGroup = true;
+		result->firstChild = 0;
+		result->parent = parentGroup;
+		result->next = parentGroup->firstChild;
+		parentGroup->firstChild = result;
 		result->nextInHash = state->groupHash[hashSlot];
 		state->groupHash[hashSlot] = result;
-		result->containingLink->variable = GetOrCreateDebugVariableForGroup(state, result);
+		DebugParsedGUID guid = {};
+		guid.GUID = name.str;
+		guid.nameLength = u2(name.length);
+		result->variable = GetOrCreateDebugVariableForGroup(state, result, guid);
 	}
 	return result;
 }
@@ -881,7 +883,7 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 }
 
 internal
-DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableGroup* group, String8 hierarchicalName) {
+DebugVariableLink* GetGroupForHierachicalName(DebugState* state, DebugVariableLink* group, String8 hierarchicalName) {
 	const char* firstUnderscore = 0;
 	const char* at = hierarchicalName.str;
 	for (u32 i = 0; i < hierarchicalName.length; i++) {
@@ -894,20 +896,15 @@ DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableG
 	if (hierarchicalName.length > 0 && firstUnderscore == 0) {
 		firstUnderscore = at;
 	}
-	DebugVariableGroup* result = group;
+	DebugVariableLink* result = group;
 	if (firstUnderscore) {
 		u32 descentGroupNameLength = u4(firstUnderscore - hierarchicalName.str);
 		String8 groupName = String8{ hierarchicalName.str, descentGroupNameLength };
-		DebugVariableGroup* descentGroup = GetOrCreateVariableGroup(state, group, groupName);
+		DebugVariableLink* descentGroup = GetOrCreateVariableGroup(state, group, groupName);
 		String8 newName = AdvanceString(hierarchicalName, descentGroupNameLength + 1);
 		result = GetGroupForHierachicalName(state, descentGroup, newName);
 	}
 	return result;
-}
-
-inline 
-String8 GetName(DebugParsedGUID& GUID) {
-	return { GUID.GUID + GUID.nameStart, GUID.nameLength };
 }
 
 internal
@@ -991,7 +988,7 @@ void DebugCollateEvents(DebugState* state) {
 					if (view->event->event.data_MemoryArenaSnapshot.arena.data == parentArena->data) {
 						newArenaView->next = view->firstChild;
 						view->firstChild = newArenaView;
-						DebugVariable* var = GetDebugVariable(state, 0, view->event->event.GUID);
+						DebugVariable* var = GetDebugVariable(state, view->event->event.GUID);
 						var->newestEvent->event.data_MemoryArenaSnapshot.arena = *parentArena;
 						break;
 					}
@@ -1017,7 +1014,7 @@ void DebugCollateEvents(DebugState* state) {
 			}
 		} break;
 		case Event_MemoryArenaUpdate: {
-			DebugVariable* var = GetDebugVariable(state, 0, event->GUID);
+			DebugVariable* var = GetDebugVariable(state, event->GUID);
 			var->newestEvent->event = *event;
 
 			// TODO: This is nasty, cause StoreEvent actually allocates stuff on the arena, so it causes
@@ -1447,7 +1444,7 @@ internal
 void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mousePos) {
 	for (DebugTree* tree = state->UISentinel.next; tree != &state->UISentinel; tree = tree->next) {
 		FontDrawContext fontContext = InitializeStandardFontDrawContext(state, tree->pos);
-		DebugVariableLink* node = tree->rootGroup.containingLink;
+		DebugVariableLink* node = &tree->rootGroup;
 		u32 depth = 0;
 		DebugVariableLink* parent[64] = {};
 		while (node) {
@@ -1456,9 +1453,8 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 			V4 itemColor = V4{ 1, 1, 1, 1 };
 			V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
 
-			bool isGroup = node->group != 0;
-			if (isGroup || node->variable->newestEvent) {
-				bool isHot = IsVariableHot(state, isGroup ? node->group->containingLink : node);
+			if (node->variable->newestEvent) {
+				bool isHot = IsVariableHot(state, node);
 				if (isHot) {
 					itemColor = hotItemColor;
 				}
@@ -1468,8 +1464,9 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 					*at++ = ' ';
 					*at++ = ' ';
 				}
-				if (isGroup) {
-					at += sprintf_s(at, end - at, "%.*s:", node->group->name.length, node->group->name.str);
+				if (node->isGroup) {
+					String8 name = GetName(node->variable->GUID);
+					at += sprintf_s(at, end - at, "%.*s:", name.length, name.str);
 				}
 				else {
 					DebugVariableToText(node->variable, at, u4(end - at), DebugVarToText_AddColon);
@@ -1477,7 +1474,7 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
 				if (IsInRectangle(bb, mousePos)) {
-					state->nextHotInteraction = InteractionWithLink(bb, tree, isGroup ? node->group->containingLink : node);
+					state->nextHotInteraction = InteractionWithLink(bb, tree, node);
 				}
 				V4 bbColor = V4{ 0.5f, 0, 0, 1 };
 				PushRect(state->renderGroup, DefaultFlatTransform(), AddRadius(bb, V2{ 4.f, 4.f }), 0, bbColor);
@@ -1485,10 +1482,10 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 			}
 
 			if (node) {
-				if (node->group && node->group->expanded) {
+				if (node->isGroup) {
 					// TODO: Display group names
 					parent[++depth] = node;
-					node = parent[depth]->group->firstLink;
+					node = parent[depth]->firstChild;
 				}
 				else {
 					node = node->next;
@@ -1544,27 +1541,20 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		case DebugInteractionObject::LinkInTree: {
 			DebugTree* tree = state->nextHotInteraction.linkInTree.tree;
 			DebugVariableLink* link = state->nextHotInteraction.linkInTree.link;
-			if (link->group) {
+			DebugEvent* event = &state->nextHotInteraction.linkInTree.link->variable->newestEvent->event;
+			switch (event->type) {
+			case Event_Data_bool: {
 				if (WasPressed(controller.B.mouseLeft)) {
 					state->nextHotInteraction.type = DebugInteractionType::Toggle;
 				}
-			}
-			else {
-				DebugEvent* event = &state->nextHotInteraction.linkInTree.link->variable->newestEvent->event;
-				switch (event->type) {
-				case Event_Data_bool: {
-					if (WasPressed(controller.B.mouseLeft)) {
-						state->nextHotInteraction.type = DebugInteractionType::Toggle;
-					}
-				} break;
-				case Event_Data_f32: {
-					if (WasPressed(controller.B.mouseLeft)) {
-						state->nextHotInteraction = InteractionDragIncrease(
-							state->nextHotInteraction.startBoundingBox, &event->data_f32, 0.1f, Axis_Y
-						);
-					}
-				} break;
+			} break;
+			case Event_Data_f32: {
+				if (WasPressed(controller.B.mouseLeft)) {
+					state->nextHotInteraction = InteractionDragIncrease(
+						state->nextHotInteraction.startBoundingBox, &event->data_f32, 0.1f, Axis_Y
+					);
 				}
+			} break;
 			}
 			if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
 				state->nextHotInteraction = InteractionWithLink(
@@ -1612,32 +1602,28 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->interacting = true;
 		if (state->interaction.type == DebugInteractionType::Tear) {
 #if 1
-			bool isGroup = state->interaction.linkInTree.link->group != 0;
 			DebugVariableLink* tearPoint = state->interaction.linkInTree.link;
-			if (isGroup) {
-				tearPoint = state->interaction.linkInTree.link->group->containingLink;
-			}
-			DebugVariableGroup* oldParentGroup = tearPoint->parentGroup;
+			DebugVariableLink* oldParentGroup = tearPoint->parent;
 			DebugTree* dstTree = state->interaction.linkInTree.tree;
 			if (oldParentGroup) {
 				DebugVariableLink* prevChild = 0;
-				for (DebugVariableLink* child = oldParentGroup->firstLink; child; child = child->next) {
+				for (DebugVariableLink* child = oldParentGroup->firstChild; child; child = child->next) {
 					if (child == tearPoint) {
 						if (prevChild) {
 							prevChild->next = child->next;
 						}
 						else {
-							oldParentGroup->firstLink = oldParentGroup->firstLink->next;
+							oldParentGroup->firstChild = oldParentGroup->firstChild->next;
 						}
 						break;
 					}
 					prevChild = child;
 				}
 				dstTree = AddTree(state, dstTree->pos, "NewUserGroup");
-				dstTree->rootGroup.firstLink = tearPoint;
-				dstTree->rootGroup.expanded = true;
+				dstTree->rootGroup.firstChild = tearPoint;
+				ExpandGroup(&dstTree->rootGroup, true);
 				tearPoint->next = 0;
-				tearPoint->parentGroup = &dstTree->rootGroup;
+				tearPoint->parent = &dstTree->rootGroup;
 			}
 			Rect2& bbox = state->interaction.startBoundingBox;
 			V2 treePos = V2{ bbox.min.X, bbox.max.Y };
@@ -1710,17 +1696,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	} break;
 	case DebugInteractionType::Toggle: {
 		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
-			bool* boolean = 0;
-			if (state->interaction.linkInTree.link->group) {
-				boolean = &state->interaction.linkInTree.link->group->expanded;
-			}
-			else {
-				DebugEvent* event = &state->interaction.linkInTree.link->variable->newestEvent->event;
-				boolean = &event->data_bool;
-			}
-			if (boolean) {
-				*boolean = !(*boolean);
-			}
+			DebugEvent* event = &state->interaction.linkInTree.link->variable->newestEvent->event;
+			event->data_bool = !event->data_bool;
 			interactionEnded = true;
 		}
 	} break;

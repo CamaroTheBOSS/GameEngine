@@ -134,12 +134,12 @@ struct DebugProfilerSpanChildren {
 	DebugProfilerSpan* children[MAX_CHILD_SPANS];
 };
 
-struct DebugVariableGroup;
+struct DebugVariableLink;
 struct OpenDebugEvent {
 	DebugEvent event;
 	union {
 		DebugProfilerSpanChildren childSpans;
-		DebugVariableGroup* group;
+		DebugVariableLink* group;
 	};
 	OpenDebugEvent* next;
 };
@@ -274,24 +274,15 @@ struct DataBlock {
 	}
 };
 
-struct DebugVariableLink;
-struct DebugVariableGroup {
-	String8 name;
-	bool expanded;
-
-	DebugVariableGroup* nextInHash;
-	DebugVariableGroup* parentGroup;
-
-	DebugVariableLink* containingLink;
-	DebugVariableLink* firstLink;
-};
-
 struct DebugVariableLink {
-	DebugVariableGroup* group;
 	DebugVariable* variable;
 
 	DebugVariableLink* next;
-	DebugVariableGroup* parentGroup;
+	DebugVariableLink* nextInHash;
+	DebugVariableLink* firstChild;
+	DebugVariableLink* parent;
+
+	bool isGroup;
 };
 
 struct DebugProfilerSpan {
@@ -326,7 +317,7 @@ struct DebugCollationFrame {
 
 struct DebugTree {
 	V2 pos;
-	DebugVariableGroup rootGroup;
+	DebugVariableLink rootGroup;
 
 	DebugTree* next;
 	DebugTree* prev;
@@ -409,11 +400,6 @@ struct DebugSelectedSpan {
 
 struct DebugVariableLinkInTree {
 	DebugVariableLink* link;
-	DebugTree* tree;
-};
-
-struct DebugVariableGroupInTree {
-	DebugVariableGroup* group;
 	DebugTree* tree;
 };
 
