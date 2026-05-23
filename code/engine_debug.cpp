@@ -37,8 +37,8 @@ inline bool WasReleased(Button& button);
 internal DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* link, DebugParsedGUID& guid);
 
 inline
-String8 GetName(DebugParsedGUID& GUID) {
-	return { GUID.GUID + GUID.nameStart, GUID.nameLength };
+String8 GetName(DebugParsedGUID& parsedGuid) {
+	return { parsedGuid.GUID.str + parsedGuid.nameStart, parsedGuid.nameLength };
 }
 
 inline
@@ -308,22 +308,23 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) {
 
 internal
 DebugParsedGUID DebugParseGUID(const char* input) {
-	if (input[0] == 'S' && input[1] == 'i' && input[2] == 'm') {
-		int breakhere = 0;
-	}
 	DebugParsedGUID parsed;
-	parsed.GUID = input;
+	u16 totalLength = 0;
 	parsed.fileStart = 0;
 	parsed.fileLength = u2(FindCharacterInString(input, '|'));
-	input += parsed.fileLength + (parsed.fileLength != 0);
-	parsed.lineStart = u2(input - parsed.GUID);
-	parsed.lineLength = u2(FindCharacterInString(input, '|'));
-	input += parsed.lineLength + (parsed.lineLength != 0);
-	parsed.counterStart = u2(input - parsed.GUID);
-	parsed.counterLength = u2(FindCharacterInString(input, '|'));
-	input += parsed.counterLength + (parsed.counterLength != 0);
-	parsed.nameStart = u2(input - parsed.GUID);
-	parsed.nameLength = u2(StringLength(input));
+	totalLength += parsed.fileLength + (parsed.fileLength != 0);
+	parsed.lineStart = totalLength;
+	parsed.lineLength = u2(FindCharacterInString(input + totalLength, '|'));
+	totalLength += parsed.lineLength + (parsed.lineLength != 0);
+	parsed.counterStart = totalLength;
+	parsed.counterLength = u2(FindCharacterInString(input + totalLength, '|'));
+	totalLength += parsed.counterLength + (parsed.counterLength != 0);
+	parsed.nameStart = totalLength;
+	parsed.nameLength = u2(StringLength(input + totalLength));
+	totalLength += parsed.nameLength;
+
+	parsed.GUID.length = totalLength;
+	parsed.GUID.str = input;
 	return parsed;
 }
 
@@ -455,8 +456,9 @@ DebugTree* AddTree(DebugState* state, V2 pos, const char* name) {
 	tree->rootGroup = {};
 	tree->rootGroup.isGroup = true;
 	DebugParsedGUID guid = {};
-	guid.GUID = name;
-	guid.nameLength = u2(StringLength(name));
+	guid.GUID.str = name;
+	guid.GUID.length = StringLength(name);
+	guid.nameLength = u2(guid.GUID.length);
 	tree->rootGroup.variable = GetOrCreateDebugVariableForGroup(state, &tree->rootGroup, guid);
 	DLINKED_LIST_ADD(&state->UISentinel, tree);
 	return tree;
@@ -622,10 +624,10 @@ u32 GetStringHash(String8 string) {
 }
 
 inline
-DebugVariable* GetDebugVariable_(DebugState* state, const char* GUID, u32 hashSlot) {
+DebugVariable* GetDebugVariable_(DebugState* state, DebugParsedGUID& parsedGUID, u32 hashSlot) {
 	DebugVariable* result = 0;
 	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-		if (var->GUID.GUID == GUID) {
+		if (StringsAreEqual(var->parsedGuid.GUID, parsedGUID.GUID)) {
 			result = var;
 			break;
 		}
@@ -634,30 +636,24 @@ DebugVariable* GetDebugVariable_(DebugState* state, const char* GUID, u32 hashSl
 }
 
 inline
-u32 GetDebugVariableHash_(DebugState* state, const char* GUID) {
-	u32 hashSlot = (u4(uptr(GUID) >> 2)) % ArrayCount(state->variableHash);
-	return hashSlot;
-}
-
-inline
-DebugVariable* GetDebugVariable(DebugState* state, const char* GUID) {
-	u32 hashSlot = GetDebugVariableHash_(state, GUID);
+DebugVariable* GetDebugVariable(DebugState* state, DebugParsedGUID& GUID) {
+	u32 hashSlot = GetStringHash(GUID.GUID) % ArrayCount(state->variableHash);
 	DebugVariable* result = GetDebugVariable_(state, GUID, hashSlot);
 	return result;
 }
 
 internal
 DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariableLink* group, 
-	DebugStoredEvent* storedEvent) {
+	DebugStoredEvent* storedEvent, DebugParsedGUID& eventParsedGuid) {
 	// TODO: Verify that this is compiled as AND and not as MOD 
 	// -> TODO: Do the same with CLANG
 	// -> It is with MSVC
 	DebugEvent* event = &storedEvent->event;
-	u32 hashSlot = GetDebugVariableHash_(state, event->GUID);
-	DebugVariable* result = GetDebugVariable_(state, event->GUID, hashSlot);
+	u32 hashSlot = GetStringHash(eventParsedGuid.GUID) % ArrayCount(state->variableHash);
+	DebugVariable* result = GetDebugVariable_(state, eventParsedGuid, hashSlot);
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariable);
-		result->GUID = DebugParseGUID(event->GUID);
+		result->parsedGuid = eventParsedGuid;
 		result->nextInHash = state->variableHash[hashSlot];
 		result->oldestEvent = storedEvent;
 		result->newestEvent = storedEvent;
@@ -753,7 +749,7 @@ void FreeOldestFrame(DebugState* state) {
 
 internal
 DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugEvent* event,
-	u32 captureFrameIndex, bool permanent = false) {
+	DebugParsedGUID& parsedGuid, u32 captureFrameIndex, bool permanent = false) {
 	DebugStoredEvent* storedEvent = 0;
 	while (!storedEvent) {
 		storedEvent = state->freeStoredEventList;
@@ -775,7 +771,7 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugE
 	storedEvent->next = 0;
 	storedEvent->captureFrameIndex = captureFrameIndex;
 
-	DebugVariable* var = GetOrCreateDebugVariableForEvent(state, group, storedEvent);
+	DebugVariable* var = GetOrCreateDebugVariableForEvent(state, group, storedEvent, parsedGuid);
 	var->permanent = permanent;
 	if (!var->oldestEvent) {
 		var->oldestEvent = var->newestEvent = storedEvent;
@@ -787,30 +783,30 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugE
 }
 
 internal
-DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* group, DebugParsedGUID& GUID) {
-	u32 hashSlot = GetDebugVariableHash_(state, GUID.GUID);
-	DebugVariable* result = GetDebugVariable_(state, GUID.GUID, hashSlot);
+DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* group, DebugParsedGUID& parsedGuid) {
+	u32 hashSlot = GetStringHash(parsedGuid.GUID) % ArrayCount(state->variableHash);
+	DebugVariable* result = GetDebugVariable_(state, parsedGuid, hashSlot);
 	if (!result) {
 		DebugEvent event = {};
-		event.GUID = GUID.GUID;
+		event.GUID = parsedGuid.GUID.str;
 		event.type = Event_Data_bool;
 		event.data_bool = false;
-		DebugStoredEvent* stored = StoreEvent(state, 0, &event, 0, true);
-		result = GetDebugVariable_(state, GUID.GUID, hashSlot);
+		DebugStoredEvent* stored = StoreEvent(state, 0, &event, parsedGuid, 0, true);
+		result = GetDebugVariable_(state, parsedGuid, hashSlot);
 	}
 	return result;
 }
 
 
 internal
-DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink* parentGroup, DebugParsedGUID& GUID) {
+DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink* parentGroup, DebugParsedGUID& parsedGuid) {
 	TIMED_FUNCTION;
-	// TODO: Could I avoid hashing string?
-	String8 key = { GUID.GUID, StringLength(GUID.GUID) };
-	u32 hashSlot = GetStringHash(key) % ArrayCount(state->groupHash);
+	// TODO: Could I avoid hashing string?;
+	u32 hashSlot = GetStringHash(parsedGuid.GUID) % ArrayCount(state->groupHash);
 	DebugVariableLink* result = 0;
 	for (DebugVariableLink* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
-		if (StringsAreEqual(key.str, key.length, group->variable->GUID.GUID)) {
+		DebugParsedGUID* candidate = &group->variable->parsedGuid;
+		if (StringsAreEqual(parsedGuid.GUID, candidate->GUID)) {
 			result = group;
 			break;
 		}
@@ -824,7 +820,7 @@ DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink
 		parentGroup->firstChild = result;
 		result->nextInHash = state->groupHash[hashSlot];
 		state->groupHash[hashSlot] = result;
-		result->variable = GetOrCreateDebugVariableForGroup(state, result, GUID);
+		result->variable = GetOrCreateDebugVariableForGroup(state, result, parsedGuid);
 	}
 	return result;
 }
@@ -909,7 +905,7 @@ void DebugCollateEvents(DebugState* state) {
 		) {
 		DebugEvent* event = eventsInFrame + eventIndex;
 		DebugThreadStack* stack = GetDebugStackForThread(state, event->threadId);
-		DebugParsedGUID GUID = DebugParseGUID(event->GUID);
+		DebugParsedGUID parsedGuid = DebugParseGUID(event->GUID);
 		switch (event->type) {
 		case Event_Time_BlockBegin: {
 			PushToEventStack(state, &stack->timeEvents, event);
@@ -948,14 +944,14 @@ void DebugCollateEvents(DebugState* state) {
 				stack->dataEvents->group : 
 				&state->UISentinel.next->rootGroup;
 			OpenDebugEvent* block = PushToEventStack(state, &stack->dataEvents, event);
-			block->group = GetOrCreateVariableGroup(state, parent, GUID);
+			block->group = GetOrCreateVariableGroup(state, parent, parsedGuid);
 		} break;
 		case Event_Data_BlockEnd: {
 			PopFromEventStack(state, &stack->dataEvents);
 		} break;
 		case Event_MemoryArenaInitialize: {
 			DebugArenaView* newArenaView = PushStructSize(state->mainArena, DebugArenaView);
-			newArenaView->event = StoreEvent(state, 0, event, newFrame->frameIndex, true);
+			newArenaView->event = StoreEvent(state, 0, event, parsedGuid, newFrame->frameIndex, true);
 			newArenaView->firstChild = 0;
 			newArenaView->next = 0;
 			newArenaView->name = "TODO";//TODO TO BE RESOLVED event->blockName;
@@ -970,7 +966,8 @@ void DebugCollateEvents(DebugState* state) {
 					if (view->event->event.data_MemoryArenaSnapshot.arena.data == parentArena->data) {
 						newArenaView->next = view->firstChild;
 						view->firstChild = newArenaView;
-						DebugVariable* var = GetDebugVariable(state, view->event->event.GUID);
+						DebugParsedGUID guidTODO = DebugParseGUID(view->event->event.GUID);
+						DebugVariable* var = GetDebugVariable(state, guidTODO);
 						var->newestEvent->event.data_MemoryArenaSnapshot.arena = *parentArena;
 						break;
 					}
@@ -996,7 +993,7 @@ void DebugCollateEvents(DebugState* state) {
 			}
 		} break;
 		case Event_MemoryArenaUpdate: {
-			DebugVariable* var = GetDebugVariable(state, event->GUID);
+			DebugVariable* var = GetDebugVariable(state, parsedGuid);
 			var->newestEvent->event = *event;
 
 			// TODO: This is nasty, cause StoreEvent actually allocates stuff on the arena, so it causes
@@ -1010,7 +1007,7 @@ void DebugCollateEvents(DebugState* state) {
 		case Event_Data_V2:
 		case Event_Data_V3:
 		case Event_Data_V4: {
-			StoreEvent(state, stack->dataEvents->group, event, newFrame->frameIndex, true);
+			StoreEvent(state, stack->dataEvents->group, event, parsedGuid, newFrame->frameIndex, true);
 		} break;
 		}
 	}
@@ -1032,7 +1029,7 @@ u64 DebugVariableToText(DebugVariable* variable, char* buffer, u64 size, u32 fla
 			at += sprintf_s(at, end - at, "#define CONSTANT_");
 		}
 		const char* colon = (flags & DebugVarToText_AddColon) ? ":" : "";
-		String8 variableName = GetName(variable->GUID);
+		String8 variableName = GetName(variable->parsedGuid);
 		switch (event->type) {
 		case Event_Data_bool: {
 			at += sprintf_s(at, end - at, "%.*s%s %d", variableName.length, variableName.str, colon, event->data_bool);
@@ -1447,7 +1444,7 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 					*at++ = ' ';
 				}
 				if (node->isGroup) {
-					String8 name = GetName(node->variable->GUID);
+					String8 name = GetName(node->variable->parsedGuid);
 					at += sprintf_s(at, end - at, "%.*s:", name.length, name.str);
 				}
 				else {

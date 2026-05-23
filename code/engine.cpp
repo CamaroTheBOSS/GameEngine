@@ -1426,6 +1426,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			V3 upStairsPos = groundLevelPos + V3{ 0, 0, entity->walkableDim.Z };
 			PushRectBorders(renderGroup, DefaultUprightTransform(), upStairsPos, entity->collision->totalVolume.size.XY, V4{ 0, 0, 0, layerAlpha }, 0.1f);
 		} break;
+#if 0
 		case EntityType_Familiar: {
 			f32 minDistance = Squared(10.f);
 			V3 minDistanceEntityPos = {};
@@ -1467,6 +1468,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			PushRectBorders(renderGroup, DefaultUprightTransform(), groundLevelPos, entity->collision->totalVolume.size.XY, V4{0, 0, 1, layerAlpha }, 0.2f);
 		} break;
 		default: Assert(!"Function to draw entity not found!");
+#endif
 		}
 		if (IsFlagSet(*entity, EntityFlag_Movable) && !IsFlagSet(*entity, EntityFlag_NonSpatial)) {
 			MoveEntity(*simRegion, state, world, *entity, acceleration, input.dtFrame);

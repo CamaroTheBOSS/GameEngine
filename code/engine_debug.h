@@ -50,7 +50,7 @@ struct MemoryArenaSnapshot {
 };
 
 struct DebugParsedGUID {
-	const char* GUID;
+	String8 GUID;
 	u16 fileStart;
 	u16 fileLength;
 
@@ -97,7 +97,7 @@ struct DebugStoredEvent {
 };
 
 struct DebugVariable {
-	DebugParsedGUID GUID;
+	DebugParsedGUID parsedGuid;
 	bool permanent;
 
 	DebugVariable* nextInHash;
