@@ -196,7 +196,7 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
 #define DEBUG_DATA_BLOCK_DISPATCH_DEF(type) \
 	void DEBUG_DATA_BLOCK_DISPATCH(type& data, const char* GUID) { \
 		RecordDebugEvent(Event_Data_##type, GUID); \
-		if(debugGlobalState->swapEvent.GUID == event_->GUID){ \
+		if(debugGlobalState->swapEvent.GUID == GUID){ \
 			data = debugGlobalState->swapEvent.data_##type; \
 			debugGlobalState->swapEvent.GUID = 0;\
 		}\
@@ -435,6 +435,7 @@ struct DebugInteraction {
 	};
 	V2 startMousePos;
 	Rect2 startBoundingBox;
+	DebugVariable* var;
 };
 
 struct LoadedFont;

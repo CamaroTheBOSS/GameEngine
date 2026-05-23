@@ -16,6 +16,11 @@
 * - checking and modifing values!
 */
 
+#define PRINT_DEBUGGING(format, ...) \
+	{ char buffer[256]; \
+	sprintf_s(buffer, 256, format, __VA_ARGS__); \
+	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 }); }
+
 DebugGlobalState debugGlobalState_ = {};
 DebugGlobalState* debugGlobalState = &debugGlobalState_;
 
@@ -1480,13 +1485,6 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 
 internal
 void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
-	{
-		//PRINTDEBUGGING
-		char _buffer[256];
-		sprintf_s(_buffer, 256, "NextHotInteraction link: %p", state->nextHotInteraction.tree.link);
-		DebugRenderLine(state, _buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-	}
-
 	if (WasPressed(controller.B.kEsc)) {
 		state->selectedCount = 0;
 		if (state->cpuProfiler.selectedSpanCount > 0) {
@@ -1519,6 +1517,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			DebugTree* tree = state->nextHotInteraction.tree.tree;
 			DebugVariableLink* link = state->nextHotInteraction.tree.link;
 			DebugEvent* event = &state->nextHotInteraction.tree.link->variable->newestEvent->event;
+			DebugVariable* var = state->nextHotInteraction.tree.link->variable;
 			switch (event->type) {
 			case Event_Data_bool: {
 				if (WasPressed(controller.B.mouseLeft)) {
@@ -1538,6 +1537,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 					state->nextHotInteraction.startBoundingBox, tree, link);
 				state->nextHotInteraction.type = DebugInteractionType::Tear;
 			}
+			state->nextHotInteraction.var = var;
 		} break;
 		case DebugInteractionObject::ArenaView: {
 			if (WasPressed(controller.B.mouseLeft)) {
@@ -1622,21 +1622,33 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		case DebugInteractionType::DragIncrease: {
 			DebugDraggedFloat& f = state->interaction.dragged_f32;
 			*f.actual = f.initial + f.amountPerPixel * dMouse.E[f.axis];
+			if (state->interaction.var) {
+				state->interaction.var->newestEvent->event.data_f32 = *f.actual;
+			}
 		} break;
 		case DebugInteractionType::ResizeRect2: {
 			DebugModifiedRect2& rect2 = state->interaction.mod_Rect2;
 			f32 newMaxX = Maximum(mousePos.X, rect2.initial.min.X + 10.f);
 			f32 newMaxY = Maximum(mousePos.Y, rect2.initial.min.Y + 10.f);
 			rect2.actual->max = V2{ newMaxX, newMaxY };
+			if (state->interaction.var) {
+				state->interaction.var->newestEvent->event.data_Rect2 = *rect2.actual;
+			}
 		} break;
 		case DebugInteractionType::MoveV2: {
 			DebugModifiedV2& pos = state->interaction.mod_V2;
 			*pos.actual = pos.initial + dMouse;
+			if (state->interaction.var) {
+				state->interaction.var->newestEvent->event.data_V2 = *pos.actual;
+			}
 		} break;
 		case DebugInteractionType::MoveRect2: {
 			DebugModifiedRect2& rect2 = state->interaction.mod_Rect2;
 			rect2.actual->min = rect2.initial.min + dMouse;
 			rect2.actual->max = rect2.initial.max + dMouse;
+			if (state->interaction.var) {
+				state->interaction.var->newestEvent->event.data_Rect2 = *rect2.actual;
+			}
 		} break;
 		}
 	}
@@ -1710,13 +1722,16 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		interactionEnded = true;
 	} break;
 	}
-	if (state->interaction.obj == DebugInteractionObject::Tree) {
-		DebugVariable* var = state->interaction.tree.link->variable;
-		if (var) {
-			debugGlobalState->swapEvent = var->newestEvent->event;
+	const char* GUID = "NOTHING";
+	if (state->interaction.type != DebugInteractionType::None) {
+		if (state->interaction.var) {
+			debugGlobalState->swapEvent = state->interaction.var->newestEvent->event;
+			GUID = debugGlobalState->swapEvent.GUID;
 		}
 	}
+	PRINT_DEBUGGING("SWAPPED EVENT GUID: %s", GUID);
 	if (interactionEnded) {
+
 		state->interaction = {};
 		state->interacting = false;
 	}
@@ -1788,11 +1803,8 @@ void DebugRenderOverlay(DebugState* state) {
 	DebugInteract(state, mousePos, controller);
 
 	if(DEBUG_Debug_ShowEventsCount) {
-		char buffer[256];
 		u32 currentFrame = !debugGlobalState->currentFrameIndex;
-		sprintf_s(buffer, 256, "Events in frame: %d", debugGlobalState->eventsCount[currentFrame]);
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-
+		PRINT_DEBUGGING("Events in frame: %d", debugGlobalState->eventsCount[currentFrame]);
 #if 0
 		DebugFrameInfo* frameInfo = state->frames + state->frameReadIndex;
 		for (u32 eventType = 0; eventType < ArrayCount(frameInfo->eventCount.count); eventType++) {
@@ -1802,38 +1814,39 @@ void DebugRenderOverlay(DebugState* state) {
 #endif
 		MemoryArena* arenas[] = { &state->collationFrameArena, &state->mainArena };
 		const char* arenaNames[] = { "CollationFrame", "Main" };
-		char* at = buffer;
-		char* end = buffer + sizeof(buffer);
-		at += sprintf_s(at, end - at, "Arena remaining sizes:   ");
-		for (u32 arenaIndex = 0; arenaIndex < ArrayCount(arenas); arenaIndex++) {
-			u64 arenaRemainingSize = GetArenaFreeSpaceSize(*arenas[arenaIndex]) / 1024;
-			at += sprintf_s(at, end - at, "%s: %lldkB   ", arenaNames[arenaIndex], arenaRemainingSize);
-		}
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		{
+			char buffer[256];
+			char* at = buffer;
+			char* end = buffer + sizeof(buffer);
+			at += sprintf_s(at, end - at, "Arena remaining sizes:   ");
+			for (u32 arenaIndex = 0; arenaIndex < ArrayCount(arenas); arenaIndex++) {
+				u64 arenaRemainingSize = GetArenaFreeSpaceSize(*arenas[arenaIndex]) / 1024;
+				at += sprintf_s(at, end - at, "%s: %lldkB   ", arenaNames[arenaIndex], arenaRemainingSize);
+			}
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 
 #if 1
-		u32 allocs[] = { state->allocFramesSum, state->allocEventsSum , state->allocSpansSum };
-		u32 deallocs[] = { state->deallocFramesSum, state->deallocEventsSum , state->deallocSpansSum };
-		const char* varNames[] = { "Frames: ", "Events: ", "Spans: "};
-		at = buffer;
-		end = buffer + sizeof(buffer);
-		at += sprintf_s(at, end - at, "Dealloc/Alloc count: ");
-		for (u32 index = 0; index < ArrayCount(allocs); index++) {
-			at += sprintf_s(at, end - at, "%s%d/%d   ", varNames[index], deallocs[index], allocs[index]);
-		}
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+			u32 allocs[] = { state->allocFramesSum, state->allocEventsSum , state->allocSpansSum };
+			u32 deallocs[] = { state->deallocFramesSum, state->deallocEventsSum , state->deallocSpansSum };
+			const char* varNames[] = { "Frames: ", "Events: ", "Spans: " };
+			at = buffer;
+			end = buffer + sizeof(buffer);
+			at += sprintf_s(at, end - at, "Dealloc/Alloc count: ");
+			for (u32 index = 0; index < ArrayCount(allocs); index++) {
+				at += sprintf_s(at, end - at, "%s%d/%d   ", varNames[index], deallocs[index], allocs[index]);
+			}
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 #endif
+		}
+		
 #if 0
-		sprintf_s(buffer, 256, "pushes size events: f: %d all: %d", state->debugPushSizeEventsPerFrame, state->debugPushSizeEvents);
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		PRINT_DEBUGGING("pushes size events: f: %d all: %d", state->debugPushSizeEventsPerFrame, state->debugPushSizeEvents);
 #endif
 #if 1
 		DebugCollationFrame* frame = state->framesSentinel.next;
 		f32 durationMs = f4(frame->endCycles - frame->startCycles) / DEBUG_CPU_FREQ;
 		f32 durationMsNoDebug = durationMs - f4(frame->endCyclesDebugFinishFrame - frame->startCyclesDebugFinishFrame) * DEBUG_COLLATION_SCALE;
-		
-		sprintf_s(buffer, 256, "Frame duration: %.2fms (%.2fms)", durationMs, durationMsNoDebug);
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		PRINT_DEBUGGING("Frame duration: %.2fms (%.2fms)", durationMs, durationMsNoDebug);
 #endif
 	}
 }
