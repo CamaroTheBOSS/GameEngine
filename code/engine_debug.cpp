@@ -43,6 +43,12 @@ void ExpandGroup(DebugVariableLink* link, bool expansion) {
 }
 
 inline
+bool IsExpanded(DebugVariableLink* link) {
+	Assert(link->isGroup);
+	return link->variable->newestEvent->event.data_bool;
+}
+
+inline
 bool AreDebugIdsEqual(DebugId id1, DebugId id2) {
 	bool result = id1.ptr == id2.ptr &&
 		id1.index == id2.index;
@@ -776,29 +782,30 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugE
 }
 
 internal
-DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid) {
-	String8 name = GetName(guid);
-	u32 hashSlot = GetDebugVariableHash_(state, name.str);
-	DebugVariable* result = GetDebugVariable_(state, name.str, hashSlot);
+DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* group, DebugParsedGUID& GUID) {
+	u32 hashSlot = GetDebugVariableHash_(state, GUID.GUID);
+	DebugVariable* result = GetDebugVariable_(state, GUID.GUID, hashSlot);
 	if (!result) {
 		DebugEvent event = {};
-		event.GUID = name.str;
+		event.GUID = GUID.GUID;
+		event.type = Event_Data_bool;
 		event.data_bool = false;
 		DebugStoredEvent* stored = StoreEvent(state, 0, &event, 0, true);
-		result = GetDebugVariable_(state, name.str, hashSlot);
+		result = GetDebugVariable_(state, GUID.GUID, hashSlot);
 	}
 	return result;
 }
 
 
 internal
-DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink* parentGroup, String8 name) {
+DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink* parentGroup, DebugParsedGUID& GUID) {
 	TIMED_FUNCTION;
 	// TODO: Could I avoid hashing string?
-	u32 hashSlot = GetStringHash(name) % ArrayCount(state->groupHash);
+	String8 key = { GUID.GUID, StringLength(GUID.GUID) };
+	u32 hashSlot = GetStringHash(key) % ArrayCount(state->groupHash);
 	DebugVariableLink* result = 0;
 	for (DebugVariableLink* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
-		if (StringsAreEqual(GetName(group->variable->GUID), name)) {
+		if (StringsAreEqual(key.str, key.length, group->variable->GUID.GUID)) {
 			result = group;
 			break;
 		}
@@ -812,10 +819,7 @@ DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink
 		parentGroup->firstChild = result;
 		result->nextInHash = state->groupHash[hashSlot];
 		state->groupHash[hashSlot] = result;
-		DebugParsedGUID guid = {};
-		guid.GUID = name.str;
-		guid.nameLength = u2(name.length);
-		result->variable = GetOrCreateDebugVariableForGroup(state, result, guid);
+		result->variable = GetOrCreateDebugVariableForGroup(state, result, GUID);
 	}
 	return result;
 }
@@ -883,31 +887,6 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 }
 
 internal
-DebugVariableLink* GetGroupForHierachicalName(DebugState* state, DebugVariableLink* group, String8 hierarchicalName) {
-	const char* firstUnderscore = 0;
-	const char* at = hierarchicalName.str;
-	for (u32 i = 0; i < hierarchicalName.length; i++) {
-		if (*at == '/') {
-			firstUnderscore = at;
-			break;
-		}
-		at++;
-	}
-	if (hierarchicalName.length > 0 && firstUnderscore == 0) {
-		firstUnderscore = at;
-	}
-	DebugVariableLink* result = group;
-	if (firstUnderscore) {
-		u32 descentGroupNameLength = u4(firstUnderscore - hierarchicalName.str);
-		String8 groupName = String8{ hierarchicalName.str, descentGroupNameLength };
-		DebugVariableLink* descentGroup = GetOrCreateVariableGroup(state, group, groupName);
-		String8 newName = AdvanceString(hierarchicalName, descentGroupNameLength + 1);
-		result = GetGroupForHierachicalName(state, descentGroup, newName);
-	}
-	return result;
-}
-
-internal
 void DebugCollateEvents(DebugState* state) {
 	TIMED_FUNCTION;
 	if(DEBUG_Profiler_Pause) {
@@ -925,6 +904,7 @@ void DebugCollateEvents(DebugState* state) {
 		) {
 		DebugEvent* event = eventsInFrame + eventIndex;
 		DebugThreadStack* stack = GetDebugStackForThread(state, event->threadId);
+		DebugParsedGUID GUID = DebugParseGUID(event->GUID);
 		switch (event->type) {
 		case Event_Time_BlockBegin: {
 			PushToEventStack(state, &stack->timeEvents, event);
@@ -959,14 +939,11 @@ void DebugCollateEvents(DebugState* state) {
 			PopFromEventStack(state, &stack->timeEvents);
 		} break;
 		case Event_Data_BlockBegin: {
+			DebugVariableLink* parent = stack->dataEvents ? 
+				stack->dataEvents->group : 
+				&state->UISentinel.next->rootGroup;
 			OpenDebugEvent* block = PushToEventStack(state, &stack->dataEvents, event);
-			DebugParsedGUID guid = DebugParseGUID(event->GUID);
-			String8 hierarchicalName = GetName(guid);
-			//DebugStoredEvent* storedEvent = StoreEvent(state, block->group, event, frameIndex, true);
-			block->group = GetGroupForHierachicalName(state, 
-				block->group ? block->group : &state->UISentinel.next->rootGroup,
-				hierarchicalName
-			);
+			block->group = GetOrCreateVariableGroup(state, parent, GUID);
 		} break;
 		case Event_Data_BlockEnd: {
 			PopFromEventStack(state, &stack->dataEvents);
@@ -1482,7 +1459,7 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 			}
 
 			if (node) {
-				if (node->isGroup) {
+				if (node->isGroup && IsExpanded(node)) {
 					// TODO: Display group names
 					parent[++depth] = node;
 					node = parent[depth]->firstChild;

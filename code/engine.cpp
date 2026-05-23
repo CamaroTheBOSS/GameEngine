@@ -1498,7 +1498,8 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #endif
 		}
 		if (DEBUG_DATA_BLOCK_REQUESTED(dId)) {
-			DEBUG_DATA_BLOCK("Simulation/Entity");
+			DEBUG_DATA_BLOCK("Simulation");
+			DEBUG_DATA_BLOCK("Entity");
 			DEBUG_DATA(entity->flags);
 			//DEBUG_DATA(hotEntity->collision);
 			DEBUG_DATA(entity->distanceRemaining);
