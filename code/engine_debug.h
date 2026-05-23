@@ -334,7 +334,7 @@ struct DebugScroll {
 
 enum class DebugInteractionObject {
 	None,
-	LinkInTree,
+	Tree,
 	Introspectable,
 	MovedRect2,
 	ResizedRect2,
@@ -398,9 +398,9 @@ struct DebugSelectedSpan {
 	u32 captureFrameIndex;
 };
 
-struct DebugVariableLinkInTree {
-	DebugVariableLink* link;
+struct DebugInteractionTree {
 	DebugTree* tree;
+	DebugVariableLink* link;
 };
 
 struct DebugProfiler {
@@ -425,7 +425,7 @@ struct DebugInteraction {
 	union {
 		void* generic;
 		DebugId id;
-		DebugVariableLinkInTree linkInTree;
+		DebugInteractionTree tree;
 		DebugModifiedV2 mod_V2;
 		DebugModifiedRect2 mod_Rect2;
 		DebugDraggedFloat dragged_f32;

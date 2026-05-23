@@ -57,7 +57,7 @@ bool AreDebugIdsEqual(DebugId id1, DebugId id2) {
 
 inline
 bool IsVariableHot(DebugState* state, DebugVariableLink* link) {
-	bool result = state->hotInteraction.linkInTree.link == link;
+	bool result = state->hotInteraction.tree.link == link;
 	return result;
 }
 
@@ -236,11 +236,11 @@ DebugInteraction InteractionIntrospectable(Rect2 bBox, DebugId did) {
 }
 
 inline
-DebugInteraction InteractionWithLink(Rect2 bBox, DebugTree* tree, DebugVariableLink* link) {
+DebugInteraction InteractionWithTree(Rect2 bBox, DebugTree* tree, DebugVariableLink* link) {
 	DebugInteraction interaction = {};
-	interaction.obj = DebugInteractionObject::LinkInTree;
-	interaction.linkInTree.link = link;
-	interaction.linkInTree.tree = tree;
+	interaction.obj = DebugInteractionObject::Tree;
+	interaction.tree.link = link;
+	interaction.tree.tree = tree;
 	interaction.startBoundingBox = bBox;
 	Assert(link);
 	return interaction;
@@ -1451,7 +1451,7 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 
 				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
 				if (IsInRectangle(bb, mousePos)) {
-					state->nextHotInteraction = InteractionWithLink(bb, tree, node);
+					state->nextHotInteraction = InteractionWithTree(bb, tree, node);
 				}
 				V4 bbColor = V4{ 0.5f, 0, 0, 1 };
 				PushRect(state->renderGroup, DefaultFlatTransform(), AddRadius(bb, V2{ 4.f, 4.f }), 0, bbColor);
@@ -1483,7 +1483,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	{
 		//PRINTDEBUGGING
 		char _buffer[256];
-		sprintf_s(_buffer, 256, "NextHotInteraction link: %p", state->nextHotInteraction.linkInTree.link);
+		sprintf_s(_buffer, 256, "NextHotInteraction link: %p", state->nextHotInteraction.tree.link);
 		DebugRenderLine(state, _buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 	}
 
@@ -1515,10 +1515,10 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	DebugInteractionObject nextInteractionObj = state->nextHotInteraction.obj;
 	if (nextInteractionObj != DebugInteractionObject::None) {
 		switch (nextInteractionObj) {
-		case DebugInteractionObject::LinkInTree: {
-			DebugTree* tree = state->nextHotInteraction.linkInTree.tree;
-			DebugVariableLink* link = state->nextHotInteraction.linkInTree.link;
-			DebugEvent* event = &state->nextHotInteraction.linkInTree.link->variable->newestEvent->event;
+		case DebugInteractionObject::Tree: {
+			DebugTree* tree = state->nextHotInteraction.tree.tree;
+			DebugVariableLink* link = state->nextHotInteraction.tree.link;
+			DebugEvent* event = &state->nextHotInteraction.tree.link->variable->newestEvent->event;
 			switch (event->type) {
 			case Event_Data_bool: {
 				if (WasPressed(controller.B.mouseLeft)) {
@@ -1534,7 +1534,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			} break;
 			}
 			if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction = InteractionWithLink(
+				state->nextHotInteraction = InteractionWithTree(
 					state->nextHotInteraction.startBoundingBox, tree, link);
 				state->nextHotInteraction.type = DebugInteractionType::Tear;
 			}
@@ -1579,9 +1579,9 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		state->interacting = true;
 		if (state->interaction.type == DebugInteractionType::Tear) {
 #if 1
-			DebugVariableLink* tearPoint = state->interaction.linkInTree.link;
+			DebugVariableLink* tearPoint = state->interaction.tree.link;
 			DebugVariableLink* oldParentGroup = tearPoint->parent;
-			DebugTree* dstTree = state->interaction.linkInTree.tree;
+			DebugTree* dstTree = state->interaction.tree.tree;
 			if (oldParentGroup) {
 				DebugVariableLink* prevChild = 0;
 				for (DebugVariableLink* child = oldParentGroup->firstChild; child; child = child->next) {
@@ -1614,7 +1614,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		V2 dMouse = mousePos - state->interaction.startMousePos;
 		switch (state->interaction.type) {
 		case DebugInteractionType::Toggle: {
-			DebugTree* tree = state->interaction.linkInTree.tree;
+			DebugTree* tree = state->interaction.tree.tree;
 			if (LengthSq(dMouse) > 5.f) {
 				state->interaction = InteractionMoveTree(mousePos, tree, tree->pos);
 			}
@@ -1673,7 +1673,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	} break;
 	case DebugInteractionType::Toggle: {
 		if (WasReleased(controller.B.mouseLeft) || !IsPressed(controller.B.mouseLeft)) {
-			DebugEvent* event = &state->interaction.linkInTree.link->variable->newestEvent->event;
+			DebugEvent* event = &state->interaction.tree.link->variable->newestEvent->event;
 			event->data_bool = !event->data_bool;
 			interactionEnded = true;
 		}
@@ -1710,8 +1710,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		interactionEnded = true;
 	} break;
 	}
-	if (state->interaction.obj == DebugInteractionObject::LinkInTree) {
-		DebugVariable* var = state->interaction.linkInTree.link->variable;
+	if (state->interaction.obj == DebugInteractionObject::Tree) {
+		DebugVariable* var = state->interaction.tree.link->variable;
 		if (var) {
 			debugGlobalState->swapEvent = var->newestEvent->event;
 		}
