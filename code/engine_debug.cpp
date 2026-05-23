@@ -931,9 +931,9 @@ void DebugCollateEvents(DebugState* state) {
 					span->minT = minT;
 					span->maxT = maxT;
 					span->thread = stack->laneId;
-					span->name = "TODO";//openEvent->blockName;
+					span->name = openEvent->GUID;
 					if (parentBlock) {
-						span->parentName = "TODO"; //parentBlock->event.blockName;
+						span->parentName = parentBlock->event.GUID;
 						Assert(parentBlock->childSpans.count < ArrayCount(parentBlock->childSpans.children));
 						parentBlock->childSpans.children[parentBlock->childSpans.count++] = span;
 					}
@@ -1182,6 +1182,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		V4{1, 1, 0.5, 1},
 
 		V4{1, 0.5f, 0.5f, 1},
+		V4{0.5f, 0.5f, 0.5f, 1},
 	};
 	f32 frameWidth = f4(state->threadStacksCount) * threadLaneTotalWidth + frameLaneSpace;
 	f32 maxWidth = Maximum(state->collationFrameCount * frameWidth, viewDim.X);

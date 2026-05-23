@@ -198,7 +198,6 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
 		RecordDebugEvent(Event_Data_##type, GUID); \
 		if(debugGlobalState->swapEvent.GUID == GUID){ \
 			data = debugGlobalState->swapEvent.data_##type; \
-			debugGlobalState->swapEvent.GUID = 0;\
 		}\
 		event_->data_##type = data;	\
 	}
