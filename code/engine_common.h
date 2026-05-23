@@ -189,6 +189,11 @@ bool StringsAreEqual(const char* A, u32 ALength, const char* B, u32 BLength) {
 }
 
 inline
+bool StringsAreEqual(String8 first, String8 second) {
+	return StringsAreEqual(first.str, first.length, second.str, second.length);
+}
+
+inline
 bool StringsAreEqual(const char* A, u32 ALength, const char* B) {
 	for (u32 idx = 0; idx < ALength; idx++) {
 		if (*B == 0 || *A++ != *B++) {
@@ -215,5 +220,28 @@ u64 ConcatenateString(char* first, u64 firstSize, char* second, u64 secondSize, 
 	dst += length;
 	length += CopyString(second, secondSize, dst, dstSize - length);
 	return length;
+}
+
+inline
+u64 FindCharacterInString(const char* input, char character) {
+	const char* found = input;
+	const char* at = input;
+	while (*at != 0) {
+		if (*at == character) {
+			found = at;
+			break;
+		}
+		at++;
+	}
+	return found - input;
+}
+
+inline
+String8 AdvanceString(String8 string, u32 amount) {
+	u32 toAdvance = Minimum(amount, string.length);
+	String8 result = string;
+	result.str += toAdvance;
+	result.length -= toAdvance;
+	return result;
 }
 

@@ -49,6 +49,21 @@ struct MemoryArenaSnapshot {
 	MemoryArena* parent;
 };
 
+struct DebugParsedGUID {
+	const char* GUID;
+	u16 fileStart;
+	u16 fileLength;
+
+	u16 lineStart;
+	u16 lineLength;
+
+	u16 counterStart;
+	u16 counterLength;
+
+	u16 nameStart;
+	u16 nameLength;
+};
+
 struct DebugEvent {
 	DebugEventType type;
 	u8 coreId;
@@ -82,9 +97,7 @@ struct DebugStoredEvent {
 };
 
 struct DebugVariable {
-	const char* GUID;
-	const char* name;
-	u32 nameLength;
+	DebugParsedGUID GUID;
 	bool permanent;
 
 	DebugVariable* nextInHash;
@@ -263,8 +276,7 @@ struct DataBlock {
 
 struct DebugVariableLink;
 struct DebugVariableGroup {
-	const char* name;
-	u32 nameLength;
+	String8 name;
 	bool expanded;
 
 	DebugVariableGroup* nextInHash;

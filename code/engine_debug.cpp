@@ -282,6 +282,24 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) {
 	return result;
 }
 
+internal
+DebugParsedGUID DebugParseGUID(const char* input) {
+	DebugParsedGUID parsed;
+	parsed.GUID = input;
+	parsed.fileStart = 0;
+	parsed.fileLength = u2(FindCharacterInString(input, '|'));
+	input += parsed.fileLength + 1;
+	parsed.lineStart = u2(input - parsed.GUID);
+	parsed.lineLength = u2(FindCharacterInString(input, '|'));
+	input += parsed.lineLength + 1;
+	parsed.counterStart = u2(input - parsed.GUID);
+	parsed.counterLength = u2(FindCharacterInString(input, '|'));
+	input += parsed.counterLength + 1;
+	parsed.nameStart = u2(input - parsed.GUID);
+	parsed.nameLength = u2(StringLength(input));
+	return parsed;
+}
+
 inline
 u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodepoint) {
 	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
@@ -415,8 +433,7 @@ DebugTree* AddTree(DebugState* state, V2 pos, const char* name) {
 	tree->pos = pos;
 	tree->rootGroup = {};
 	tree->rootGroup.expanded = false;
-	tree->rootGroup.name = name;
-	tree->rootGroup.nameLength = StringLength(tree->rootGroup.name);
+	tree->rootGroup.name = String8{name, StringLength(name)};
 	tree->rootGroup.containingLink = link;
 	DLINKED_LIST_ADD(&state->UISentinel, tree);
 	return tree;
@@ -570,7 +587,7 @@ DebugVariableLink* AddGroupToGroup(DebugState* state, DebugVariableGroup* parent
 }
 
 inline
-u32 GetStringHash(const char* string, u32 length) {
+u32 GetStringHash(String8 string) {
 	// TODO: Better hash function!
 	u32 hash = 0;
 	internal u32 primes[] = {
@@ -582,23 +599,22 @@ u32 GetStringHash(const char* string, u32 length) {
 		373, 379, 383, 389, 397, 401, 409, 419, 421, 431, 433, 439, 443, 
 		449, 457, 461, 463, 467, 479, 487, 491, 499, 503, 509, 521, 523, 541
 	};
-	Assert(length < ArrayCount(primes))
-	for (u32 idx = 0; idx < length; idx++) {
-		hash += primes[idx] * (string[idx] - 'a');
+	Assert(string.length < ArrayCount(primes))
+	for (u32 idx = 0; idx < string.length; idx++) {
+		hash += primes[idx] * (string.str[idx] - 'a');
 		hash ^= 524287;
 	}
 	return hash;
 }
 
 internal
-DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, const char* name, u32 nameLength) {
+DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGroup* parentGroup, String8 name) {
 	TIMED_FUNCTION;
 	// TODO: Could I avoid hashing string?
-	u32 hashSlot = (GetStringHash(name, nameLength)) % ArrayCount(state->groupHash);
+	u32 hashSlot = GetStringHash(name) % ArrayCount(state->groupHash);
 	DebugVariableGroup* result = 0;
 	for (DebugVariableGroup* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
-		if (StringsAreEqual(group->name, group->nameLength, name, nameLength))
-		{
+		if (StringsAreEqual(group->name, name)) {
 			result = group;
 			break;
 		}
@@ -608,7 +624,6 @@ DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGro
 		result->expanded = false;
 		result->firstLink = 0;
 		result->name = name;
-		result->nameLength = nameLength;
 		result->parentGroup = parentGroup;
 		AddGroupToGroup(state, parentGroup, result);
 		result->nextInHash = state->groupHash[hashSlot];
@@ -621,7 +636,7 @@ inline
 DebugVariable* GetDebugVariable_(DebugState* state, const char* GUID, u32 hashSlot) {
 	DebugVariable* result = 0;
 	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-		if (var->GUID == GUID) {
+		if (var->GUID.GUID == GUID) {
 			result = var;
 			break;
 		}
@@ -653,9 +668,7 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 	DebugVariable* result = GetDebugVariable_(state, event->GUID, hashSlot);
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariable);
-		result->GUID = event->GUID;
-		result->nameLength = StringLength(event->GUID);
-		result->name = PushString(state->mainArena, event->GUID, result->nameLength);
+		result->GUID = DebugParseGUID(event->GUID);
 		result->nextInHash = state->variableHash[hashSlot];
 		result->oldestEvent = storedEvent;
 		result->newestEvent = storedEvent;
@@ -847,27 +860,33 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 }
 
 internal
-DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableGroup* group, const char* GUID) {
+DebugVariableGroup* GetGroupForHierachicalName(DebugState* state, DebugVariableGroup* group, String8 hierarchicalName) {
 	const char* firstUnderscore = 0;
-	const char* at = GUID;
-	while (*at != 0) {
+	const char* at = hierarchicalName.str;
+	for (u32 i = 0; i < hierarchicalName.length; i++) {
 		if (*at == '/') {
 			firstUnderscore = at;
 			break;
 		}
 		at++;
-		if (*at == 0) {
-			firstUnderscore = at;
-			break;
-		}
+	}
+	if (hierarchicalName.length > 0 && firstUnderscore == 0) {
+		firstUnderscore = at;
 	}
 	DebugVariableGroup* result = group;
 	if (firstUnderscore) {
-		u32 descentGroupNameLength = u4(firstUnderscore - GUID);
-		DebugVariableGroup* descentGroup = GetOrCreateVariableGroup(state, group, GUID, descentGroupNameLength);
-		result = GetGroupForHierachicalName(state, descentGroup, GUID + descentGroupNameLength + 1);
+		u32 descentGroupNameLength = u4(firstUnderscore - hierarchicalName.str);
+		String8 groupName = String8{ hierarchicalName.str, descentGroupNameLength };
+		DebugVariableGroup* descentGroup = GetOrCreateVariableGroup(state, group, groupName);
+		String8 newName = AdvanceString(hierarchicalName, descentGroupNameLength + 1);
+		result = GetGroupForHierachicalName(state, descentGroup, newName);
 	}
 	return result;
+}
+
+inline 
+String8 GetName(DebugParsedGUID& GUID) {
+	return { GUID.GUID + GUID.nameStart, GUID.nameLength };
 }
 
 internal
@@ -923,10 +942,12 @@ void DebugCollateEvents(DebugState* state) {
 		} break;
 		case Event_Data_BlockBegin: {
 			OpenDebugEvent* block = PushToEventStack(state, &stack->dataEvents, event);
+			DebugParsedGUID guid = DebugParseGUID(event->GUID);
+			String8 hierarchicalName = GetName(guid);
 			//DebugStoredEvent* storedEvent = StoreEvent(state, block->group, event, frameIndex, true);
 			block->group = GetGroupForHierachicalName(state, 
 				block->group ? block->group : &state->UISentinel.next->rootGroup,
-				event->GUID
+				hierarchicalName
 			);
 		} break;
 		case Event_Data_BlockEnd: {
@@ -1011,39 +1032,40 @@ u64 DebugVariableToText(DebugVariable* variable, char* buffer, u64 size, u32 fla
 			at += sprintf_s(at, end - at, "#define CONSTANT_");
 		}
 		const char* colon = (flags & DebugVarToText_AddColon) ? ":" : "";
+		String8 variableName = GetName(variable->GUID);
 		switch (event->type) {
 		case Event_Data_bool: {
-			at += sprintf_s(at, end - at, "%.*s%s %d", variable->nameLength, variable->name, colon, event->data_bool);
+			at += sprintf_s(at, end - at, "%.*s%s %d", variableName.length, variableName.str, colon, event->data_bool);
 		} break;
 		case Event_Data_i32: {
-			at += sprintf_s(at, end - at, "%.*s%s %d", variable->nameLength, variable->name, colon, event->data_i32);
+			at += sprintf_s(at, end - at, "%.*s%s %d", variableName.length, variableName.str, colon, event->data_i32);
 		} break;
 		case Event_Data_u32: {
-			at += sprintf_s(at, end - at, "%.*s%s %d", variable->nameLength, variable->name, colon, event->data_u32);
+			at += sprintf_s(at, end - at, "%.*s%s %d", variableName.length, variableName.str, colon, event->data_u32);
 		} break;
 		case Event_Data_f32: {
-			at += sprintf_s(at, end - at, "%.*s%s %f", variable->nameLength, variable->name, colon, event->data_f32);
+			at += sprintf_s(at, end - at, "%.*s%s %f", variableName.length, variableName.str, colon, event->data_f32);
 			if (flags & DebugVarToText_AddFloatSuffix && (end - at) > 0) {
 				*at++ = 'f';
 			}
 		} break;
 		case Event_Data_V2: {
-			at += sprintf_s(at, end - at, "%.*s%s {%f, %f}", variable->nameLength, variable->name, colon,
+			at += sprintf_s(at, end - at, "%.*s%s {%f, %f}", variableName.length, variableName.str, colon,
 				event->data_V2.X, event->data_V2.Y);
 		} break;
 		case Event_Data_V3: {
-			at += sprintf_s(at, end - at, "%.*s%s {%f, %f, %f}", variable->nameLength, variable->name, colon,
+			at += sprintf_s(at, end - at, "%.*s%s {%f, %f, %f}", variableName.length, variableName.str, colon,
 				event->data_V3.X, event->data_V3.Y, event->data_V3.Z);
 		} break;
 		case Event_Data_V4: {
-			at += sprintf_s(at, end - at, "%.*s%s {%f, %f, %f, %f}", variable->nameLength, variable->name, colon,
+			at += sprintf_s(at, end - at, "%.*s%s {%f, %f, %f, %f}", variableName.length, variableName.str, colon,
 				event->data_V4.X, event->data_V4.Y, event->data_V4.Z, event->data_V4.W);
 		} break;
 		case Event_Data_BlockBegin: {
-			at += sprintf_s(at, end - at, "%.*s%s", variable->nameLength, variable->name, colon);
+			at += sprintf_s(at, end - at, "%.*s%s", variableName.length, variableName.str, colon);
 		} break;
 		default: {
-			at += sprintf_s(at, end - at, "Unknown: %.*s", variable->nameLength, variable->name);
+			at += sprintf_s(at, end - at, "Unknown: %.*s", variableName.length, variableName.str);
 		} break;
 		}
 		if (flags & DebugVarToText_AddNewLine && (end - at) > 0) {
@@ -1426,7 +1448,7 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 					*at++ = ' ';
 				}
 				if (isGroup) {
-					at += sprintf_s(at, end - at, "%.*s:", node->group->nameLength, node->group->name);
+					at += sprintf_s(at, end - at, "%.*s:", node->group->name.length, node->group->name.str);
 				}
 				else {
 					DebugVariableToText(node->variable, at, u4(end - at), DebugVarToText_AddColon);
