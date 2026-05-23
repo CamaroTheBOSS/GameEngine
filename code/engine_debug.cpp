@@ -29,6 +29,8 @@ inline bool WasReleased(Button& button);
 #define DEBUG_CONFIG_PATH "..\\code\\engine_debug_config.h"
 #define DEBUG_COLLATION_SCALE (1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ));
 
+internal DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableGroup* group);
+
 inline
 bool AreDebugIdsEqual(DebugId id1, DebugId id2) {
 	bool result = id1.ptr == id2.ptr &&
@@ -284,17 +286,20 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) {
 
 internal
 DebugParsedGUID DebugParseGUID(const char* input) {
+	if (input[0] == 'S' && input[1] == 'i' && input[2] == 'm') {
+		int breakhere = 0;
+	}
 	DebugParsedGUID parsed;
 	parsed.GUID = input;
 	parsed.fileStart = 0;
 	parsed.fileLength = u2(FindCharacterInString(input, '|'));
-	input += parsed.fileLength + 1;
+	input += parsed.fileLength + (parsed.fileLength != 0);
 	parsed.lineStart = u2(input - parsed.GUID);
 	parsed.lineLength = u2(FindCharacterInString(input, '|'));
-	input += parsed.lineLength + 1;
+	input += parsed.lineLength + (parsed.lineLength != 0);
 	parsed.counterStart = u2(input - parsed.GUID);
 	parsed.counterLength = u2(FindCharacterInString(input, '|'));
-	input += parsed.counterLength + 1;
+	input += parsed.counterLength + (parsed.counterLength != 0);
 	parsed.nameStart = u2(input - parsed.GUID);
 	parsed.nameLength = u2(StringLength(input));
 	return parsed;
@@ -435,6 +440,7 @@ DebugTree* AddTree(DebugState* state, V2 pos, const char* name) {
 	tree->rootGroup.expanded = false;
 	tree->rootGroup.name = String8{name, StringLength(name)};
 	tree->rootGroup.containingLink = link;
+	tree->rootGroup.containingLink->variable = GetOrCreateDebugVariableForGroup(state, &tree->rootGroup);
 	DLINKED_LIST_ADD(&state->UISentinel, tree);
 	return tree;
 }
@@ -777,21 +783,10 @@ DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariable
 	u32 hashSlot = GetDebugVariableHash_(state, group->name.str);
 	DebugVariable* result = GetDebugVariable_(state, group->name.str, hashSlot);
 	if (!result) {
-		result = PushStructSize(state->mainArena, DebugVariable);
-		result->GUID = {};
-		result->GUID.GUID = group->name.str;
-		result->GUID.nameLength = u2(group->name.length);
-		result->permanent = true;
-
 		DebugEvent event = {};
 		event.GUID = group->name.str;
 		event.data_bool = false;
-		DebugStoredEvent* stored = StoreEvent(state, group, &event, 0, true);
-		result->oldestEvent = stored;
-		result->newestEvent = stored;
-
-		result->nextInHash = state->variableHash[hashSlot];
-		state->variableHash[hashSlot] = result;
+		DebugStoredEvent* stored = StoreEvent(state, 0, &event, 0, true);
 	}
 	return result;
 }
@@ -818,8 +813,7 @@ DebugVariableGroup* GetOrCreateVariableGroup(DebugState* state, DebugVariableGro
 		AddGroupToGroup(state, parentGroup, result);
 		result->nextInHash = state->groupHash[hashSlot];
 		state->groupHash[hashSlot] = result;
-
-		DebugVariable* variable = GetOrCreateDebugVariableForGroup(state, result);
+		result->containingLink->variable = GetOrCreateDebugVariableForGroup(state, result);
 	}
 	return result;
 }
