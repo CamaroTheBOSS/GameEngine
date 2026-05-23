@@ -328,6 +328,12 @@ DebugParsedGUID DebugParseGUID(const char* input) {
 	return parsed;
 }
 
+DebugParsedGUID DebugCopyGUID(MemoryArena& arena, DebugParsedGUID& src) {
+	DebugParsedGUID result = src;
+	result.GUID.str = PushString(arena, src.GUID.str, src.GUID.length);
+	return result;
+}
+
 inline
 u32 GetFontWidthAdvanceFor(LoadedFont* font, u32 firstCodepoint, u32 secondCodepoint) {
 	Assert(firstCodepoint < font->onePastMaxCodepoint && secondCodepoint < font->onePastMaxCodepoint);
@@ -653,7 +659,7 @@ DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariable
 	DebugVariable* result = GetDebugVariable_(state, eventParsedGuid, hashSlot);
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariable);
-		result->parsedGuid = eventParsedGuid;
+		result->parsedGuid = DebugCopyGUID(state->mainArena, eventParsedGuid);
 		result->nextInHash = state->variableHash[hashSlot];
 		result->oldestEvent = storedEvent;
 		result->newestEvent = storedEvent;
