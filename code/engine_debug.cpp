@@ -90,13 +90,13 @@ bool SelectedById(DebugSelectedSpan& span) {
 
 inline
 bool SpanShouldBeRendered(DebugSelectedSpan& selected, DebugProfilerSpan* span) {
-	if (SelectedByName(selected) && span->parentName != selected.name) {
+	if (SelectedByName(selected) && span->parentName.str != selected.name.str) {
 		return false;
 	}
 	if (SelectedById(selected) && span->parentSpanId != selected.spanId) {
 		return false;
 	}
-	if (selected.type == SpanSelection_None && span->parentName != 0) {
+	if (selected.type == SpanSelection_None && span->parentName.str != 0) {
 		return false;
 	}
 	return true;
@@ -112,10 +112,10 @@ bool IsVariableHot(DebugState* state, DebugSelectedSpan& selectedSpan) {
 	if (SelectedById(hotSelectedSpan)) {
 		result = hotSelectedSpan.captureFrameIndex == selectedSpan.captureFrameIndex &&
 			hotSelectedSpan.spanId == selectedSpan.spanId &&
-			hotSelectedSpan.name == selectedSpan.name;
+			hotSelectedSpan.name.str == selectedSpan.name.str;
 	}
 	else if (SelectedByName(hotSelectedSpan)) {
-		result = hotSelectedSpan.name == selectedSpan.name;
+		result = hotSelectedSpan.name.str == selectedSpan.name.str;
 	}
 	return result;
 }
@@ -919,7 +919,8 @@ void DebugCollateEvents(DebugState* state) {
 		DebugParsedGUID parsedGuid = DebugParseGUID(event->GUID);
 		switch (event->type) {
 		case Event_Time_BlockBegin: {
-			PushToEventStack(state, &stack->timeEvents, event);
+			OpenDebugEvent* block = PushToEventStack(state, &stack->timeEvents, event);
+			block->parsedGuid = parsedGuid;
 		} break;
 		case Event_Time_BlockEnd: {
 			OpenDebugEvent* block = stack->timeEvents;
@@ -936,9 +937,9 @@ void DebugCollateEvents(DebugState* state) {
 					span->minT = minT;
 					span->maxT = maxT;
 					span->thread = stack->laneId;
-					span->name = openEvent->GUID;
+					span->name = GetName(block->parsedGuid);
 					if (parentBlock) {
-						span->parentName = parentBlock->event.GUID;
+						span->parentName = GetName(parentBlock->parsedGuid);
 						Assert(parentBlock->childSpans.count < ArrayCount(parentBlock->childSpans.children));
 						parentBlock->childSpans.children[parentBlock->childSpans.count++] = span;
 					}
@@ -1219,21 +1220,21 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 					threadLaneWidth, threadLaneTotalWidth, span->minT, span->maxT
 				);
 
-				u32 colorIndex = u4(uptr(span->name) >> 2) % ArrayCount(colors);
+				u32 colorIndex = u4(uptr(span->name.str)) % ArrayCount(colors);
 				V4 rectColor = colors[colorIndex];
 				if (IsInRectangle(spanRect, mousePos)) {
-					DebugSelectedSpan selectedSpanData = { SpanSelection_None, span->name, span->spanId, frame->frameIndex };
+					DebugSelectedSpan selectedSpanData = { SpanSelection_None, String8{span->name.str, span->spanId}, frame->frameIndex };
 					if (IsVariableHot(state, selectedSpanData)) {
 						rectColor = V4{ 1, 1, 1, 1 };
-						if (span->name) {
+						if (span->name.str) {
 							char buffer[256];
-							sprintf_s(buffer, "%s", span->name);
+							sprintf_s(buffer, "%.*s", span->name.length, span->name.str);
 							V4 color = V4{ 1, 1, 1, 1 };
 							f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
 							V2 textPos = mousePos + V2{ 0, lineAdvance };
 							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 							textPos += V2{ 0, lineAdvance };
-							sprintf_s(buffer, "t<%4f,%4f>, p%p", span->minT, span->maxT, span->name);
+							sprintf_s(buffer, "t<%4f,%4f>, p%p", span->minT, span->maxT, span->name.str);
 							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 						}
 					}

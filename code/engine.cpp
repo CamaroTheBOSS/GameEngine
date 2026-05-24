@@ -1426,7 +1426,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 			V3 upStairsPos = groundLevelPos + V3{ 0, 0, entity->walkableDim.Z };
 			PushRectBorders(renderGroup, DefaultUprightTransform(), upStairsPos, entity->collision->totalVolume.size.XY, V4{ 0, 0, 0, layerAlpha }, 0.1f);
 		} break;
-#if 0
+#if 1
 		case EntityType_Familiar: {
 			f32 minDistance = Squared(10.f);
 			V3 minDistanceEntityPos = {};

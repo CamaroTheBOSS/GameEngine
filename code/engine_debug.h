@@ -136,6 +136,7 @@ struct DebugProfilerSpanChildren {
 
 struct DebugVariableLink;
 struct OpenDebugEvent {
+	DebugParsedGUID parsedGuid;
 	DebugEvent event;
 	union {
 		DebugProfilerSpanChildren childSpans;
@@ -290,8 +291,8 @@ struct DebugProfilerSpan {
 	u8 thread;
 	u32 spanId; //NOTE: Id unique in scope of a collation frame
 	u32 parentSpanId;
-	const char* name;
-	const char* parentName;
+	String8 name;
+	String8 parentName;
 
 	DebugProfilerSpan* next;
 };
@@ -392,7 +393,7 @@ enum DebugSpanSelectionType {
 };
 struct DebugSelectedSpan {
 	DebugSpanSelectionType type;
-	const char* name;
+	String8 name;
 	u32 spanId;
 	u32 captureFrameIndex;
 };
