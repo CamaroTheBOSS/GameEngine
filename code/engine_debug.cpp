@@ -546,6 +546,11 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 		V2 leftUpCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 		//state->fontContext = InitializeFontDrawContext(state->font, 0.15f, lineAdvance, leftUpCorner - V2{ 0, lineAdvance });
 	}
+	debugGlobalState->swapEvent.GUID = 0;
+	state->profilerIsPausedFrameCount += DEBUG_Profiler_Pause;
+	if (!DEBUG_Profiler_Pause) {
+		state->profilerIsPausedFrameCount = 0;
+	}
 	return state;
 }
 
@@ -896,7 +901,7 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 internal
 void DebugCollateEvents(DebugState* state) {
 	TIMED_FUNCTION;
-	if(DEBUG_Profiler_Pause) {
+	if (state->profilerIsPausedFrameCount > 2) {
 		return;
 	}
 
