@@ -462,8 +462,8 @@ DebugTree* AddTree(DebugState* state, V2 pos, const char* name) {
 	tree->rootGroup = {};
 	tree->rootGroup.isGroup = true;
 	DebugParsedGUID guid = {};
-	guid.GUID.str = name;
 	guid.GUID.length = StringLength(name);
+	guid.GUID.str = PushString(state->mainArena, name, guid.GUID.length);
 	guid.nameLength = u2(guid.GUID.length);
 	tree->rootGroup.variable = GetOrCreateDebugVariableForGroup(state, &tree->rootGroup, guid);
 	DLINKED_LIST_ADD(&state->UISentinel, tree);
