@@ -1011,13 +1011,7 @@ void DebugCollateEvents(DebugState* state) {
 			// exponential growth of events incoming to the debug system until the memory is drained
 			// StoreEvent(state, 0, event, newFrame->frameIndex);
 		} break;
-		case Event_Data_bool:
-		case Event_Data_u32:
-		case Event_Data_i32:
-		case Event_Data_f32:
-		case Event_Data_V2:
-		case Event_Data_V3:
-		case Event_Data_V4: {
+		default: {
 			StoreEvent(state, stack->dataEvents->group, event, parsedGuid, newFrame->frameIndex, true);
 		} break;
 		}
@@ -1193,8 +1187,9 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 	f32 maxWidth = Maximum(state->collationFrameCount * frameWidth, viewDim.X);
 	if (isHot) {
 		view.offset += V2{ state->controller->mouseWheelTicks * 30.f, 0.f };
-		view.offset = Clip(view.offset, 0.f, maxWidth - viewDim.X);
 	}
+	view.offset = Clip(view.offset, 0.f, maxWidth - viewDim.X);
+	//PRINT_DEBUGGING("Offset: %f, %f --- Value of limits: <0, %f>", view.offset.X, view.offset.Y, maxWidth - viewDim.X)
 	
 	f32 currentWidth = frameWidth - view.offset.X;
 	f32 collationScale = DEBUG_COLLATION_SCALE;
