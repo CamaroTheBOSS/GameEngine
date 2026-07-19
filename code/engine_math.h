@@ -508,6 +508,18 @@ struct Rect2 {
 };
 
 inline
+f32 GetHeight(Rect2 rect) {
+	f32 result = rect.max.Y - rect.min.Y;
+	return result;
+}
+
+inline
+f32 GetWidth(Rect2 rect) {
+	f32 result = rect.max.X - rect.min.X;
+	return result;
+}
+
+inline
 Rect2 AddRadius(Rect2 A, f32 R) {
 	f32 halfR = 0.5f * R;
 	A.min.X -= halfR;

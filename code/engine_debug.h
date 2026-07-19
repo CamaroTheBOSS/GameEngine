@@ -89,11 +89,26 @@ struct DebugEvent {
 	};
 };
 
+struct DebugProfilerSpan {
+	f32 minT;
+	f32 maxT;
+	u8 thread;
+	u32 spanId; //NOTE: Id unique in scope of a collation frame
+	DebugParsedGUID guid;
+
+	DebugProfilerSpan* sibling;
+	DebugProfilerSpan* firstChild;
+};
+
 struct DebugStoredEvent {
 	u32 captureFrameIndex;
 
-	DebugEvent event;
+	union {
+		DebugEvent event;
+		DebugProfilerSpan span;
+	};
 	DebugStoredEvent* next;
+	DebugStoredEvent* prev;
 };
 
 struct DebugVariable {
@@ -101,8 +116,7 @@ struct DebugVariable {
 	bool permanent;
 
 	DebugVariable* nextInHash;
-	DebugStoredEvent* oldestEvent;
-	DebugStoredEvent* newestEvent;
+	DebugStoredEvent* eventSentinel;
 };
 
 struct PermanentDebugVariable {
@@ -128,18 +142,13 @@ struct DebugGlobalState {
 extern DebugGlobalState* debugGlobalState;
 #endif
 
-struct DebugProfilerSpan;
-struct DebugProfilerSpanChildren {
-	u32 count;
-	DebugProfilerSpan* children[MAX_CHILD_SPANS];
-};
-
 struct DebugVariableLink;
+struct DebugProfilerSpan;
 struct OpenDebugEvent {
 	DebugParsedGUID parsedGuid;
 	DebugEvent event;
 	union {
-		DebugProfilerSpanChildren childSpans;
+		DebugProfilerSpan* firstChild;
 		DebugVariableLink* group;
 	};
 	OpenDebugEvent* next;
@@ -285,19 +294,6 @@ struct DebugVariableLink {
 	bool isGroup;
 };
 
-struct DebugProfilerSpan {
-	f32 minT;
-	f32 maxT;
-	u8 thread;
-	u32 spanId; //NOTE: Id unique in scope of a collation frame
-	u32 parentSpanId;
-	String8 name;
-	String8 parentName;
-
-	DebugProfilerSpan* next;
-};
-
-
 struct DebugCollationFrame {
 	u64 startCycles;
 	u64 endCycles;
@@ -308,8 +304,8 @@ struct DebugCollationFrame {
 
 	u8 threadCount;
 	u32 spanCount;
-	DebugProfilerSpan* firstCpuSpan; // NOTE: These are connected with nextSpan
-	DebugProfilerSpan* lastCpuSpan;
+	//DebugProfilerSpan* firstCpuSpan; // NOTE: These are connected with nextSpan
+	//DebugProfilerSpan* lastCpuSpan;
 
 	DebugCollationFrame* next;
 	DebugCollationFrame* prev;
@@ -388,13 +384,13 @@ struct DebugDraggedFloat {
 };
 enum DebugSpanSelectionType {
 	SpanSelection_None,
-	SpanSelection_ById,
-	SpanSelection_ByName
+	SpanSelection_ByPtr,
+	SpanSelection_ByGuid
 };
 struct DebugSelectedSpan {
 	DebugSpanSelectionType type;
-	String8 name;
-	u32 spanId;
+	DebugParsedGUID byGuid;
+	DebugStoredEvent* byPtr;
 	u32 captureFrameIndex;
 };
 

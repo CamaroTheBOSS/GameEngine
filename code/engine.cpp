@@ -1520,6 +1520,11 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	}
 #endif
 	TIMED_BLOCK_END;
+	/*for (u32 index = 0; index < 200; index++) {
+		f32 x = RandomInRange(state->generalEntropy, -4, 4);
+		f32 y = RandomInRange(state->generalEntropy, -4, 4);
+		PushRect(renderGroup, DefaultFlatTransform(), GetRectFromCenterDim(V2{ x, y }, V2{ 10, 10 }), 0, V4{ 1, 0, 0, 0 });
+	}*/
 #if 0
 	EnvironmentMap* maps[3] = {
 		&tranState->topEnvMap,

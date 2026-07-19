@@ -96,6 +96,8 @@
 	(node)->next->prev = (node)->prev; \
 	(node)->prev->next = (node)->next;
 
+#define DLINKED_LIST_IS_EMPTY(sentinel) sentinel->next == sentinel
+
 
 typedef uint8_t u8;
 typedef uint16_t u16;

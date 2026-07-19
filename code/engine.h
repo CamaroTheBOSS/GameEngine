@@ -131,6 +131,8 @@ struct DebugState {
 	u32 selectedArenaViewsCount;
 	DebugArenaView* selectedArenaViews[MAX_DEPTH_SPANS];
 	u32 profilerIsPausedFrameCount;
+	DebugEvent rootCpuProfilerEvent;
+	DebugParsedGUID rootCpuProfilerEventGuid;
 
 	// Debug in debug :)
 	u32 allocFramesSum;
