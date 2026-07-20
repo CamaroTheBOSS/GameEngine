@@ -93,7 +93,6 @@ struct DebugProfilerSpan {
 	f32 minT;
 	f32 maxT;
 	u8 thread;
-	u32 spanId; //NOTE: Id unique in scope of a collation frame
 	DebugParsedGUID guid;
 
 	DebugProfilerSpan* sibling;
@@ -302,11 +301,6 @@ struct DebugCollationFrame {
 	u32 eventsCount;
 	u32 frameIndex;
 
-	u8 threadCount;
-	u32 spanCount;
-	//DebugProfilerSpan* firstCpuSpan; // NOTE: These are connected with nextSpan
-	//DebugProfilerSpan* lastCpuSpan;
-
 	DebugCollationFrame* next;
 	DebugCollationFrame* prev;
 };
@@ -391,7 +385,6 @@ struct DebugSelectedSpan {
 	DebugSpanSelectionType type;
 	DebugParsedGUID byGuid;
 	DebugStoredEvent* byPtr;
-	u32 captureFrameIndex;
 };
 
 struct DebugInteractionTree {
