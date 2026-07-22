@@ -3,13 +3,10 @@
 
 // ------------------- EVENT PROFILER --------------------
 #define MAX_DEBUG_EVENTS 900000
-#define MAX_DEBUG_FRAMES 40
 #define MAX_DEBUG_THREADS 64
-#define MAX_STACK_REGIONS 4096
-#define DEBUG_CPU_FREQ (2.9f * 1000 * 1000)
-#define DEBUG_TARGET_REFRESH_MS 16.6666666f
+#define DEBUG_CPU_FREQ (2.9f * 1000'000'000)
+#define DEBUG_TARGET_FPS 60.f
 
-#define MAX_CHILD_SPANS 128
 #define MAX_DEPTH_SPANS 128
 
 struct DebugId {
@@ -90,10 +87,10 @@ struct DebugEvent {
 };
 
 struct DebugProfilerSpan {
-	f32 minT;
-	f32 maxT;
-	u8 thread;
+	u64 cyclesStart;
+	u64 cyclesEnd;
 	DebugParsedGUID guid;
+	u8 thread;
 
 	DebugProfilerSpan* sibling;
 	DebugProfilerSpan* firstChild;
@@ -116,6 +113,10 @@ struct DebugVariable {
 
 	DebugVariable* nextInHash;
 	DebugStoredEvent* eventSentinel;
+
+	//Metrics (valid values only for variables with DebugProfilerSpan type of union in StoredEvent)
+	u64 eventCount;
+	u64 durationSum;
 };
 
 struct PermanentDebugVariable {

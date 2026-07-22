@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "renderer_software.cpp"
 
 /* TODO:
 * Better profiler 
@@ -32,7 +33,7 @@ inline bool IsPressed(Button& button);
 inline bool WasPressed(Button& button);
 inline bool WasReleased(Button& button);
 #define DEBUG_CONFIG_PATH "..\\code\\engine_debug_config.h"
-#define DEBUG_COLLATION_SCALE (1.f / (DEBUG_TARGET_REFRESH_MS * DEBUG_CPU_FREQ));
+const f32 DEBUG_COLLATION_SCALE = (DEBUG_TARGET_FPS / DEBUG_CPU_FREQ);
 
 internal DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* link, DebugParsedGUID& guid);
 
@@ -297,13 +298,24 @@ bool DEBUG_HIGHLIGHTED(DebugId did, V4* color) {
 	return true;
 }
 
-inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) {
+inline 
+bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) {
 	DebugState* state = GetDebugState();
 	if (!state) {
 		return false;
 	}
 	bool result = IsSelected(state, did) || IsHighlighted(state, did);
 	return result;
+}
+
+inline
+u32 GetFrameCount(DebugState* state) {
+	return state->framesSentinel.next->frameIndex - state->framesSentinel.prev->frameIndex;
+}
+
+inline
+u32 GetVariableEventSpan(DebugVariable* var) {
+	return var->eventSentinel->next->captureFrameIndex - var->eventSentinel->prev->captureFrameIndex + 1;
 }
 
 internal
@@ -516,7 +528,7 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 		state->cpuProfiler.view.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
 		state->cpuProfiler.view.zoom = state->cpuProfiler.view.projection.camera.focalLength;
 		state->rootCpuProfilerEvent = {};
-		state->rootCpuProfilerEvent.GUID = UniqueGUID("Root event");
+		state->rootCpuProfilerEvent.GUID = UniqueGUID("[Whole Frame]");
 		state->rootCpuProfilerEventGuid = DebugParseGUID(state->rootCpuProfilerEvent.GUID);
 
 		state->memProfiler.view.rect = Rect2{
@@ -526,6 +538,14 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 		state->memProfiler.view.offset = V2{ 0, 0 };
 		state->memProfiler.view.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
 		state->memProfiler.view.zoom = state->memProfiler.view.projection.camera.focalLength;
+
+		state->cpuTimingsView.rect = Rect2{
+			V2{ state->cpuProfiler.view.rect.min.X, state->cpuProfiler.view.rect.max.Y + 30.f },
+			V2{ state->cpuProfiler.view.rect.min.X + 310.f, state->cpuProfiler.view.rect.max.Y + 150.f + 30.f }
+		};
+		state->cpuTimingsView.offset = V2{ 0, 0 };
+		state->cpuTimingsView.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
+		state->cpuTimingsView.zoom = state->cpuTimingsView.projection.camera.focalLength;
 
 		state->threadStacks = PushArray(state->mainArena, MAX_DEBUG_THREADS, DebugThreadStack);
 		DLINKED_LIST_INIT(&state->UISentinel);
@@ -595,6 +615,11 @@ OpenDebugEvent* PushToEventStack(DebugState* state, OpenDebugEvent** stack, Debu
 }
 
 inline
+u64 GetEventCyclesDuration(DebugStoredEvent* event) {
+	return event->span.cyclesEnd - event->span.cyclesStart;
+}
+
+inline
 void PopFromEventStack(DebugState* state, OpenDebugEvent** stack) {
 	OpenDebugEvent* block = *stack;
 	*stack = block->next;
@@ -642,7 +667,7 @@ u32 GetStringHash(String8 string) {
 }
 
 inline
-DebugVariable* GetDebugVariable_(DebugState* state, DebugParsedGUID& parsedGUID, u32 hashSlot) {
+DebugVariable* _GetDebugVariable(DebugState* state, DebugParsedGUID& parsedGUID, u32 hashSlot) {
 	DebugVariable* result = 0;
 	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
 		if (StringsAreEqual(var->parsedGuid.GUID, parsedGUID.GUID)) {
@@ -656,26 +681,23 @@ DebugVariable* GetDebugVariable_(DebugState* state, DebugParsedGUID& parsedGUID,
 inline
 DebugVariable* GetDebugVariable(DebugState* state, DebugParsedGUID& GUID) {
 	u32 hashSlot = GetStringHash(GUID.GUID) % ArrayCount(state->variableHash);
-	DebugVariable* result = GetDebugVariable_(state, GUID, hashSlot);
+	DebugVariable* result = _GetDebugVariable(state, GUID, hashSlot);
 	return result;
 }
 
 internal
-DebugVariable* GetOrCreateDebugVariableForEvent(DebugState* state, DebugVariableLink* group, 
-	DebugStoredEvent* storedEvent, DebugParsedGUID& eventParsedGuid) {
-	// TODO: Verify that this is compiled as AND and not as MOD 
-	// -> TODO: Do the same with CLANG
-	// -> It is with MSVC
-	DebugEvent* event = &storedEvent->event;
-	u32 hashSlot = GetStringHash(eventParsedGuid.GUID) % ArrayCount(state->variableHash);
-	DebugVariable* result = GetDebugVariable_(state, eventParsedGuid, hashSlot);
+DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* group, 
+	DebugParsedGUID& guid, bool permanent = false) {
+	u32 hashSlot = GetStringHash(guid.GUID) % ArrayCount(state->variableHash);
+	DebugVariable* result = _GetDebugVariable(state, guid, hashSlot);
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariable);
 		result->eventSentinel = PushStructSize(state->mainArena, DebugStoredEvent);
+		*result->eventSentinel = {};
 		DLINKED_LIST_INIT(result->eventSentinel);
-		result->parsedGuid = DebugCopyGUID(state->mainArena, eventParsedGuid);
+		result->parsedGuid = DebugCopyGUID(state->mainArena, guid);
 		result->nextInHash = state->variableHash[hashSlot];
-		DLINKED_LIST_ADD(result->eventSentinel, storedEvent);
+		result->permanent = permanent;
 		state->variableHash[hashSlot] = result;
 		if (group) {
 			AddVariableToGroup(state, group, result);
@@ -701,12 +723,17 @@ void FreeOldestFrame(DebugState* state) {
 			DebugStoredEvent* firstEventToRemove = oldestEvent;
 			DebugStoredEvent* lastEventToRemove = oldestEvent;
 			state->deallocEventsSum++;
+			var->eventCount--;
+			var->durationSum -= GetEventCyclesDuration(oldestEvent);
+			Assert(var->eventSentinel->captureFrameIndex == 0);
 			while (lastEventToRemove->prev != var->eventSentinel && lastEventToRemove->captureFrameIndex <= frame->frameIndex) {
 				if (var->permanent && lastEventToRemove->prev == newestEvent) {
 					break;
 				}
 				lastEventToRemove = lastEventToRemove->prev;
 				state->deallocEventsSum++;
+				var->eventCount--;
+				var->durationSum -= GetEventCyclesDuration(lastEventToRemove);
 			}
 			DebugStoredEvent* newOldest = lastEventToRemove->prev;
 			newOldest->next = var->eventSentinel;
@@ -716,49 +743,6 @@ void FreeOldestFrame(DebugState* state) {
 			lastEventToRemove->prev = 0;
 		}
 	}
-
-#if 0
-	for (u32 thread = 0; thread < frame->threadCount; thread++) {
-		DebugProfilerSpan* span = (frame->cpuSpansPerThread + thread)->firstChild;
-		DebugProfilerSpan* spanStack[64] = {};
-		u32 spanStackCount = 0;
-		while (span) {
-			DebugProfilerSpan* next = span;
-			while (next) {
-				if (next->firstChild) {
-					Assert(spanStackCount < ArrayCount(spanStack) - 1);
-					spanStack[++spanStackCount] = next->firstChild;
-				}
-				if (!next->nextPeer) {
-					break;
-				}
-				next = next->nextPeer;
-			}
-			next->nextPeer = state->spanFreeList;
-			state->spanFreeList = span;
-
-			span = spanStack[spanStackCount--];
-		}
-	}
-#if 0
-#else
-	if (frame->lastCpuSpan) {
-#if 0
-		for (DebugProfilerSpan* span = frame->firstCpuSpan; span; span = span->next) {
-			state->deallocSpansSum += frame->spanCount;
-		}
-#else
-		state->deallocSpansSum += frame->spanCount;
-#endif
-		Assert(frame->firstCpuSpan);
-		frame->lastCpuSpan->next = state->spanFreeList;
-		state->spanFreeList = frame->firstCpuSpan;
-	}
-	else {
-		Assert(frame->firstCpuSpan == 0);
-	}
-#endif
-#endif
 	DLINKED_LIST_REMOVE(frame);
 	frame->next = state->freeFrameList;
 	state->freeFrameList = frame;
@@ -767,8 +751,7 @@ void FreeOldestFrame(DebugState* state) {
 }
 
 internal
-DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugEvent* event,
-	DebugParsedGUID& parsedGuid, u32 captureFrameIndex, bool permanent = false) {
+DebugStoredEvent* AllocateEvent(DebugState* state) {
 	DebugStoredEvent* storedEvent = 0;
 	while (!storedEvent) {
 		storedEvent = state->freeStoredEventList;
@@ -785,31 +768,57 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugE
 			return 0;
 		}
 	}
+	storedEvent->captureFrameIndex = state->totalFrameCount;
 	state->allocEventsSum++;
-	storedEvent->event = *event;
-	storedEvent->captureFrameIndex = captureFrameIndex;
-
-	DebugVariable* var = GetOrCreateDebugVariableForEvent(state, group, storedEvent, parsedGuid);
-	var->permanent = permanent;
-	DLINKED_LIST_ADD(var->eventSentinel, storedEvent)
 	return storedEvent;
 }
 
-internal
-DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* group, DebugParsedGUID& parsedGuid) {
-	u32 hashSlot = GetStringHash(parsedGuid.GUID) % ArrayCount(state->variableHash);
-	DebugVariable* result = GetDebugVariable_(state, parsedGuid, hashSlot);
-	if (!result) {
-		DebugEvent event = {};
-		event.GUID = parsedGuid.GUID.str;
-		event.type = Event_Data_bool;
-		event.data_bool = false;
-		DebugStoredEvent* stored = StoreEvent(state, 0, &event, parsedGuid, 0, true);
-		result = GetDebugVariable_(state, parsedGuid, hashSlot);
-	}
+inline
+DebugStoredEvent* _StoreEvent(DebugState* state, DebugVariable* var) {
+	DebugStoredEvent* storedEvent = AllocateEvent(state);
+	DLINKED_LIST_ADD(var->eventSentinel, storedEvent);
+	return storedEvent;
+}
+
+inline
+DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent) {
+	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent);
+	DebugStoredEvent* result = _StoreEvent(state, var);
 	return result;
 }
 
+inline
+DebugStoredEvent* StoreTimedEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, u64 startCycles, u64 endCycles) {
+	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent);
+	DebugStoredEvent* result = _StoreEvent(state, var);
+	var->eventCount++;
+	var->durationSum += endCycles - startCycles;
+
+	result->span.cyclesStart = startCycles;
+	result->span.cyclesEnd = endCycles;
+	result->span.guid = guid;
+	result->span.sibling = 0;
+	result->span.thread = 0;
+	result->span.firstChild = 0;
+	return result;
+}
+
+inline
+DebugStoredEvent* StoreEventCopy(DebugState* state, DebugVariableLink* group, DebugEvent* event, DebugParsedGUID& guid, bool permanent) {
+	DebugStoredEvent* result = StoreEvent(state, group, guid, permanent);
+	result->event = *event;
+	return result;
+}
+
+internal
+DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid) {
+	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, true);
+	DebugStoredEvent* stored = _StoreEvent(state, var);
+	stored->event.GUID = guid.GUID.str;
+	stored->event.type = Event_Data_bool;
+	stored->event.data_bool = false;
+	return var;
+}
 
 internal
 DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink* parentGroup, DebugParsedGUID& parsedGuid) {
@@ -874,16 +883,15 @@ void DebugCollateEvents(DebugState* state) {
 	}
 
 	u32 frameIndex = !debugGlobalState->currentFrameIndex;
-	f32 scale = DEBUG_COLLATION_SCALE;
 	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];
 	u32 eventsInFrameCount = debugGlobalState->eventsCount[frameIndex];
 	DebugCollationFrame* newFrame = AllocateNewDebugFrame(state);
 
-	DebugStoredEvent* rootTimeEvent = StoreEvent(state, 0, &state->rootCpuProfilerEvent, state->rootCpuProfilerEventGuid, newFrame->frameIndex, true);
-	for (u32 eventIndex = 0;
-		eventIndex < eventsInFrameCount;
-		eventIndex++
-		) {
+	DebugStoredEvent* rootTimeEvent = StoreTimedEvent(
+		state, 0, state->rootCpuProfilerEventGuid, 
+		false, newFrame->startCycles, newFrame->endCycles
+	);
+	for (u32 eventIndex = 0; eventIndex < eventsInFrameCount; eventIndex++) {
 		DebugEvent* event = eventsInFrame + eventIndex;
 		DebugThreadStack* stack = GetDebugStackForThread(state, event->threadId);
 		DebugParsedGUID parsedGuid = DebugParseGUID(event->GUID);
@@ -899,13 +907,12 @@ void DebugCollateEvents(DebugState* state) {
 			Assert(openEvent);
 			Assert(openEvent->threadId == event->threadId);
 			Assert(!parentBlock || parentBlock->event.threadId == event->threadId);
-			f32 minT = f4(openEvent->cycles - newFrame->startCycles) * scale;
-			f32 maxT = f4(event->cycles - newFrame->startCycles) * scale;
 
-			DebugStoredEvent* storedEvent = StoreEvent(state, 0, event, block->parsedGuid, newFrame->frameIndex, true);
+			DebugStoredEvent* storedEvent = StoreTimedEvent(
+				state, 0, block->parsedGuid, false, 
+				openEvent->cycles, event->cycles
+			);
 			DebugProfilerSpan* span = &storedEvent->span;
-			span->maxT = maxT;
-			span->minT = minT;
 			span->thread = stack->laneId;
 			span->guid = block->parsedGuid;
 			span->firstChild = block->firstChild;
@@ -917,12 +924,6 @@ void DebugCollateEvents(DebugState* state) {
 				span->sibling = rootTimeEvent->span.firstChild;
 				rootTimeEvent->span.firstChild = span;
 			}
-#if 0
-			for (DebugProfilerSpan* child = block->firstChild; child; child = child->sibling) {
-				//child->parent = span;
-				Assert(child->thread == span->thread);
-			}
-#endif
 			PopFromEventStack(state, &stack->timeEvents);
 		} break;
 		case Event_Data_BlockBegin: {
@@ -935,6 +936,7 @@ void DebugCollateEvents(DebugState* state) {
 		case Event_Data_BlockEnd: {
 			PopFromEventStack(state, &stack->dataEvents);
 		} break;
+#if 0
 		case Event_MemoryArenaInitialize: {
 			DebugArenaView* newArenaView = PushStructSize(state->mainArena, DebugArenaView);
 			newArenaView->event = StoreEvent(state, 0, event, parsedGuid, newFrame->frameIndex, true);
@@ -986,8 +988,13 @@ void DebugCollateEvents(DebugState* state) {
 			// exponential growth of events incoming to the debug system until the memory is drained
 			// StoreEvent(state, 0, event, newFrame->frameIndex);
 		} break;
+#else
+		case Event_MemoryArenaInitialize:
+		case Event_MemoryArenaUpdate:
+			break;
+#endif
 		default: {
-			StoreEvent(state, stack->dataEvents->group, event, parsedGuid, newFrame->frameIndex, true);
+			StoreEventCopy(state, stack->dataEvents->group, event, parsedGuid, true);
 		} break;
 		}
 	}
@@ -1104,7 +1111,8 @@ f32 GetScrollValueForContainer(DebugScroll& scroll, f32 container) {
 }
 
 inline
-void RenderScroll(DebugState* state, V2 center, V2 size, V2 mousePos, f32* data, DebugAxis axis, f32 amountPerPixel) {
+void RenderScroll(DebugState* state, V2 center, V2 size, V2 mousePos, f32* data, DebugAxis axis, f32 amountPerPixel, V2 range) {
+	*data = Clip(*data, range.E[0], range.E[1]);
 	Rect2 scrollAnchor = GetRectFromCenterDim(center, size);
 	V4 itemColor = V4{ 1, 1, 1, 1 };
 	if (IsInRectangle(scrollAnchor, mousePos)) {
@@ -1123,6 +1131,78 @@ void RenderResizeAnchor(DebugState* state, V2 center, V2 size, V2 mousePos, Rect
 		state->nextHotInteraction = InteractionResizedRect2(resizeAnchor, data);
 	}
 	PushRect(state->renderGroup, DefaultFlatTransform(), resizeAnchor, 0, itemColor);
+}
+
+internal
+void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2 mousePos) {
+	TIMED_FUNCTION;
+	if (!DEBUG_Profiler_Cpu) {
+		return;
+	}
+	DebugVirtualView& view = state->cpuTimingsView;
+	bool isHot = IsInRectangle(view.rect, mousePos);
+	if (isHot) {
+		state->nextHotInteraction = InteractionMovedRect2(view.rect, &view.rect);
+		view.offset += V2{ 0.f, -state->controller->mouseWheelTicks * 30.f };
+	}
+	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
+	PushRect(state->renderGroup, DefaultFlatTransform(), view.rect, -1.f, backgroundColor);
+	V2 viewDim = GetDim(view.rect);
+	TemporaryMemory tempMemory = BeginTempMemory(state->mainArena);
+	u32 maxElements = 1024;
+	DebugVariable** variables = PushArray(state->mainArena, maxElements, DebugVariable*);
+	SortElement* sortElements = PushArray(state->mainArena, maxElements, SortElement);
+	SortElement* tmpBuffer = PushArray(state->mainArena, maxElements, SortElement);
+	u32 elementCount = 0;
+	DebugVariable** variablesIt = variables;
+	for (u32 hashSlot = 0; hashSlot < ArrayCount(state->variableHash); hashSlot++) {
+		for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
+			if (var->eventCount == 0) { continue; }
+			Assert(var->eventSentinel->captureFrameIndex == 0);
+			Assert(elementCount < (maxElements - 1));
+			SortElement* sortElement = sortElements + elementCount;
+			sortElement->key = -f4(var->durationSum) / f4(var->eventCount * DEBUG_CPU_FREQ) * 1000.f;
+			sortElement->offset = elementCount++;
+			*variablesIt++ = var;
+		}
+	}
+	RadixSort(sortElements, elementCount, tmpBuffer);
+
+	f32 currentHeight = view.rect.max.Y;
+	f32 currentWidth = view.rect.min.X + 10.f;
+	FontDrawContext fontContext = InitializeFontDrawContext(state->font, state->fontContext.scale, -state->fontContext.lineAdvance, V2{ currentWidth, currentHeight });
+	u32 currentSortIndex = u4(Maximum(0.f, view.offset.Y / fontContext.lineAdvance));
+	while (currentSortIndex < elementCount) {
+		SortElement* sortElement = sortElements + currentSortIndex;
+		DebugVariable* var = variables[sortElement->offset];
+		Assert(var->eventSentinel->captureFrameIndex == 0);
+		f32 timingMs = -sortElement->key;
+		f32 threshold = 0.000f;
+		if (timingMs < threshold) {
+			break;
+		}
+		if (fontContext.leftTopCurrent.Y > view.rect.min.Y) {
+			String8 name = GetName(var->parsedGuid);
+			u32 variableSpan = GetVariableEventSpan(var);
+			char buffer[256];
+			u32 rank = currentSortIndex + 1;
+			sprintf_s(buffer, "%d. %.*s: %.2fms (%lld)", rank, name.length, name.str, timingMs, var->eventCount / variableSpan);
+			V4 color = V4{ 1, 1, 1, 1 };
+			DebugRenderLine(state, buffer, fontContext, color);
+		}
+		currentSortIndex++;
+	}
+	u32 validElementCount = currentSortIndex;
+	f32 maxHeight = Maximum(validElementCount * fontContext.lineAdvance, viewDim.Y);
+	V2 resizeCenter = view.rect.max;
+	V2 resizeSize = V2{ 8, 8 };
+	RenderResizeAnchor(state, resizeCenter, resizeSize, mousePos, &view.rect);
+
+	V2 scrollSize = V2{ 8.f, Squared(viewDim.Y) / maxHeight };
+	V2 scrollCenter = V2{ view.rect.min.X, view.rect.max.Y - view.offset.Y / maxHeight * viewDim.Y - 0.5f * scrollSize.Y };
+	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.Y, Axis_Y, -maxHeight / viewDim.Y, V2{ 0.f, maxHeight - viewDim.Y });
+
+	EndTempMemory(tempMemory);
 }
 
 
@@ -1164,14 +1244,12 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 	if (isHot) {
 		view.offset += V2{ state->controller->mouseWheelTicks * 30.f, 0.f };
 	}
-	view.offset = Clip(view.offset, 0.f, maxWidth - viewDim.X);
-	//PRINT_DEBUGGING("Offset: %f, %f --- Value of limits: <0, %f>", view.offset.X, view.offset.Y, maxWidth - viewDim.X)
-	
+
 	f32 currentWidth = frameWidth - view.offset.X;
-	f32 collationScale = DEBUG_COLLATION_SCALE;
 	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
 	PushRect(state->renderGroup, DefaultFlatTransform(), view.rect, -1.f, backgroundColor);
-	u32 newestFrameIndex = state->framesSentinel.next->frameIndex;
+	DebugCollationFrame* frame = state->framesSentinel.next;
+	u32 newestFrameIndex = frame->frameIndex;
 
 	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
 	DebugStoredEvent* terminationStoredEvent = 0;
@@ -1188,14 +1266,19 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		terminationStoredEvent = var->eventSentinel;
 	}
 	DebugStoredEvent* currentStoredEvent = terminationStoredEvent->next;
-	
 	while (currentWidth < viewDim.X + frameWidth && currentStoredEvent != terminationStoredEvent) {
 		if (currentWidth >= 0) {
 			DebugProfilerSpan* rootSpan = &currentStoredEvent->span;
-			for (DebugProfilerSpan* span = rootSpan->firstChild; span; span = span->sibling) {
-				//Assert(rootSpan->thread == span->thread);
+			DebugProfilerSpan* firstSpan = rootSpan->firstChild;
+			for (DebugProfilerSpan* span = firstSpan; span; span = span->sibling) {
+				f32 minT = f4(span->cyclesStart - frame->startCycles) * DEBUG_COLLATION_SCALE;
+				f32 maxT = f4(span->cyclesEnd - frame->startCycles) * DEBUG_COLLATION_SCALE;
+				f32 threshold = 0.01f;
+				if (maxT - minT < threshold) {
+					continue;
+				}
 				Rect2 spanRect = GetCpuSpanRectangle(view.rect, currentWidth, span->thread,
-					threadLaneWidth, threadLaneTotalWidth, span->minT, span->maxT
+					threadLaneWidth, threadLaneTotalWidth, minT, maxT
 				);
 				String8 name = GetName(span->guid);
 				u32 colorIndex = u4(uptr(name.str)) % ArrayCount(colors);
@@ -1215,7 +1298,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 							V2 textPos = mousePos + V2{ 0, lineAdvance };
 							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 							textPos += V2{ 0, lineAdvance };
-							sprintf_s(buffer, "t<%4f,%4f>, p%p", span->minT, span->maxT, name.str);
+							sprintf_s(buffer, "t<%4f,%4f>, p%p", minT, maxT, name.str);
 							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 						}
 					}
@@ -1228,6 +1311,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		}
 		if (currentStoredEvent->captureFrameIndex != currentStoredEvent->next->captureFrameIndex) {
 			currentWidth += frameWidth;
+			frame = frame->next;
 		}
 		currentStoredEvent = currentStoredEvent->next;
 		if (SelectedByPtr(selectedSpan)) {
@@ -1241,7 +1325,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 
 	V2 scrollSize = V2{ Squared(viewDim.X) / maxWidth, 8.f };
 	V2 scrollCenter = V2{ view.rect.max.X - view.offset.X / maxWidth * viewDim.X - 0.5f * scrollSize.X, view.rect.min.Y };
-	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, - maxWidth / viewDim.X);
+	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, -maxWidth / viewDim.X, V2{0.f, maxWidth - viewDim.X });
 }
 
 inline
@@ -1407,7 +1491,7 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 
 	V2 scrollCenter = V2{ viewCenter.X + view.offset.X, view.rect.min.Y };
 	V2 scrollSize = V2{ zoomedViewDim.X, 8.f };
-	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, 1.f);
+	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, 1.f, V2{-F32_MAX, F32_MAX});
 }
 
 internal
@@ -1787,6 +1871,7 @@ void DebugRenderOverlay(DebugState* state) {
 	V2 mousePos = FromPixelSpaceToWorldSpace(state->renderGroup.projection, controller.mouse, 0.f);
 	DebugRenderVariablesMenu(state, controller, mousePos);
 	DebugRenderCpuProfiler(state, controller, mousePos);
+	DebugRenderCpuProfilerTimings(state, controller, mousePos);
 	DebugRenderMemoryProfiler(state, controller, mousePos);
 	DebugInteract(state, mousePos, controller);
 
@@ -1832,7 +1917,7 @@ void DebugRenderOverlay(DebugState* state) {
 #endif
 #if 1
 		DebugCollationFrame* frame = state->framesSentinel.next;
-		f32 durationMs = f4(frame->endCycles - frame->startCycles) / DEBUG_CPU_FREQ;
+		f32 durationMs = 1000.f * f4(frame->endCycles - frame->startCycles) / DEBUG_CPU_FREQ;
 		f32 durationMsNoDebug = durationMs - f4(frame->endCyclesDebugFinishFrame - frame->startCyclesDebugFinishFrame) * DEBUG_COLLATION_SCALE;
 		PRINT_DEBUGGING("Frame duration: %.2fms (%.2fms)", durationMs, durationMsNoDebug);
 #endif
