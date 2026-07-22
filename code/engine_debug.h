@@ -110,6 +110,7 @@ struct DebugStoredEvent {
 struct DebugVariable {
 	DebugParsedGUID parsedGuid;
 	bool permanent;
+	bool timed;
 
 	DebugVariable* nextInHash;
 	DebugStoredEvent* eventSentinel;

@@ -143,6 +143,11 @@ bool IsDebugIdNull(DebugId id) {
 }
 
 inline
+f32 DurationToMs(u64 durationCycles) {
+	return 1000.f * f4(durationCycles) / DEBUG_CPU_FREQ;
+}
+
+inline
 DebugId GetDebugIdForLink(DebugVariableLink* link) {
 	DebugId id = {};
 	id.ptr = link;
@@ -433,6 +438,14 @@ void DebugRenderLine(DebugState* state, const char* text, V2 pos, f32 scale, V4 
 }
 
 inline
+void DebugRenderLine(DebugState* state, const char* text, FontDrawContext& context, V4 color, bool render = true, Rect2* boundingBox = 0, f32 Z = 0.f) {
+	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, color, render, boundingBox, Z);
+	if (render) {
+		context.leftTopCurrent.E[1] -= context.lineAdvance;
+	}
+}
+
+inline
 void DebugRenderLineWithOutline(DebugState* state, const char* text, V2 pos, f32 scale, V4 textColor, V4 outlineColor, f32 Z = 0.f) {
 	Rect2 bb = {};
 
@@ -442,15 +455,18 @@ void DebugRenderLineWithOutline(DebugState* state, const char* text, V2 pos, f32
 }
 
 inline
-void DebugRenderLine(DebugState* state, const char* text, FontDrawContext& context, V4 color, bool render = true, Rect2* boundingBox = 0) {
-	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, color, render, boundingBox);
-	context.leftTopCurrent.E[1] -= context.lineAdvance;
+void DebugRenderLineWithOutline(DebugState* state, const char* text, FontDrawContext& context, V4 textColor, V4 outlineColor, f32 Z = 0.f) {
+	Rect2 bb = {};
+
+	DebugRenderLine(state, text, context, textColor, false, &bb);
+	PushRect(state->renderGroup, DefaultFlatTransform(), AddRadius(bb, V2{ 4.f, 4.f }), Z, outlineColor);
+	DebugRenderLine(state, text, context, textColor, true, 0, Z);
 }
 
 inline
-Rect2 GetTextBoundingBox(DebugState* state, const char* text, FontDrawContext& context, V4 color) {
+Rect2 GetTextBoundingBox(DebugState* state, const char* text, FontDrawContext& context) {
 	Rect2 boundingBox = {};
-	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, color, false, &boundingBox);
+	DebugRenderLine(state, text, context.leftTopCurrent, context.scale, V4{0, 0, 0, 0}, false, &boundingBox);
 	return boundingBox;
 }
 
@@ -687,7 +703,7 @@ DebugVariable* GetDebugVariable(DebugState* state, DebugParsedGUID& GUID) {
 
 internal
 DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* group, 
-	DebugParsedGUID& guid, bool permanent = false) {
+	DebugParsedGUID& guid, bool permanent, bool timed) {
 	u32 hashSlot = GetStringHash(guid.GUID) % ArrayCount(state->variableHash);
 	DebugVariable* result = _GetDebugVariable(state, guid, hashSlot);
 	if (!result) {
@@ -698,6 +714,7 @@ DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* gr
 		result->parsedGuid = DebugCopyGUID(state->mainArena, guid);
 		result->nextInHash = state->variableHash[hashSlot];
 		result->permanent = permanent;
+		result->timed = timed;
 		state->variableHash[hashSlot] = result;
 		if (group) {
 			AddVariableToGroup(state, group, result);
@@ -781,15 +798,15 @@ DebugStoredEvent* _StoreEvent(DebugState* state, DebugVariable* var) {
 }
 
 inline
-DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent) {
-	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent);
+DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, bool timed) {
+	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent, timed);
 	DebugStoredEvent* result = _StoreEvent(state, var);
 	return result;
 }
 
 inline
 DebugStoredEvent* StoreTimedEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, u64 startCycles, u64 endCycles) {
-	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent);
+	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent, true);
 	DebugStoredEvent* result = _StoreEvent(state, var);
 	var->eventCount++;
 	var->durationSum += endCycles - startCycles;
@@ -805,14 +822,14 @@ DebugStoredEvent* StoreTimedEvent(DebugState* state, DebugVariableLink* group, D
 
 inline
 DebugStoredEvent* StoreEventCopy(DebugState* state, DebugVariableLink* group, DebugEvent* event, DebugParsedGUID& guid, bool permanent) {
-	DebugStoredEvent* result = StoreEvent(state, group, guid, permanent);
+	DebugStoredEvent* result = StoreEvent(state, group, guid, permanent, false);
 	result->event = *event;
 	return result;
 }
 
 internal
 DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid) {
-	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, true);
+	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, true, false);
 	DebugStoredEvent* stored = _StoreEvent(state, var);
 	stored->event.GUID = guid.GUID.str;
 	stored->event.type = Event_Data_bool;
@@ -1133,6 +1150,9 @@ void RenderResizeAnchor(DebugState* state, V2 center, V2 size, V2 mousePos, Rect
 	PushRect(state->renderGroup, DefaultFlatTransform(), resizeAnchor, 0, itemColor);
 }
 
+inline
+bool IsVariableTimed(DebugVariable* var) { return var->timed; }
+
 internal
 void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2 mousePos) {
 	TIMED_FUNCTION;
@@ -1157,11 +1177,11 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 	DebugVariable** variablesIt = variables;
 	for (u32 hashSlot = 0; hashSlot < ArrayCount(state->variableHash); hashSlot++) {
 		for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-			if (var->eventCount == 0) { continue; }
+			if (var->eventCount == 0 || !IsVariableTimed(var)) { continue; }
 			Assert(var->eventSentinel->captureFrameIndex == 0);
 			Assert(elementCount < (maxElements - 1));
 			SortElement* sortElement = sortElements + elementCount;
-			sortElement->key = -f4(var->durationSum) / f4(var->eventCount * DEBUG_CPU_FREQ) * 1000.f;
+			sortElement->key = -DurationToMs(var->durationSum) / var->eventCount;
 			sortElement->offset = elementCount++;
 			*variablesIt++ = var;
 		}
@@ -1177,10 +1197,6 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 		DebugVariable* var = variables[sortElement->offset];
 		Assert(var->eventSentinel->captureFrameIndex == 0);
 		f32 timingMs = -sortElement->key;
-		f32 threshold = 0.000f;
-		if (timingMs < threshold) {
-			break;
-		}
 		if (fontContext.leftTopCurrent.Y > view.rect.min.Y) {
 			String8 name = GetName(var->parsedGuid);
 			u32 variableSpan = GetVariableEventSpan(var);
@@ -1188,7 +1204,14 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 			u32 rank = currentSortIndex + 1;
 			sprintf_s(buffer, "%d. %.*s: %.2fms (%lld)", rank, name.length, name.str, timingMs, var->eventCount / variableSpan);
 			V4 color = V4{ 1, 1, 1, 1 };
-			DebugRenderLine(state, buffer, fontContext, color);
+
+			Rect2 bb = GetTextBoundingBox(state, buffer, fontContext);
+			if (IsInRectangle(bb, mousePos)) {
+				DebugRenderLineWithOutline(state, buffer, fontContext, color, V4{ 0, 0, 0, 1 }, 1.f);
+			}
+			else {
+				DebugRenderLine(state, buffer, fontContext, color);
+			}
 		}
 		currentSortIndex++;
 	}
@@ -1526,7 +1549,7 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 					DebugVariableToText(node->variable, at, u4(end - at), DebugVarToText_AddColon);
 				}
 
-				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext, itemColor);
+				Rect2 bb = GetTextBoundingBox(state, buffer, fontContext);
 				if (IsInRectangle(bb, mousePos)) {
 					state->nextHotInteraction = InteractionWithTree(bb, tree, node);
 				}
@@ -1911,14 +1934,10 @@ void DebugRenderOverlay(DebugState* state) {
 			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 #endif
 		}
-		
-#if 0
-		PRINT_DEBUGGING("pushes size events: f: %d all: %d", state->debugPushSizeEventsPerFrame, state->debugPushSizeEvents);
-#endif
 #if 1
 		DebugCollationFrame* frame = state->framesSentinel.next;
-		f32 durationMs = 1000.f * f4(frame->endCycles - frame->startCycles) / DEBUG_CPU_FREQ;
-		f32 durationMsNoDebug = durationMs - f4(frame->endCyclesDebugFinishFrame - frame->startCyclesDebugFinishFrame) * DEBUG_COLLATION_SCALE;
+		f32 durationMs = DurationToMs(frame->endCycles - frame->startCycles);
+		f32 durationMsNoDebug = durationMs - DurationToMs(frame->endCyclesDebugFinishFrame - frame->startCyclesDebugFinishFrame);
 		PRINT_DEBUGGING("Frame duration: %.2fms (%.2fms)", durationMs, durationMsNoDebug);
 #endif
 	}
