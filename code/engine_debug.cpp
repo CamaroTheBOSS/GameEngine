@@ -99,19 +99,9 @@ bool SelectedByPtr(DebugSelectedSpan& span) {
 	return span.type == SpanSelection_ByPtr;
 }
 
-//inline
-//bool SpanShouldBeRendered(DebugSelectedSpan& selected, DebugProfilerSpan* span) {
-//	if (SelectedByName(selected) && span->parent->name.str != selected.name.str) {
-//		return false;
-//	}
-//	if (SelectedByPtr(selected) && span->parent->spanId != selected.spanId) {
-//		return false;
-//	}
-//	if (selected.type == SpanSelection_None && span->parent != 0) {
-//		return false;
-//	}
-//	return true;
-//}
+struct SelectedSpanIter {
+	DebugStoredEvent* terminationEvent;
+};
 
 inline
 bool IsVariableHot(DebugState* state, DebugSelectedSpan& selectedSpan) {
@@ -563,6 +553,14 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 		state->cpuTimingsView.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
 		state->cpuTimingsView.zoom = state->cpuTimingsView.projection.camera.focalLength;
 
+		state->cpuTimingsHierarchyView.rect = Rect2{
+			V2{ state->cpuProfiler.view.rect.min.X + 310.f, state->cpuProfiler.view.rect.max.Y + 30.f },
+			V2{ state->cpuProfiler.view.rect.min.X + 620.f, state->cpuProfiler.view.rect.max.Y + 150.f + 30.f }
+		};
+		state->cpuTimingsHierarchyView.offset = V2{ 0, 0 };
+		state->cpuTimingsHierarchyView.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
+		state->cpuTimingsHierarchyView.zoom = state->cpuTimingsHierarchyView.projection.camera.focalLength;
+
 		state->threadStacks = PushArray(state->mainArena, MAX_DEBUG_THREADS, DebugThreadStack);
 		DLINKED_LIST_INIT(&state->UISentinel);
 		DLINKED_LIST_INIT(&state->framesSentinel);
@@ -715,6 +713,8 @@ DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* gr
 		result->nextInHash = state->variableHash[hashSlot];
 		result->permanent = permanent;
 		result->timed = timed;
+		result->eventCount = 0;
+		result->durationSum = 0;
 		state->variableHash[hashSlot] = result;
 		if (group) {
 			AddVariableToGroup(state, group, result);
@@ -740,8 +740,12 @@ void FreeOldestFrame(DebugState* state) {
 			DebugStoredEvent* firstEventToRemove = oldestEvent;
 			DebugStoredEvent* lastEventToRemove = oldestEvent;
 			state->deallocEventsSum++;
-			var->eventCount--;
-			var->durationSum -= GetEventCyclesDuration(oldestEvent);
+			if (var->timed) {
+				Assert(var->eventCount > 0);
+				var->eventCount--;
+				var->durationSum -= GetEventCyclesDuration(oldestEvent);
+			}
+			
 			Assert(var->eventSentinel->captureFrameIndex == 0);
 			while (lastEventToRemove->prev != var->eventSentinel && lastEventToRemove->captureFrameIndex <= frame->frameIndex) {
 				if (var->permanent && lastEventToRemove->prev == newestEvent) {
@@ -749,8 +753,11 @@ void FreeOldestFrame(DebugState* state) {
 				}
 				lastEventToRemove = lastEventToRemove->prev;
 				state->deallocEventsSum++;
-				var->eventCount--;
-				var->durationSum -= GetEventCyclesDuration(lastEventToRemove);
+				if (var->timed) {
+					Assert(var->eventCount > 0);
+					var->eventCount--;
+					var->durationSum -= GetEventCyclesDuration(lastEventToRemove);
+				}
 			}
 			DebugStoredEvent* newOldest = lastEventToRemove->prev;
 			newOldest->next = var->eventSentinel;
@@ -1128,8 +1135,7 @@ f32 GetScrollValueForContainer(DebugScroll& scroll, f32 container) {
 }
 
 inline
-void RenderScroll(DebugState* state, V2 center, V2 size, V2 mousePos, f32* data, DebugAxis axis, f32 amountPerPixel, V2 range) {
-	*data = Clip(*data, range.E[0], range.E[1]);
+void RenderScroll(DebugState* state, V2 center, V2 size, V2 mousePos, f32* data, DebugAxis axis, f32 amountPerPixel) {
 	Rect2 scrollAnchor = GetRectFromCenterDim(center, size);
 	V4 itemColor = V4{ 1, 1, 1, 1 };
 	if (IsInRectangle(scrollAnchor, mousePos)) {
@@ -1192,6 +1198,9 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 	f32 currentWidth = view.rect.min.X + 10.f;
 	FontDrawContext fontContext = InitializeFontDrawContext(state->font, state->fontContext.scale, -state->fontContext.lineAdvance, V2{ currentWidth, currentHeight });
 	u32 currentSortIndex = u4(Maximum(0.f, view.offset.Y / fontContext.lineAdvance));
+	f32 maxHeight = Maximum((elementCount + 1) * fontContext.lineAdvance, viewDim.Y);
+	view.offset.Y = Clip(view.offset.Y, 0, maxHeight - viewDim.Y);
+
 	while (currentSortIndex < elementCount) {
 		SortElement* sortElement = sortElements + currentSortIndex;
 		DebugVariable* var = variables[sortElement->offset];
@@ -1215,15 +1224,127 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 		}
 		currentSortIndex++;
 	}
-	u32 validElementCount = currentSortIndex;
-	f32 maxHeight = Maximum(validElementCount * fontContext.lineAdvance, viewDim.Y);
 	V2 resizeCenter = view.rect.max;
 	V2 resizeSize = V2{ 8, 8 };
 	RenderResizeAnchor(state, resizeCenter, resizeSize, mousePos, &view.rect);
 
 	V2 scrollSize = V2{ 8.f, Squared(viewDim.Y) / maxHeight };
 	V2 scrollCenter = V2{ view.rect.min.X, view.rect.max.Y - view.offset.Y / maxHeight * viewDim.Y - 0.5f * scrollSize.Y };
-	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.Y, Axis_Y, -maxHeight / viewDim.Y, V2{ 0.f, maxHeight - viewDim.Y });
+	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.Y, Axis_Y, -maxHeight / viewDim.Y);
+
+	EndTempMemory(tempMemory);
+}
+
+internal
+void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& controller, V2 mousePos) {
+	TIMED_FUNCTION;
+	if (!DEBUG_Profiler_Cpu) {
+		return;
+	}
+	DebugVirtualView& view = state->cpuTimingsHierarchyView;
+	bool isHot = IsInRectangle(view.rect, mousePos);
+	if (isHot) {
+		state->nextHotInteraction = InteractionMovedRect2(view.rect, &view.rect);
+		view.offset += V2{ 0.f, -state->controller->mouseWheelTicks * 30.f };
+	}
+	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
+	PushRect(state->renderGroup, DefaultFlatTransform(), view.rect, -1.f, backgroundColor);
+
+
+
+	V2 viewDim = GetDim(view.rect);
+	TemporaryMemory tempMemory = BeginTempMemory(state->mainArena);
+	u32 maxElements = 2048;
+	DebugVariable** variables = PushArray(state->mainArena, maxElements, DebugVariable*);
+	SortElement* sortElements = PushArray(state->mainArena, maxElements, SortElement);
+	SortElement* tmpBuffer = PushArray(state->mainArena, maxElements, SortElement);
+	u32 elementCount = 0;
+	DebugVariable** variablesIt = variables;
+
+
+
+	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
+	DebugStoredEvent* terminationStoredEvent = 0;
+	if (SelectedByPtr(selectedSpan)) {
+		terminationStoredEvent = selectedSpan.byPtr->prev;
+	}
+	else if (SelectedByGuid(selectedSpan)) {
+		DebugVariable* var = GetDebugVariable(state, selectedSpan.byGuid);
+		terminationStoredEvent = var->eventSentinel;
+	}
+	else {
+		DebugVariable* var = GetDebugVariable(state, state->rootCpuProfilerEventGuid);
+		terminationStoredEvent = var->eventSentinel;
+	}
+	DebugStoredEvent* currentStoredEvent = terminationStoredEvent->next;
+	DebugProfilerSpan* rootSpan = &currentStoredEvent->span;
+	DebugProfilerSpan* firstSpan = rootSpan->firstChild;
+	for (DebugProfilerSpan* span = firstSpan; span; span = span->sibling) {
+		String8 name = GetName(span->guid);
+		DebugVariable* var = GetDebugVariable(state, span->guid);
+		if (!var || var->eventCount == 0 || !IsVariableTimed(var)) { continue; }
+		Assert(var->eventSentinel->captureFrameIndex == 0);
+		Assert(elementCount < (maxElements - 1));
+
+		bool found = false;
+		for (u32 existingVarIdx = 0; existingVarIdx < elementCount; existingVarIdx++) {
+			DebugVariable* other = variables[existingVarIdx];
+			if (var->parsedGuid.GUID.str == other->parsedGuid.GUID.str) {
+				found = true;
+				break;
+			}
+		}
+		if (found) {
+			continue;
+		}
+
+		SortElement* sortElement = sortElements + elementCount;
+		sortElement->key = -DurationToMs(var->durationSum) / var->eventCount;
+		sortElement->offset = elementCount++;
+		*variablesIt++ = var;
+	}
+	RadixSort(sortElements, elementCount, tmpBuffer);
+
+
+
+	f32 currentHeight = view.rect.max.Y;
+	f32 currentWidth = view.rect.min.X + 10.f;
+	FontDrawContext fontContext = InitializeFontDrawContext(state->font, state->fontContext.scale, -state->fontContext.lineAdvance, V2{ currentWidth, currentHeight });
+	u32 currentSortIndex = u4(Maximum(0.f, view.offset.Y / fontContext.lineAdvance));
+	f32 maxHeight = Maximum((elementCount + 1) * fontContext.lineAdvance, viewDim.Y);
+	view.offset.Y = Clip(view.offset.Y, 0, maxHeight - viewDim.Y);
+
+	u32 rank = currentSortIndex + 1;
+	while (currentSortIndex < elementCount) {
+		SortElement* sortElement = sortElements + currentSortIndex;
+		DebugVariable* var = variables[sortElement->offset];
+		Assert(var->eventSentinel->captureFrameIndex == 0);
+		f32 timingMs = -sortElement->key;
+		if (fontContext.leftTopCurrent.Y > view.rect.min.Y) {
+			String8 name = GetName(var->parsedGuid);
+			u32 variableSpan = GetVariableEventSpan(var);
+			char buffer[256];
+			sprintf_s(buffer, "%d. %.*s: %.2fms (%lld)", rank, name.length, name.str, timingMs, var->eventCount / variableSpan);
+			V4 color = V4{ 1, 1, 1, 1 };
+
+			Rect2 bb = GetTextBoundingBox(state, buffer, fontContext);
+			if (IsInRectangle(bb, mousePos)) {
+				DebugRenderLineWithOutline(state, buffer, fontContext, color, V4{ 0, 0, 0, 1 }, 1.f);
+			}
+			else {
+				DebugRenderLine(state, buffer, fontContext, color);
+			}
+			rank++;
+		}
+		currentSortIndex++;
+	}
+	V2 resizeCenter = view.rect.max;
+	V2 resizeSize = V2{ 8, 8 };
+	RenderResizeAnchor(state, resizeCenter, resizeSize, mousePos, &view.rect);
+
+	V2 scrollSize = V2{ 8.f, Squared(viewDim.Y) / maxHeight };
+	V2 scrollCenter = V2{ view.rect.min.X, view.rect.max.Y - view.offset.Y / maxHeight * viewDim.Y - 0.5f * scrollSize.Y };
+	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.Y, Axis_Y, -maxHeight / viewDim.Y);
 
 	EndTempMemory(tempMemory);
 }
@@ -1267,6 +1388,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 	if (isHot) {
 		view.offset += V2{ state->controller->mouseWheelTicks * 30.f, 0.f };
 	}
+	view.offset.X = Clip(view.offset.X, 0.f, maxWidth - viewDim.X);
 
 	f32 currentWidth = frameWidth - view.offset.X;
 	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
@@ -1348,7 +1470,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 
 	V2 scrollSize = V2{ Squared(viewDim.X) / maxWidth, 8.f };
 	V2 scrollCenter = V2{ view.rect.max.X - view.offset.X / maxWidth * viewDim.X - 0.5f * scrollSize.X, view.rect.min.Y };
-	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, -maxWidth / viewDim.X, V2{0.f, maxWidth - viewDim.X });
+	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, -maxWidth / viewDim.X);
 }
 
 inline
@@ -1514,7 +1636,7 @@ void DebugRenderMemoryProfiler(DebugState* state, Controller& controller, V2 mou
 
 	V2 scrollCenter = V2{ viewCenter.X + view.offset.X, view.rect.min.Y };
 	V2 scrollSize = V2{ zoomedViewDim.X, 8.f };
-	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, 1.f, V2{-F32_MAX, F32_MAX});
+	RenderScroll(state, scrollCenter, scrollSize, mousePos, &view.offset.X, Axis_X, 1.f);
 }
 
 internal
@@ -1895,6 +2017,7 @@ void DebugRenderOverlay(DebugState* state) {
 	DebugRenderVariablesMenu(state, controller, mousePos);
 	DebugRenderCpuProfiler(state, controller, mousePos);
 	DebugRenderCpuProfilerTimings(state, controller, mousePos);
+	DebugRenderCpuProfilerTimingsHierarchy(state, controller, mousePos);
 	DebugRenderMemoryProfiler(state, controller, mousePos);
 	DebugInteract(state, mousePos, controller);
 

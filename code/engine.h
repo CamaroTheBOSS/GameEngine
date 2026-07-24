@@ -128,6 +128,7 @@ struct DebugState {
 	DebugProfiler cpuProfiler;
 	DebugProfiler memProfiler;
 	DebugVirtualView cpuTimingsView;
+	DebugVirtualView cpuTimingsHierarchyView;
 	DebugArenaView* arenaViews;
 	u32 selectedArenaViewsCount;
 	DebugArenaView* selectedArenaViews[MAX_DEPTH_SPANS];
