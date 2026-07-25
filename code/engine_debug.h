@@ -86,6 +86,7 @@ struct DebugEvent {
 	};
 };
 
+struct DebugStoredEvent;
 struct DebugProfilerSpan {
 	u64 cyclesStart;
 	u64 cyclesEnd;
@@ -93,8 +94,8 @@ struct DebugProfilerSpan {
 	DebugParsedGUID guid;
 	u8 thread;
 
-	DebugProfilerSpan* sibling;
-	DebugProfilerSpan* firstChild;
+	DebugStoredEvent* sibling;
+	DebugStoredEvent* firstChild;
 };
 
 struct DebugStoredEvent {
@@ -150,7 +151,7 @@ struct OpenDebugEvent {
 	DebugParsedGUID parsedGuid;
 	DebugEvent event;
 	union {
-		DebugProfilerSpan* firstChild;
+		DebugStoredEvent* firstChild;
 		DebugVariableLink* group;
 	};
 	OpenDebugEvent* next;
