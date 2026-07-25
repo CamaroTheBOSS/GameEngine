@@ -443,7 +443,7 @@ debug_variable bool DEBUG_Debug_ShowInteractions = 1;
 debug_variable bool DEBUG_Debug_ShowEventsCount = 1;
 debug_variable bool DEBUG_Profiler_Memory;
 debug_variable bool DEBUG_Profiler_Cpu = 1;
-debug_variable bool DEBUG_Profiler_CpuSpansList;
+debug_variable bool DEBUG_Profiler_CpuShowMostExpensiveFunctions = 0;
 debug_variable bool DEBUG_Profiler_Pause;
 debug_variable bool DEBUG_Camera_Zoomout;
 debug_variable f32 DEBUG_Camera_ZoomoutValue = 10.f;

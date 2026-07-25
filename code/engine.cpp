@@ -998,7 +998,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	{DEBUG_DATA_BLOCK("Profiler");
 		DEBUG_DATA(DEBUG_Profiler_Memory);
 		DEBUG_DATA(DEBUG_Profiler_Cpu);
-		DEBUG_DATA(DEBUG_Profiler_CpuSpansList);
+		DEBUG_DATA(DEBUG_Profiler_CpuShowMostExpensiveFunctions);
 		DEBUG_DATA(DEBUG_Profiler_Pause);}
 #endif
 

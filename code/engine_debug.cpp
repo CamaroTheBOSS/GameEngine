@@ -17,10 +17,14 @@
 * - checking and modifing values!
 */
 
+#if 0
 #define PRINT_DEBUGGING(format, ...) \
 	{ char buffer[256]; \
 	sprintf_s(buffer, 256, format, __VA_ARGS__); \
 	DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 }); }
+#else
+#define PRINT_DEBUGGING(...)
+#endif
 
 DebugGlobalState debugGlobalState_ = {};
 DebugGlobalState* debugGlobalState = &debugGlobalState_;
@@ -540,8 +544,8 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 		state->overlayBoundaries = GetRectFromCenterDim(V2{ 0, 0 }, V2i(bitmapWidth, bitmapHeight));
 		
 		state->cpuProfiler.view.rect = Rect2{
-			V2{ state->overlayBoundaries.min + V2{ 30.f, 30.f } },
-			V2{ state->overlayBoundaries.max.X - 30.f, state->overlayBoundaries.min.Y + 250.f }
+			V2{ state->overlayBoundaries.min + V2{ 30.f, 120.f } },
+			V2{ state->overlayBoundaries.max.X - 30.f, state->overlayBoundaries.min.Y + 160.f }
 		};
 		state->cpuProfiler.view.offset = V2{ 0, 0 };
 		state->cpuProfiler.view.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
@@ -559,16 +563,16 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 		state->memProfiler.view.zoom = state->memProfiler.view.projection.camera.focalLength;
 
 		state->cpuTimingsView.rect = Rect2{
-			V2{ state->cpuProfiler.view.rect.min.X, state->cpuProfiler.view.rect.max.Y + 30.f },
-			V2{ state->cpuProfiler.view.rect.min.X + 310.f, state->cpuProfiler.view.rect.max.Y + 150.f + 30.f }
+			V2{ state->overlayBoundaries.min.X + 30,  state->overlayBoundaries.max.Y - 120.f },
+			V2{ state->overlayBoundaries.max.X - 30.f, state->overlayBoundaries.max.Y - 20.f }
 		};
 		state->cpuTimingsView.offset = V2{ 0, 0 };
 		state->cpuTimingsView.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
 		state->cpuTimingsView.zoom = state->cpuTimingsView.projection.camera.focalLength;
 
 		state->cpuTimingsHierarchyView.rect = Rect2{
-			V2{ state->cpuProfiler.view.rect.min.X + 310.f, state->cpuProfiler.view.rect.max.Y + 30.f },
-			V2{ state->cpuProfiler.view.rect.min.X + 620.f, state->cpuProfiler.view.rect.max.Y + 150.f + 30.f }
+			V2{ state->cpuProfiler.view.rect.min.X, state->cpuProfiler.view.rect.min.Y - 100.f },
+			V2{ state->cpuProfiler.view.rect.max.X, state->cpuProfiler.view.rect.min.Y - 10.f }
 		};
 		state->cpuTimingsHierarchyView.offset = V2{ 0, 0 };
 		state->cpuTimingsHierarchyView.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
@@ -1229,10 +1233,28 @@ void RenderResizeAnchor(DebugState* state, V2 center, V2 size, V2 mousePos, Rect
 inline
 bool IsVariableTimed(DebugVariable* var) { return var->timed; }
 
+
+inline
+void GetVarMetricsByText(DebugVariable* var, char* dst, size_t dstSize, u32 rank) {
+	String8 name = GetName(var->parsedGuid);
+	u32 variableSpan = GetVariableEventSpan(var);
+	f32 sumTimingMs = DurationToMs(var->durationSum);
+	f32 avgTimingMs = sumTimingMs / var->eventHitSum;
+	u64 callsCount = var->eventHitSum / variableSpan;
+	if (rank > 0) {
+		sprintf_s(dst, dstSize, "%-2d. %-30.*s:  AVG(%8.2fms)           SUM(%8.2fms)           COUNT(%5lld)",
+			rank, name.length, name.str, avgTimingMs, sumTimingMs, callsCount);
+	}
+	else {
+		sprintf_s(dst, dstSize, "###[%-30.*s:  AVG(%8.2fms)           SUM(%8.2fms)           COUNT(%5lld)",
+			name.length, name.str, avgTimingMs, sumTimingMs, callsCount);
+	}
+}
+
 internal
 void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2 mousePos) {
 	TIMED_FUNCTION;
-	if (!DEBUG_Profiler_Cpu) {
+	if (!DEBUG_Profiler_CpuShowMostExpensiveFunctions) {
 		return;
 	}
 	DebugVirtualView& view = state->cpuTimingsView;
@@ -1271,21 +1293,14 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 	f32 maxHeight = Maximum((elementCount + 1) * fontContext.lineAdvance, viewDim.Y);
 	view.offset.Y = Clip(view.offset.Y, 0, maxHeight - viewDim.Y);
 
+	char buffer[256];
 	while (currentSortIndex < elementCount) {
 		SortElement* sortElement = sortElements + currentSortIndex;
 		DebugVariable* var = variables[sortElement->offset];
 		Assert(var->eventSentinel->captureFrameIndex == 0);
-		f32 avgTimingMs = -sortElement->key;
-		f32 sumTimingMs = DurationToMs(var->durationSum);
 		if (fontContext.leftTopCurrent.Y > view.rect.min.Y) {
-			String8 name = GetName(var->parsedGuid);
-			u32 variableSpan = GetVariableEventSpan(var);
-			char buffer[256];
-			u32 rank = currentSortIndex + 1;
-			sprintf_s(buffer, "%d. %.*s: AVG(%.2fms) SUM(%.2fms) (%lld)", rank, name.length, name.str, 
-				avgTimingMs, sumTimingMs, var->eventHitSum / variableSpan);
 			V4 color = V4{ 1, 1, 1, 1 };
-
+			GetVarMetricsByText(var, buffer, ArrayCount(buffer), currentSortIndex + 1);
 			Rect2 bb = GetTextBoundingBox(state, buffer, fontContext);
 			if (IsInRectangle(bb, mousePos)) {
 				DebugRenderLineWithOutline(state, buffer, fontContext, color, V4{ 0, 0, 0, 1 }, 1.f);
@@ -1333,8 +1348,6 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	u32 elementCount = 0;
 	DebugVariable** variablesIt = variables;
 
-
-
 	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
 	DebugStoredEvent* terminationStoredEvent = 0;
 	if (SelectedByPtr(selectedSpan)) {
@@ -1377,8 +1390,6 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	}
 	RadixSort(sortElements, elementCount, tmpBuffer);
 
-
-
 	f32 currentHeight = view.rect.max.Y;
 	f32 currentWidth = view.rect.min.X + 10.f;
 	FontDrawContext fontContext = InitializeFontDrawContext(state->font, state->fontContext.scale, -state->fontContext.lineAdvance, V2{ currentWidth, currentHeight });
@@ -1386,16 +1397,10 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	f32 maxHeight = Maximum((elementCount + 1) * fontContext.lineAdvance, viewDim.Y);
 	view.offset.Y = Clip(view.offset.Y, 0, maxHeight - viewDim.Y);
 
-	{
-		DebugVariable* rootVar = GetDebugVariable(state, rootSpan->guid);
-		String8 name = GetName(rootSpan->guid);
-		u32 variableSpan = GetVariableEventSpan(rootVar);
-		f32 timingMs = DurationToMs(rootVar->durationSum) / rootVar->eventHitSum;
-		char buffer[256];
-		sprintf_s(buffer, "[%.*s: %.2fms (%lld)]", name.length, name.str, timingMs, rootVar->eventHitSum / variableSpan);
-		V4 color = V4{ 1, 1, 1, 1 };
-		DebugRenderLine(state, buffer, fontContext, color);
-	}
+	char buffer[256];
+	DebugVariable* rootVar = GetDebugVariable(state, rootSpan->guid);
+	GetVarMetricsByText(rootVar, buffer, ArrayCount(buffer), 0);
+	DebugRenderLine(state, buffer, fontContext, V4{ 1, 1, 1, 1 });
 
 	u32 rank = currentSortIndex + 1;
 	while (currentSortIndex < elementCount) {
@@ -1404,12 +1409,8 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 		Assert(var->eventSentinel->captureFrameIndex == 0);
 		f32 timingMs = -sortElement->key;
 		if (fontContext.leftTopCurrent.Y > view.rect.min.Y) {
-			String8 name = GetName(var->parsedGuid);
-			u32 variableSpan = GetVariableEventSpan(var);
-			char buffer[256];
-			sprintf_s(buffer, "%d. %.*s: %.2fms (%lld)", rank, name.length, name.str, timingMs, var->eventHitSum / variableSpan);
 			V4 color = V4{ 1, 1, 1, 1 };
-
+			GetVarMetricsByText(var, buffer, ArrayCount(buffer), rank);
 			Rect2 spanRect = GetTextBoundingBox(state, buffer, fontContext);
 			if (IsInRectangle(spanRect, mousePos)) {
 				DebugProfilerSpan* newestSpan = &GetNewestEvent(var)->span;
@@ -1967,7 +1968,6 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 	}
 
 	if(DEBUG_Debug_ShowInteractions) {
-		char buffer[256];
 		const char* interaction = "Unknown";
 #define CASE_VALUE_TO_STRING(value, assignable) case value: { assignable = #value; } break
 		switch (state->interaction.type) {
@@ -1981,10 +1981,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			CASE_VALUE_TO_STRING(DebugInteractionType::SelectProfilerSpan, interaction);
 			CASE_VALUE_TO_STRING(DebugInteractionType::Tear, interaction);
 		} 
-		char* at = buffer;
-		char* end = buffer + sizeof(buffer);
-		at += sprintf_s(at, end - at, "%s", interaction);
-		DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		PRINT_DEBUGGING("%s", interaction);
 	}
 
 	// What to do at the END of interaction
@@ -2130,6 +2127,7 @@ void DebugRenderOverlay(DebugState* state) {
 		MemoryArena* arenas[] = { &state->collationFrameArena, &state->mainArena };
 		const char* arenaNames[] = { "CollationFrame", "Main" };
 		{
+#if 0
 			char buffer[256];
 			char* at = buffer;
 			char* end = buffer + sizeof(buffer);
@@ -2139,8 +2137,8 @@ void DebugRenderOverlay(DebugState* state) {
 				at += sprintf_s(at, end - at, "%s: %lldkB   ", arenaNames[arenaIndex], arenaRemainingSize);
 			}
 			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-
-#if 1
+#endif
+#if 0
 			u32 allocs[] = { state->allocFramesSum, state->allocEventsSum , state->allocSpansSum };
 			u32 deallocs[] = { state->deallocFramesSum, state->deallocEventsSum , state->deallocSpansSum };
 			const char* varNames[] = { "Frames: ", "Events: ", "Spans: " };
@@ -2153,7 +2151,7 @@ void DebugRenderOverlay(DebugState* state) {
 			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 #endif
 		}
-#if 1
+#if 0
 		DebugCollationFrame* frame = state->framesSentinel.next;
 		f32 durationMs = DurationToMs(frame->endCycles - frame->startCycles);
 		f32 durationMsNoDebug = durationMs - DurationToMs(frame->endCyclesDebugFinishFrame - frame->startCyclesDebugFinishFrame);
