@@ -54,6 +54,7 @@
 #define scast(type, expression) static_cast<type>(expression)
 #define rcst(type, expression) reinterpret_cast<type>(expression)
 #define f4(expression) static_cast<f32>(expression)
+#define f8(expression) static_cast<f64>(expression)
 #define u2(expression) static_cast<u16>(expression)
 #define u4(expression) static_cast<u32>(expression)
 #define i2(expression) static_cast<i16>(expression)

@@ -34,6 +34,7 @@ inline bool WasPressed(Button& button);
 inline bool WasReleased(Button& button);
 #define DEBUG_CONFIG_PATH "..\\code\\engine_debug_config.h"
 const f32 DEBUG_COLLATION_SCALE = (DEBUG_TARGET_FPS / DEBUG_CPU_FREQ);
+const u32 SPAN_MERGE_CYCLES_THRESHOLD = u4(0.001'000f * DEBUG_CPU_FREQ); // 100us
 
 internal DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* link, DebugParsedGUID& guid);
 
@@ -117,6 +118,18 @@ bool IsVariableHot(DebugState* state, DebugSelectedSpan& selectedSpan) {
 		result = hotSelectedSpan.byGuid.GUID.str == selectedSpan.byGuid.GUID.str;
 	}
 	return result;
+}
+
+inline
+bool IsVariableHot(DebugState* state, DebugProfilerSpan* span) {
+	if (state->hotInteraction.obj != DebugInteractionObject::ProfilerSpan) {
+		return false;
+	}
+	DebugSelectedSpan& hotSelectedSpan = state->hotInteraction.selectedSpan;
+	if (SelectedByGuid(hotSelectedSpan)) {
+		return hotSelectedSpan.byGuid.GUID.str == span->guid.GUID.str;
+	}
+	return false;
 }
 
 inline
@@ -472,7 +485,7 @@ FontDrawContext InitializeFontDrawContext(LoadedFont* font, f32 scale, f32 lineA
 
 inline
 FontDrawContext InitializeStandardFontDrawContext(DebugState* state, V2 topline) {
-	f32 scale = 0.15f;
+	f32 scale = 0.12f;
 	f32 lineAdvance = scale * GetFontLineAdvance(state->font);
 	return InitializeFontDrawContext(state->font, scale, lineAdvance, topline);
 }
@@ -581,11 +594,10 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 	);
 
 	if (state->font) {
-		f32 scale = 0.15f;
+		f32 scale = 0.12f;
 		f32 lineAdvance = scale * GetFontLineAdvance(state->font);
-		state->fontContext = InitializeFontDrawContext(state->font, 0.15f, -lineAdvance, state->overlayBoundaries.min + V2{ 0, lineAdvance });
+		state->fontContext = InitializeFontDrawContext(state->font, scale, -lineAdvance, state->overlayBoundaries.min + V2{ 0, lineAdvance });
 		V2 leftUpCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
-		//state->fontContext = InitializeFontDrawContext(state->font, 0.15f, lineAdvance, leftUpCorner - V2{ 0, lineAdvance });
 	}
 	debugGlobalState->swapEvent.GUID = 0;
 	state->profilerIsPausedFrameCount += DEBUG_Profiler_Pause;
@@ -713,7 +725,7 @@ DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* gr
 		result->nextInHash = state->variableHash[hashSlot];
 		result->permanent = permanent;
 		result->timed = timed;
-		result->eventCount = 0;
+		result->eventHitSum = 0;
 		result->durationSum = 0;
 		state->variableHash[hashSlot] = result;
 		if (group) {
@@ -721,6 +733,19 @@ DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* gr
 		}
 	}
 	return result;
+}
+
+inline
+void _DeallocEvent(DebugState* state, DebugVariable* var, DebugStoredEvent* event) {
+	state->deallocEventsSum++;
+	if (var->timed) {
+		u64 duration = GetEventCyclesDuration(event);
+		Assert(var->eventHitSum >= event->span.hitCount);
+		Assert(var->durationSum >= duration);
+		
+		var->eventHitSum -= event->span.hitCount;
+		var->durationSum -= duration;
+	}
 }
 
 internal
@@ -739,12 +764,7 @@ void FreeOldestFrame(DebugState* state) {
 			}
 			DebugStoredEvent* firstEventToRemove = oldestEvent;
 			DebugStoredEvent* lastEventToRemove = oldestEvent;
-			state->deallocEventsSum++;
-			if (var->timed) {
-				Assert(var->eventCount > 0);
-				var->eventCount--;
-				var->durationSum -= GetEventCyclesDuration(oldestEvent);
-			}
+			_DeallocEvent(state, var, firstEventToRemove);
 			
 			Assert(var->eventSentinel->captureFrameIndex == 0);
 			while (lastEventToRemove->prev != var->eventSentinel && lastEventToRemove->captureFrameIndex <= frame->frameIndex) {
@@ -752,12 +772,7 @@ void FreeOldestFrame(DebugState* state) {
 					break;
 				}
 				lastEventToRemove = lastEventToRemove->prev;
-				state->deallocEventsSum++;
-				if (var->timed) {
-					Assert(var->eventCount > 0);
-					var->eventCount--;
-					var->durationSum -= GetEventCyclesDuration(lastEventToRemove);
-				}
+				_DeallocEvent(state, var, lastEventToRemove);
 			}
 			DebugStoredEvent* newOldest = lastEventToRemove->prev;
 			newOldest->next = var->eventSentinel;
@@ -812,19 +827,61 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugP
 }
 
 inline
-DebugStoredEvent* StoreTimedEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, u64 startCycles, u64 endCycles) {
-	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent, true);
+DebugStoredEvent* _StoreTimedEvent(DebugState* state, DebugVariable* var, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, u64 startCycles, u64 endCycles, u8 thread) {
 	DebugStoredEvent* result = _StoreEvent(state, var);
-	var->eventCount++;
+	var->eventHitSum++;
 	var->durationSum += endCycles - startCycles;
 
 	result->span.cyclesStart = startCycles;
 	result->span.cyclesEnd = endCycles;
 	result->span.guid = guid;
 	result->span.sibling = 0;
-	result->span.thread = 0;
 	result->span.firstChild = 0;
+	result->span.thread = thread;
+	result->span.hitCount = 1;
 	return result;
+}
+
+inline
+DebugStoredEvent* StoreTimedEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, u64 startCycles, u64 endCycles, u8 thread) {
+	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent, true);
+	DebugStoredEvent* result = _StoreTimedEvent(state, var, group, guid, permanent, startCycles, endCycles, thread);
+	return result;
+}
+
+inline
+DebugProfilerSpan* TryMergeSibling(DebugState* state, DebugVariable* var, DebugStoredEvent* newEvent, OpenDebugEvent* parentBlock) {
+	DebugProfilerSpan* newSpan = &newEvent->span;
+	DebugProfilerSpan* lastSpan = parentBlock->firstChild;
+	if (lastSpan) {
+		Assert(lastSpan->thread == newSpan->thread);
+		if (lastSpan->guid.GUID.str == newSpan->guid.GUID.str &&
+			lastSpan->cyclesEnd + SPAN_MERGE_CYCLES_THRESHOLD > newSpan->cyclesStart)
+		{
+			//NOTE Adjust durationSum based on the cycles difference between merged events
+			// start1|     end1|    start2|     end2| -> between e1 - s2 we have additional gap
+			// which is covered by this addition
+			var->durationSum += newSpan->cyclesStart - lastSpan->cyclesEnd;
+
+			lastSpan->hitCount++;
+			lastSpan->cyclesEnd = newSpan->cyclesEnd;
+			Assert(newSpan->sibling == 0);
+			if (newSpan->firstChild) {
+				DebugProfilerSpan* lastNewChild = newSpan->firstChild;
+				while (lastNewChild->sibling) { lastNewChild = lastNewChild->sibling; }
+				lastNewChild->sibling = lastSpan->firstChild;
+				lastSpan->firstChild = newSpan->firstChild;
+			}
+			DLINKED_LIST_REMOVE(newEvent);
+			newEvent->next = state->freeStoredEventList;
+			newEvent->prev = 0;
+			state->freeStoredEventList = newEvent;
+			return lastSpan;
+		}
+	}
+	newSpan->sibling = parentBlock->firstChild;
+	parentBlock->firstChild = newSpan;
+	return newSpan;
 }
 
 inline
@@ -871,13 +928,22 @@ DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink
 	return result;
 }
 
+inline
+u32 GetCollationFrameCount(DebugState* state) {
+	return state->framesSentinel.next->frameIndex - state->framesSentinel.prev->frameIndex + 1;
+}
+
 internal
 DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 	DebugCollationFrame* newFrame = 0;
+	u32 MAX_FRAME_COUNT = 600;
 	while (!newFrame) {
 		newFrame = state->freeFrameList;
 		if (newFrame) {
 			state->freeFrameList = state->freeFrameList->next;
+		}
+		else if (GetCollationFrameCount(state) > MAX_FRAME_COUNT) {
+			FreeOldestFrame(state);
 		}
 		else if (HasArenaSpaceFor(state->collationFrameArena, sizeof(DebugCollationFrame))) {
 			newFrame = PushStructSize(state->collationFrameArena, DebugCollationFrame);
@@ -913,7 +979,7 @@ void DebugCollateEvents(DebugState* state) {
 
 	DebugStoredEvent* rootTimeEvent = StoreTimedEvent(
 		state, 0, state->rootCpuProfilerEventGuid, 
-		false, newFrame->startCycles, newFrame->endCycles
+		false, newFrame->startCycles, newFrame->endCycles, 0
 	);
 	for (u32 eventIndex = 0; eventIndex < eventsInFrameCount; eventIndex++) {
 		DebugEvent* event = eventsInFrame + eventIndex;
@@ -932,17 +998,21 @@ void DebugCollateEvents(DebugState* state) {
 			Assert(openEvent->threadId == event->threadId);
 			Assert(!parentBlock || parentBlock->event.threadId == event->threadId);
 
-			DebugStoredEvent* storedEvent = StoreTimedEvent(
-				state, 0, block->parsedGuid, false, 
-				openEvent->cycles, event->cycles
+			DebugVariable* var = GetOrCreateDebugVariable(state, 0, block->parsedGuid, false, true);
+			DebugStoredEvent* storedEvent = _StoreTimedEvent(
+				state, var, 0, block->parsedGuid, false,
+				openEvent->cycles, event->cycles, stack->laneId
 			);
 			DebugProfilerSpan* span = &storedEvent->span;
-			span->thread = stack->laneId;
 			span->guid = block->parsedGuid;
 			span->firstChild = block->firstChild;
 			if (parentBlock) {
+#if 1
+				TryMergeSibling(state, var, storedEvent, parentBlock);
+#else
 				span->sibling = parentBlock->firstChild;
 				parentBlock->firstChild = span;
+#endif
 			}
 			else {
 				span->sibling = rootTimeEvent->span.firstChild;
@@ -1183,11 +1253,11 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 	DebugVariable** variablesIt = variables;
 	for (u32 hashSlot = 0; hashSlot < ArrayCount(state->variableHash); hashSlot++) {
 		for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-			if (var->eventCount == 0 || !IsVariableTimed(var)) { continue; }
+			if (var->eventHitSum == 0 || !IsVariableTimed(var)) { continue; }
 			Assert(var->eventSentinel->captureFrameIndex == 0);
 			Assert(elementCount < (maxElements - 1));
 			SortElement* sortElement = sortElements + elementCount;
-			sortElement->key = -DurationToMs(var->durationSum) / var->eventCount;
+			sortElement->key = -DurationToMs(var->durationSum) / var->eventHitSum;
 			sortElement->offset = elementCount++;
 			*variablesIt++ = var;
 		}
@@ -1205,13 +1275,15 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 		SortElement* sortElement = sortElements + currentSortIndex;
 		DebugVariable* var = variables[sortElement->offset];
 		Assert(var->eventSentinel->captureFrameIndex == 0);
-		f32 timingMs = -sortElement->key;
+		f32 avgTimingMs = -sortElement->key;
+		f32 sumTimingMs = DurationToMs(var->durationSum);
 		if (fontContext.leftTopCurrent.Y > view.rect.min.Y) {
 			String8 name = GetName(var->parsedGuid);
 			u32 variableSpan = GetVariableEventSpan(var);
 			char buffer[256];
 			u32 rank = currentSortIndex + 1;
-			sprintf_s(buffer, "%d. %.*s: %.2fms (%lld)", rank, name.length, name.str, timingMs, var->eventCount / variableSpan);
+			sprintf_s(buffer, "%d. %.*s: AVG(%.2fms) SUM(%.2fms) (%lld)", rank, name.length, name.str, 
+				avgTimingMs, sumTimingMs, var->eventHitSum / variableSpan);
 			V4 color = V4{ 1, 1, 1, 1 };
 
 			Rect2 bb = GetTextBoundingBox(state, buffer, fontContext);
@@ -1282,7 +1354,7 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	for (DebugProfilerSpan* span = firstSpan; span; span = span->sibling) {
 		String8 name = GetName(span->guid);
 		DebugVariable* var = GetDebugVariable(state, span->guid);
-		if (!var || var->eventCount == 0 || !IsVariableTimed(var)) { continue; }
+		if (!var || var->eventHitSum == 0 || !IsVariableTimed(var)) { continue; }
 		Assert(var->eventSentinel->captureFrameIndex == 0);
 		Assert(elementCount < (maxElements - 1));
 
@@ -1299,7 +1371,7 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 		}
 
 		SortElement* sortElement = sortElements + elementCount;
-		sortElement->key = -DurationToMs(var->durationSum) / var->eventCount;
+		sortElement->key = -DurationToMs(var->durationSum) / var->eventHitSum;
 		sortElement->offset = elementCount++;
 		*variablesIt++ = var;
 	}
@@ -1314,6 +1386,17 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	f32 maxHeight = Maximum((elementCount + 1) * fontContext.lineAdvance, viewDim.Y);
 	view.offset.Y = Clip(view.offset.Y, 0, maxHeight - viewDim.Y);
 
+	{
+		DebugVariable* rootVar = GetDebugVariable(state, rootSpan->guid);
+		String8 name = GetName(rootSpan->guid);
+		u32 variableSpan = GetVariableEventSpan(rootVar);
+		f32 timingMs = DurationToMs(rootVar->durationSum) / rootVar->eventHitSum;
+		char buffer[256];
+		sprintf_s(buffer, "[%.*s: %.2fms (%lld)]", name.length, name.str, timingMs, rootVar->eventHitSum / variableSpan);
+		V4 color = V4{ 1, 1, 1, 1 };
+		DebugRenderLine(state, buffer, fontContext, color);
+	}
+
 	u32 rank = currentSortIndex + 1;
 	while (currentSortIndex < elementCount) {
 		SortElement* sortElement = sortElements + currentSortIndex;
@@ -1324,11 +1407,17 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 			String8 name = GetName(var->parsedGuid);
 			u32 variableSpan = GetVariableEventSpan(var);
 			char buffer[256];
-			sprintf_s(buffer, "%d. %.*s: %.2fms (%lld)", rank, name.length, name.str, timingMs, var->eventCount / variableSpan);
+			sprintf_s(buffer, "%d. %.*s: %.2fms (%lld)", rank, name.length, name.str, timingMs, var->eventHitSum / variableSpan);
 			V4 color = V4{ 1, 1, 1, 1 };
 
-			Rect2 bb = GetTextBoundingBox(state, buffer, fontContext);
-			if (IsInRectangle(bb, mousePos)) {
+			Rect2 spanRect = GetTextBoundingBox(state, buffer, fontContext);
+			if (IsInRectangle(spanRect, mousePos)) {
+				DebugProfilerSpan* newestSpan = &GetNewestEvent(var)->span;
+				DebugSelectedSpan selectedSpanData;
+				selectedSpanData.type = SpanSelection_ByGuid;
+				selectedSpanData.byGuid = newestSpan->guid;
+				selectedSpanData.byPtr = currentStoredEvent;
+				state->nextHotInteraction = InteractionProfilerSpan(spanRect, selectedSpanData);
 				DebugRenderLineWithOutline(state, buffer, fontContext, color, V4{ 0, 0, 0, 1 }, 1.f);
 			}
 			else {
@@ -1410,6 +1499,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		DebugVariable* var = GetDebugVariable(state, state->rootCpuProfilerEventGuid);
 		terminationStoredEvent = var->eventSentinel;
 	}
+	u32 iterCount = 0;
 	DebugStoredEvent* currentStoredEvent = terminationStoredEvent->next;
 	while (currentWidth < viewDim.X + frameWidth && currentStoredEvent != terminationStoredEvent) {
 		if (currentWidth >= 0) {
@@ -1419,6 +1509,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 				f32 minT = f4(span->cyclesStart - frame->startCycles) * DEBUG_COLLATION_SCALE;
 				f32 maxT = f4(span->cyclesEnd - frame->startCycles) * DEBUG_COLLATION_SCALE;
 				f32 threshold = 0.01f;
+				iterCount++;
 				if (maxT - minT < threshold) {
 					continue;
 				}
@@ -1428,6 +1519,11 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 				String8 name = GetName(span->guid);
 				u32 colorIndex = u4(uptr(name.str)) % ArrayCount(colors);
 				V4 rectColor = colors[colorIndex];
+
+
+				if (IsVariableHot(state, span)) {
+					rectColor = V4{ 1, 1, 1, 1 };
+				}
 				if (IsInRectangle(spanRect, mousePos)) {
 					DebugSelectedSpan selectedSpanData;
 					selectedSpanData.type = SpanSelection_None;
@@ -1443,7 +1539,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 							V2 textPos = mousePos + V2{ 0, lineAdvance };
 							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 							textPos += V2{ 0, lineAdvance };
-							sprintf_s(buffer, "t<%4f,%4f>, p%p", minT, maxT, name.str);
+							sprintf_s(buffer, "t<%4f,%4f>, hitCount: %d", minT, maxT, span->hitCount);
 							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 						}
 					}
@@ -1463,7 +1559,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 			break;
 		}
 	}
-
+	PRINT_DEBUGGING("Iter count: %d", iterCount);
 	V2 resizeCenter = view.rect.max;
 	V2 resizeSize = V2{ 8, 8 };
 	RenderResizeAnchor(state, resizeCenter, resizeSize, mousePos, &state->cpuProfiler.view.rect);

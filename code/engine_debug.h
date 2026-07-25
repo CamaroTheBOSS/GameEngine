@@ -89,6 +89,7 @@ struct DebugEvent {
 struct DebugProfilerSpan {
 	u64 cyclesStart;
 	u64 cyclesEnd;
+	u32 hitCount;
 	DebugParsedGUID guid;
 	u8 thread;
 
@@ -116,7 +117,7 @@ struct DebugVariable {
 	DebugStoredEvent* eventSentinel;
 
 	//Metrics (valid values only for variables with DebugProfilerSpan type of union in StoredEvent)
-	u64 eventCount;
+	u64 eventHitSum;
 	u64 durationSum;
 };
 
@@ -441,12 +442,12 @@ struct FontDrawContext {
 debug_variable bool DEBUG_Debug_ShowInteractions = 1;
 debug_variable bool DEBUG_Debug_ShowEventsCount = 1;
 debug_variable bool DEBUG_Profiler_Memory;
-debug_variable bool DEBUG_Profiler_Cpu;
+debug_variable bool DEBUG_Profiler_Cpu = 1;
 debug_variable bool DEBUG_Profiler_CpuSpansList;
 debug_variable bool DEBUG_Profiler_Pause;
 debug_variable bool DEBUG_Camera_Zoomout;
 debug_variable f32 DEBUG_Camera_ZoomoutValue = 10.f;
-debug_variable bool DEBUG_Renderer_WithSoftware;
+debug_variable bool DEBUG_Renderer_WithSoftware = 1;
 debug_variable bool DEBUG_Renderer_DifferentResolution;
 debug_variable f32 DEBUG_Renderer_ResolutionWidth = 960.f;
 debug_variable f32 DEBUG_Renderer_ResolutionHeight = 540.f;
