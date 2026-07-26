@@ -265,6 +265,15 @@ DebugInteraction InteractionDragIncrease(Rect2 bbox, f32* dragged, f32 amountPer
 	return interaction;
 }
 
+inline 
+DebugSelectedSpan BuildSelectedSpan(DebugVariable* var, DebugStoredEvent* event) {
+	DebugSelectedSpan selected;
+	selected.type = SpanSelection_None;
+	selected.byVar = var;
+	selected.byEvent = event;
+	return selected;
+}
+
 inline
 DebugInteraction InteractionProfilerSpan(Rect2 bbox, DebugSelectedSpan selectedSpan) {
 	DebugInteraction interaction = {};
@@ -272,6 +281,13 @@ DebugInteraction InteractionProfilerSpan(Rect2 bbox, DebugSelectedSpan selectedS
 	interaction.obj = DebugInteractionObject::ProfilerSpan;
 	interaction.selectedSpan = selectedSpan;
 	return interaction;
+}
+
+inline
+DebugInteraction InteractionProfilerSpan(DebugVariable* var, DebugStoredEvent* event, Rect2 bbox) {
+	DebugProfilerSpan* newestSpan = &GetNewestEvent(var)->span;
+	DebugSelectedSpan selected = BuildSelectedSpan(newestSpan->var, event);
+	return InteractionProfilerSpan(bbox, selected);
 }
 
 inline
@@ -1408,6 +1424,7 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 			GetVarMetricsByText(var, buffer, ArrayCount(buffer), currentSortIndex + 1, 0);
 			Rect2 bb = GetTextBoundingBox(state, buffer, fontContext);
 			if (IsInRectangle(bb, mousePos)) {
+				state->nextHotInteraction = InteractionProfilerSpan(var, 0, bb);
 				DebugRenderLineWithOutline(state, buffer, fontContext, color, V4{ 0, 0, 0, 1 }, 1.f);
 			}
 			else {
@@ -1458,7 +1475,7 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
 	DebugVariable* parentVar = 0;
 	DebugStoredEvent* parentEvent = 0;
-#if 1
+
 	if (SelectedByEvent(selectedSpan)) {
 		DebugProfilerSpan* rootSpan = &selectedSpan.byEvent->span;
 		parentVar = rootSpan->var;
@@ -1496,6 +1513,7 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 			eventsIt->span.hitCount = child->span.hitCount;
 			eventsIt->span.cyclesStart = child->span.cyclesStart;
 			eventsIt->span.cyclesEnd = child->span.cyclesEnd;
+			eventsIt->next = child;
 			eventsIt++;
 		}
 	}
@@ -1534,84 +1552,6 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 		PRINT_DEBUGGING("Iter count: %d", collectionIter);
 		PRINT_DEBUGGING("Iter count: %d", collectionIter);
 	}
-#else
-	DebugStoredEvent* terminationStoredEvent = 0;
-	if (SelectedByEvent(selectedSpan)) {
-		terminationStoredEvent = selectedSpan.byEvent->prev;
-		parentVar = selectedSpan.byEvent->span.var;
-		parentEvent = selectedSpan.byEvent;
-	}
-	else if (SelectedByVar(selectedSpan)) {
-		terminationStoredEvent = selectedSpan.byVar->eventSentinel;
-		parentVar = selectedSpan.byVar;
-	}
-	else {
-		DebugVariable* var = GetDebugVariable(state, state->rootCpuProfilerEventGuid);
-		terminationStoredEvent = var->eventSentinel;
-		parentVar = var;
-	}
-	DebugStoredEvent* currentStoredEvent = terminationStoredEvent->next;
-	DebugProfilerSpan* rootSpan = &currentStoredEvent->span;
-	DebugStoredEvent* firstChildEvent = rootSpan->firstChild;
-	for (DebugStoredEvent* eventInInteration = firstChildEvent; eventInInteration; eventInInteration = eventInInteration->span.sibling) {
-		DebugStoredEvent* event = eventInInteration;
-		DebugProfilerSpan* span = &eventInInteration->span;
-		if (span->var->eventHitSum == 0 || !IsVariableTimed(span->var)) { continue; }
-		Assert(span->var->eventSentinel->captureFrameIndex == 0);
-		Assert(elementCount < (maxElements - 1));
-
-
-		if (parentEvent) {
-			bool found = false;
-			for (u32 existingEventIdx = 0; existingEventIdx < elementCount; existingEventIdx++) {
-				DebugStoredEvent* existing = events + existingEventIdx;
-				if (event->span.var == existing->span.var) {
-					existing->span.hitCount += event->span.hitCount;
-					existing->span.cyclesEnd += GetEventCyclesDuration(event);
-					DebugStoredEvent* lastNewChild = event->span.firstChild;
-					if (lastNewChild) {
-						while (lastNewChild->span.sibling) { lastNewChild = lastNewChild->span.sibling; }
-						lastNewChild->span.sibling = existing->span.firstChild;
-						existing->span.firstChild = lastNewChild->span.firstChild;
-					}
-
-					SortElement* sortElement = sortElements + existingEventIdx;
-					sortElement->key += -DurationToMs(GetEventCyclesDuration(event)) / event->span.hitCount;
-					found = true;
-					break;
-				}
-			}
-			if (found) {
-				continue;
-			}
-		}
-		else {
-			bool found = false;
-			for (u32 existingVarIdx = 0; existingVarIdx < elementCount; existingVarIdx++) {
-				DebugVariable* other = variables[existingVarIdx];
-				if (span->var == other) {
-					found = true;
-					break;
-				}
-			}
-			if (found) {
-				continue;
-			}
-		}
-		SortElement* sortElement = sortElements + elementCount;
-		sortElement->key = parentEvent ?
-			-DurationToMs(GetEventCyclesDuration(event)) / event->span.hitCount :
-			-DurationToMs(span->var->durationSum) / span->var->eventHitSum;
-		sortElement->offset = elementCount++;
-		*variablesIt++ = span->var;
-
-		eventsIt->span.var = event->span.var;
-		eventsIt->span.hitCount = event->span.hitCount;
-		eventsIt->span.cyclesStart = event->span.cyclesStart;
-		eventsIt->span.cyclesEnd = event->span.cyclesEnd;
-		eventsIt++;
-	}
-#endif
 	RadixSort(sortElements, elementCount, tmpBuffer);
 
 	f32 currentHeight = view.rect.max.Y;
@@ -1629,19 +1569,16 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	while (currentSortIndex < elementCount) {
 		SortElement* sortElement = sortElements + currentSortIndex;
 		DebugVariable* var = variables[sortElement->offset];
-		DebugStoredEvent* originalEvent = parentEvent ? events + sortElement->offset : 0;
 		Assert(var->eventSentinel->captureFrameIndex == 0);
 		f32 timingMs = -sortElement->key;
 		if (fontContext.leftTopCurrent.Y > view.rect.min.Y) {
 			V4 color = V4{ 1, 1, 1, 1 };
-			GetVarMetricsByText(var, buffer, ArrayCount(buffer), rank, originalEvent);
+			DebugStoredEvent* aggregatedEvent = parentEvent ? events + sortElement->offset : 0;
+			GetVarMetricsByText(var, buffer, ArrayCount(buffer), rank, aggregatedEvent);
 			Rect2 spanRect = GetTextBoundingBox(state, buffer, fontContext);
 			if (IsInRectangle(spanRect, mousePos)) {
-				DebugProfilerSpan* newestSpan = &GetNewestEvent(var)->span;
-				DebugSelectedSpan selectedSpanData;
-				selectedSpanData.type = SpanSelection_ByVar;
-				selectedSpanData.byVar = newestSpan->var;
-				state->nextHotInteraction = InteractionProfilerSpan(spanRect, selectedSpanData);
+				DebugStoredEvent* firstOriginalEvent = aggregatedEvent ? aggregatedEvent->next : 0;
+				state->nextHotInteraction = InteractionProfilerSpan(var, firstOriginalEvent, spanRect);
 				DebugRenderLineWithOutline(state, buffer, fontContext, color, V4{ 0, 0, 0, 1 }, 1.f);
 			}
 			else {
@@ -1749,10 +1686,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 					rectColor = V4{ 1, 1, 1, 1 };
 				}
 				if (IsInRectangle(spanRect, mousePos)) {
-					DebugSelectedSpan selectedSpanData;
-					selectedSpanData.type = SpanSelection_None;
-					selectedSpanData.byVar = span->var;
-					selectedSpanData.byEvent = event;
+					DebugSelectedSpan selectedSpanData = BuildSelectedSpan(span->var, event);
 					if (IsVariableHot(state, selectedSpanData)) {
 						rectColor = V4{ 1, 1, 1, 1 };
 						if (name.str) {
@@ -2096,11 +2030,12 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			}
 		} break;
 		case DebugInteractionObject::ProfilerSpan: {
-			if (WasPressed(controller.B.mouseLeft) && IsPressed(controller.B.kShift)) {
-				state->nextHotInteraction.selectedSpan.type = SpanSelection_ByEvent;
+			DebugSelectedSpan& selected = state->nextHotInteraction.selectedSpan;
+			if (WasPressed(controller.B.mouseLeft) && IsPressed(controller.B.kShift) && selected.byEvent) {
+				selected.type = SpanSelection_ByEvent;
 				state->nextHotInteraction.type = DebugInteractionType::SelectProfilerSpan;
-			} else if (WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.selectedSpan.type = SpanSelection_ByVar;
+			} else if (WasPressed(controller.B.mouseLeft) && selected.byVar) {
+				selected.type = SpanSelection_ByVar;
 				state->nextHotInteraction.type = DebugInteractionType::SelectProfilerSpan;
 			}
 		} break;
