@@ -4,9 +4,6 @@
 // ------------------- EVENT PROFILER --------------------
 #define MAX_DEBUG_EVENTS 900000
 #define MAX_DEBUG_THREADS 64
-#define DEBUG_CPU_FREQ (2.9f * 1000'000'000)
-#define DEBUG_TARGET_FPS 60.f
-
 #define MAX_DEPTH_SPANS 128
 
 struct DebugId {

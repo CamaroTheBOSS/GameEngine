@@ -725,6 +725,27 @@ bool Win32FileErrors(PlatformFileHandle* handle) {
 }
 
 internal
+PlatformCpuInfo Win32GetCPUInfo() {
+	HKEY key;
+	LSTATUS result = RegOpenKeyExA(
+		HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 0, KEY_READ, &key
+	);
+	PlatformCpuInfo info;
+	info.cpuHz = 2 * 1000 * 1000 * 1000 - 1; //1999999999 (if error occurs I would like to see that in debugger)
+	if (result != ERROR_SUCCESS) {
+		return info;
+	}
+	DWORD bufferSize = 256;
+	BYTE buffer[256];
+	if (RegQueryValueExA(key, "~MHz", 0, 0, buffer, &bufferSize) != ERROR_SUCCESS) {
+		return info;
+	}
+	DWORD cpuhz = *ptrcast(DWORD, buffer);
+	info.cpuHz = u64(cpuhz) * 1000 * 1000;
+	return info;
+}
+
+internal
 void Win32FileRead(PlatformFileHandle* handle, u32 offset, u32 size, void* dst) {
 	Win32FileHandle* file = ptrcast(Win32FileHandle, handle);
 	if (!file || file->handle == INVALID_HANDLE_VALUE) {
@@ -1357,6 +1378,7 @@ ProgramMemory Win32InitProgramMemory(Win32State& state) {
 	programMemory.platformAPI.MemoryFree = Win32FreeMemory;
 	programMemory.platformAPI.SystemExecuteCommand = Win32SystemExecuteCommand;
 	programMemory.platformAPI.SystemGetCommandState = Win32SystemGetCommandState;
+	programMemory.platformAPI.SystemGetCpuInfo = Win32GetCPUInfo;
 	programMemory.platformAPI.TextureAllocate = Win32AllocateTexture;
 	programMemory.platformAPI.TextureFree = Win32FreeTexture;
 	Platform = &programMemory.platformAPI;

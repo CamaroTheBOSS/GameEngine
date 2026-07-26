@@ -85,7 +85,6 @@ struct RenderCommandBuffer {
 	SortElement* sortTempBuffer;
 };
 
-
 /* Functionalities served by the platform layer for program layer */
 // DEBUG API
 struct FileData {
@@ -141,9 +140,13 @@ struct PlatformCommandHandle {
 	u64 threadHandle;
 	PlatformCommandState state;
 };
+struct PlatformCpuInfo {
+	u64 cpuHz;
+};
 
 typedef PlatformCommandHandle(*_PlatformSystemExecuteCommand)(char* cwd, char* command);
 typedef PlatformCommandState(*_PlatformSystemGetCommandState)(PlatformCommandHandle& cmdHandle);
+typedef PlatformCpuInfo(*_PlatformGetCpuInfo)();
 
 struct DebugMemory {
 	_DebugReadEntireFile ReadEntireFile;
@@ -180,6 +183,7 @@ struct PlatformAPI {
 	// System API
 	_PlatformSystemExecuteCommand SystemExecuteCommand;
 	_PlatformSystemGetCommandState SystemGetCommandState;
+	_PlatformGetCpuInfo SystemGetCpuInfo;
 };
 extern PlatformAPI* Platform;
 

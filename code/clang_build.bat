@@ -25,7 +25,7 @@ set ClangExe= D:\Compilers\LLVM\bin\clang++.exe
 REM remove -march=native when macros are introduced to SIMD!!!
 set CompilerFlags= -O3 -march=native -fuse-ld=lld -std=c++23 -g -gcodeview -fms-runtime-lib=static_dbg
 set CompilerFlags= -DINTERNAL_BUILD=0 -DSLOW_VALIDATION=0 %CompilerFlags%
-set LinkerFlags= %WIN_LIB_FLAGS% -l user32 -l gdi32 -l ole32 -l winmm
+set LinkerFlags= %WIN_LIB_FLAGS% -l user32 -l gdi32 -l ole32 -l winmm -l advapi32 -l opengl32
 set DllExports=-Xlinker /export:GameMainLoopFrame -Xlinker /export:GameFillSoundBuffer -Xlinker /export:DebugInit -Xlinker /export:DebugFinishFrame
 pushd ..\build
   echo %cd%

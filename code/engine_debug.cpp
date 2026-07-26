@@ -37,8 +37,9 @@ inline bool IsPressed(Button& button);
 inline bool WasPressed(Button& button);
 inline bool WasReleased(Button& button);
 #define DEBUG_CONFIG_PATH "..\\code\\engine_debug_config.h"
-const f32 DEBUG_COLLATION_SCALE = (DEBUG_TARGET_FPS / DEBUG_CPU_FREQ);
-const u32 SPAN_MERGE_CYCLES_THRESHOLD = u4(0.001'000f * DEBUG_CPU_FREQ); // 100us
+static u64 DEBUG_CPU_FREQ = 1;
+static f32 DEBUG_COLLATION_SCALE = 1.f;
+static u32 DEBUG_SPAN_MERGE_CYCLES_THRESHOLD = 1;
 
 internal DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* link, DebugParsedGUID& guid);
 debug_variable bool PROFILER_PAUSE = false;
@@ -623,7 +624,12 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 		V2 rightTopCorner = V2{ state->overlayBoundaries.max.X - 400.f, state->overlayBoundaries.max.Y };
 		AddTree(state, leftTopCorner, "Debugging");
-
+		
+		PlatformCpuInfo cpuInfo = Platform->SystemGetCpuInfo();
+		u32 targetFrameRate = RoundF32ToU32(1.f / input.dtFrame);
+		DEBUG_CPU_FREQ = cpuInfo.cpuHz;
+		DEBUG_COLLATION_SCALE = f4(targetFrameRate) / DEBUG_CPU_FREQ;
+		DEBUG_SPAN_MERGE_CYCLES_THRESHOLD = u4(0.001'000f * DEBUG_CPU_FREQ); // 100us
 		state->isInitialized = true;
 	}
 	EndRendering(state->renderGroup);
@@ -888,7 +894,7 @@ DebugStoredEvent* StoreTimedEvent(DebugState* state, DebugVariableLink* group, D
 inline
 bool SpansCouldBeMerged(DebugProfilerSpan* old, DebugProfilerSpan* _new) {
 	return old->var == _new->var &&
-		old->cyclesEnd + SPAN_MERGE_CYCLES_THRESHOLD > _new->cyclesStart;
+		old->cyclesEnd + DEBUG_SPAN_MERGE_CYCLES_THRESHOLD > _new->cyclesStart;
 }
 
 internal DebugProfilerSpan* TryMergeChildren(DebugState* state, DebugProfilerSpan* oldParent, DebugProfilerSpan* newParent);
