@@ -41,6 +41,7 @@ const f32 DEBUG_COLLATION_SCALE = (DEBUG_TARGET_FPS / DEBUG_CPU_FREQ);
 const u32 SPAN_MERGE_CYCLES_THRESHOLD = u4(0.001'000f * DEBUG_CPU_FREQ); // 100us
 
 internal DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* link, DebugParsedGUID& guid);
+debug_variable bool PROFILER_PAUSE = false;
 
 inline 
 DebugStoredEvent* GetNewestEvent(DebugVariable* var) {
@@ -55,6 +56,16 @@ DebugStoredEvent* GetOldestEvent(DebugVariable* var) {
 inline
 String8 GetName(DebugParsedGUID& parsedGuid) {
 	return { parsedGuid.GUID.str + parsedGuid.nameStart, parsedGuid.nameLength };
+}
+
+inline
+String8 GetName(DebugVariable* var) {
+	return GetName(var->guid);
+}
+
+inline
+String8 GetName(DebugProfilerSpan* span) {
+	return GetName(span->var->guid);
 }
 
 inline
@@ -95,13 +106,13 @@ bool IsVariableHot(DebugState* state, DebugArenaView* view) {
 }
 
 inline
-bool SelectedByGuid(DebugSelectedSpan& span) {
-	return span.type == SpanSelection_ByGuid;
+bool SelectedByVar(DebugSelectedSpan& span) {
+	return span.type == SpanSelection_ByVar;
 }
 
 inline
-bool SelectedByPtr(DebugSelectedSpan& span) {
-	return span.type == SpanSelection_ByPtr;
+bool SelectedByEvent(DebugSelectedSpan& span) {
+	return span.type == SpanSelection_ByEvent;
 }
 
 struct SelectedSpanIter {
@@ -115,11 +126,11 @@ bool IsVariableHot(DebugState* state, DebugSelectedSpan& selectedSpan) {
 	}
 	DebugSelectedSpan& hotSelectedSpan = state->hotInteraction.selectedSpan;
 	bool result = true;
-	if (SelectedByPtr(hotSelectedSpan)) {
-		result = hotSelectedSpan.byPtr == selectedSpan.byPtr;
+	if (SelectedByEvent(hotSelectedSpan)) {
+		result = hotSelectedSpan.byEvent == selectedSpan.byEvent;
 	}
-	else if (SelectedByGuid(hotSelectedSpan)) {
-		result = hotSelectedSpan.byGuid.GUID.str == selectedSpan.byGuid.GUID.str;
+	else if (SelectedByVar(hotSelectedSpan)) {
+		result = hotSelectedSpan.byVar == selectedSpan.byVar;
 	}
 	return result;
 }
@@ -130,8 +141,8 @@ bool IsVariableHot(DebugState* state, DebugProfilerSpan* span) {
 		return false;
 	}
 	DebugSelectedSpan& hotSelectedSpan = state->hotInteraction.selectedSpan;
-	if (SelectedByGuid(hotSelectedSpan)) {
-		return hotSelectedSpan.byGuid.GUID.str == span->guid.GUID.str;
+	if (SelectedByVar(hotSelectedSpan)) {
+		return hotSelectedSpan.byVar == span->var;
 	}
 	return false;
 }
@@ -604,10 +615,6 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 		V2 leftUpCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 	}
 	debugGlobalState->swapEvent.GUID = 0;
-	state->profilerIsPausedFrameCount += DEBUG_Profiler_Pause;
-	if (!DEBUG_Profiler_Pause) {
-		state->profilerIsPausedFrameCount = 0;
-	}
 	return state;
 }
 
@@ -700,7 +707,7 @@ inline
 DebugVariable* _GetDebugVariable(DebugState* state, DebugParsedGUID& parsedGUID, u32 hashSlot) {
 	DebugVariable* result = 0;
 	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-		if (StringsAreEqual(var->parsedGuid.GUID, parsedGUID.GUID)) {
+		if (StringsAreEqual(var->guid.GUID, parsedGUID.GUID)) {
 			result = var;
 			break;
 		}
@@ -725,7 +732,7 @@ DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* gr
 		result->eventSentinel = PushStructSize(state->mainArena, DebugStoredEvent);
 		*result->eventSentinel = {};
 		DLINKED_LIST_INIT(result->eventSentinel);
-		result->parsedGuid = DebugCopyGUID(state->mainArena, guid);
+		result->guid = DebugCopyGUID(state->mainArena, guid);
 		result->nextInHash = state->variableHash[hashSlot];
 		result->permanent = permanent;
 		result->timed = timed;
@@ -838,7 +845,7 @@ DebugStoredEvent* _StoreTimedEvent(DebugState* state, DebugVariable* var, DebugV
 
 	result->span.cyclesStart = startCycles;
 	result->span.cyclesEnd = endCycles;
-	result->span.guid = guid;
+	result->span.var = var;
 	result->span.sibling = 0;
 	result->span.firstChild = 0;
 	result->span.thread = thread;
@@ -860,7 +867,7 @@ DebugProfilerSpan* TryMergeSibling(DebugState* state, DebugVariable* var, DebugS
 	if (lastEvent) {
 		DebugProfilerSpan* lastSpan = &lastEvent->span;
 		Assert(lastSpan->thread == newSpan->thread);
-		if (lastSpan->guid.GUID.str == newSpan->guid.GUID.str &&
+		if (lastSpan->var == newSpan->var &&
 			lastSpan->cyclesEnd + SPAN_MERGE_CYCLES_THRESHOLD > newSpan->cyclesStart)
 		{
 			//NOTE Adjust durationSum based on the cycles difference between merged events
@@ -913,7 +920,7 @@ DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink
 	u32 hashSlot = GetStringHash(parsedGuid.GUID) % ArrayCount(state->groupHash);
 	DebugVariableLink* result = 0;
 	for (DebugVariableLink* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
-		DebugParsedGUID* candidate = &group->variable->parsedGuid;
+		DebugParsedGUID* candidate = &group->variable->guid;
 		if (StringsAreEqual(parsedGuid.GUID, candidate->GUID)) {
 			result = group;
 			break;
@@ -973,7 +980,7 @@ DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
 internal
 void DebugCollateEvents(DebugState* state) {
 	TIMED_FUNCTION;
-	if (state->profilerIsPausedFrameCount > 2) {
+	if (PROFILER_PAUSE) {
 		return;
 	}
 
@@ -1009,7 +1016,7 @@ void DebugCollateEvents(DebugState* state) {
 				openEvent->cycles, event->cycles, stack->laneId
 			);
 			DebugProfilerSpan* span = &storedEvent->span;
-			span->guid = block->parsedGuid;
+			span->var = var;
 			span->firstChild = block->firstChild;
 			if (parentBlock) {
 #if 1
@@ -1116,7 +1123,7 @@ u64 DebugVariableToText(DebugVariable* variable, char* buffer, u64 size, u32 fla
 			at += sprintf_s(at, end - at, "#define CONSTANT_");
 		}
 		const char* colon = (flags & DebugVarToText_AddColon) ? ":" : "";
-		String8 variableName = GetName(variable->parsedGuid);
+		String8 variableName = GetName(variable);
 		switch (event->type) {
 		case Event_Data_bool: {
 			at += sprintf_s(at, end - at, "%.*s%s %d", variableName.length, variableName.str, colon, event->data_bool);
@@ -1237,30 +1244,33 @@ bool IsVariableTimed(DebugVariable* var) { return var->timed; }
 
 inline
 void GetVarMetricsByText(DebugVariable* var, char* dst, size_t dstSize, u32 rank, DebugStoredEvent* event) {
-	String8 name = GetName(var->parsedGuid);
+	String8 name = GetName(var);
 	u32 variableSpan = GetVariableEventSpan(var);
 
 	f32 sumTimingMs, avgTimingMs;
-	u64 callsCount;
+	u64 callsCount, avgCycles;
 	if (event) {
-		sumTimingMs = DurationToMs(GetEventCyclesDuration(event));
+		u64 totalCycles = GetEventCyclesDuration(event);
+		sumTimingMs = DurationToMs(totalCycles);
 		avgTimingMs = sumTimingMs / event->span.hitCount;
+		avgCycles = totalCycles / event->span.hitCount;
 		callsCount = event->span.hitCount;
 	}
 	else {
 		sumTimingMs = DurationToMs(var->durationSum);
 		avgTimingMs = sumTimingMs / var->eventHitSum;
+		avgCycles = var->durationSum / var->eventHitSum;
 		callsCount = var->eventHitSum / variableSpan;
 	}
 	
 	
 	if (rank > 0) {
-		sprintf_s(dst, dstSize, "%-2d. %-30.*s:  AVG(%8.2fms)           SUM ALL THREADS(%8.2fms)           COUNT PER FRAME(%5lld)",
-			rank, name.length, name.str, avgTimingMs, sumTimingMs, callsCount);
+		sprintf_s(dst, dstSize, "%-2d. %-30.*s:  AVGMS(%8.2fms)   AVGCYC(%8lld)   SUM ALL THREADS(%8.2fms)   COUNT PER FRAME(%5lld)",
+			rank, name.length, name.str, avgTimingMs, avgCycles, sumTimingMs, callsCount);
 	}
 	else {
-		sprintf_s(dst, dstSize, "###[%-30.*s:  AVG(%8.2fms)           SUM ALL THREADS(%8.2fms)           COUNT PER FRAME(%5lld)",
-			name.length, name.str, avgTimingMs, sumTimingMs, callsCount);
+		sprintf_s(dst, dstSize, "###[%-30.*s:  AVGMS(%8.2fms)   AVGCYC(%8lld)   SUM ALL THREADS(%8.2fms)   COUNT PER FRAME(%5lld)",
+			name.length, name.str, avgTimingMs, avgCycles, sumTimingMs, callsCount);
 	}
 }
 
@@ -1366,13 +1376,12 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
 	DebugStoredEvent* terminationStoredEvent = 0;
 	DebugStoredEvent* selectedByPtrEvent = 0;
-	if (SelectedByPtr(selectedSpan)) {
-		terminationStoredEvent = selectedSpan.byPtr->prev;
-		selectedByPtrEvent = selectedSpan.byPtr;
+	if (SelectedByEvent(selectedSpan)) {
+		terminationStoredEvent = selectedSpan.byEvent->prev;
+		selectedByPtrEvent = selectedSpan.byEvent;
 	}
-	else if (SelectedByGuid(selectedSpan)) {
-		DebugVariable* var = GetDebugVariable(state, selectedSpan.byGuid);
-		terminationStoredEvent = var->eventSentinel;
+	else if (SelectedByVar(selectedSpan)) {
+		terminationStoredEvent = selectedSpan.byVar->eventSentinel;
 	}
 	else {
 		DebugVariable* var = GetDebugVariable(state, state->rootCpuProfilerEventGuid);
@@ -1384,10 +1393,8 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	for (DebugStoredEvent* eventInInteration = firstChildEvent; eventInInteration; eventInInteration = eventInInteration->span.sibling) {
 		DebugStoredEvent* event = eventInInteration;
 		DebugProfilerSpan* span = &eventInInteration->span;
-		String8 name = GetName(span->guid);
-		DebugVariable* var = GetDebugVariable(state, span->guid);
-		if (!var || var->eventHitSum == 0 || !IsVariableTimed(var)) { continue; }
-		Assert(var->eventSentinel->captureFrameIndex == 0);
+		if (span->var->eventHitSum == 0 || !IsVariableTimed(span->var)) { continue; }
+		Assert(span->var->eventSentinel->captureFrameIndex == 0);
 		Assert(elementCount < (maxElements - 1));
 
 
@@ -1395,7 +1402,7 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 			bool found = false;
 			for (u32 existingEventIdx = 0; existingEventIdx < elementCount; existingEventIdx++) {
 				DebugStoredEvent* existing = events + existingEventIdx;
-				if (event->span.guid.GUID.str == existing->span.guid.GUID.str) {
+				if (event->span.var == existing->span.var) {
 					existing->span.hitCount += event->span.hitCount;
 					existing->span.cyclesEnd += GetEventCyclesDuration(event);
 
@@ -1413,7 +1420,7 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 			bool found = false;
 			for (u32 existingVarIdx = 0; existingVarIdx < elementCount; existingVarIdx++) {
 				DebugVariable* other = variables[existingVarIdx];
-				if (var->parsedGuid.GUID.str == other->parsedGuid.GUID.str) {
+				if (span->var == other) {
 					found = true;
 					break;
 				}
@@ -1425,11 +1432,11 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 		SortElement* sortElement = sortElements + elementCount;
 		sortElement->key = selectedByPtrEvent ?
 			-DurationToMs(GetEventCyclesDuration(event)) / event->span.hitCount :
-			-DurationToMs(var->durationSum) / var->eventHitSum;
+			-DurationToMs(span->var->durationSum) / span->var->eventHitSum;
 		sortElement->offset = elementCount++;
-		*variablesIt++ = var;
+		*variablesIt++ = span->var;
 
-		eventsIt->span.guid = event->span.guid;
+		eventsIt->span.var = event->span.var;
 		eventsIt->span.hitCount = event->span.hitCount;
 		eventsIt->span.cyclesStart = event->span.cyclesStart;
 		eventsIt->span.cyclesEnd = event->span.cyclesEnd;
@@ -1445,7 +1452,7 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	view.offset.Y = Clip(view.offset.Y, 0, maxHeight - viewDim.Y);
 
 	char buffer[256];
-	DebugVariable* rootVar = GetDebugVariable(state, rootSpan->guid);
+	DebugVariable* rootVar = rootSpan->var;
 	GetVarMetricsByText(rootVar, buffer, ArrayCount(buffer), 0, selectedByPtrEvent);
 	DebugRenderLine(state, buffer, fontContext, V4{ 1, 1, 1, 1 });
 
@@ -1463,9 +1470,8 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 			if (IsInRectangle(spanRect, mousePos)) {
 				DebugProfilerSpan* newestSpan = &GetNewestEvent(var)->span;
 				DebugSelectedSpan selectedSpanData;
-				selectedSpanData.type = SpanSelection_ByGuid;
-				selectedSpanData.byGuid = newestSpan->guid;
-				selectedSpanData.byPtr = currentStoredEvent;
+				selectedSpanData.type = SpanSelection_ByVar;
+				selectedSpanData.byVar = newestSpan->var;
 				state->nextHotInteraction = InteractionProfilerSpan(spanRect, selectedSpanData);
 				DebugRenderLineWithOutline(state, buffer, fontContext, color, V4{ 0, 0, 0, 1 }, 1.f);
 			}
@@ -1536,21 +1542,19 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 
 	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
 	DebugStoredEvent* terminationStoredEvent = 0;
-	if (SelectedByPtr(selectedSpan)) {
-		u32 frameDiffCount = newestFrameIndex - selectedSpan.byPtr->captureFrameIndex;
+	if (SelectedByEvent(selectedSpan)) {
+		u32 frameDiffCount = newestFrameIndex - selectedSpan.byEvent->captureFrameIndex;
 		currentWidth += frameDiffCount * frameWidth;
-		terminationStoredEvent = selectedSpan.byPtr->prev;
+		terminationStoredEvent = selectedSpan.byEvent->prev;
 		while (frameDiffCount--) { frame = frame->next; }
 	}
-	else if (SelectedByGuid(selectedSpan)) {
-		DebugVariable* var = GetDebugVariable(state, selectedSpan.byGuid);
-		terminationStoredEvent = var->eventSentinel;
+	else if (SelectedByVar(selectedSpan)) {
+		terminationStoredEvent = selectedSpan.byVar->eventSentinel;
 	}
 	else {
 		DebugVariable* var = GetDebugVariable(state, state->rootCpuProfilerEventGuid);
 		terminationStoredEvent = var->eventSentinel;
 	}
-	u32 iterCount = 0;
 	DebugStoredEvent* currentStoredEvent = terminationStoredEvent->next;
 	while (currentWidth < viewDim.X + frameWidth && currentStoredEvent != terminationStoredEvent) {
 		if (currentWidth >= 0) {
@@ -1561,14 +1565,13 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 				f32 minT = f4(span->cyclesStart - frame->startCycles) * DEBUG_COLLATION_SCALE;
 				f32 maxT = f4(span->cyclesEnd - frame->startCycles) * DEBUG_COLLATION_SCALE;
 				f32 threshold = 0.01f;
-				iterCount++;
 				if (maxT - minT < threshold) {
 					continue;
 				}
 				Rect2 spanRect = GetCpuSpanRectangle(view.rect, currentWidth, span->thread,
 					threadLaneWidth, threadLaneTotalWidth, minT, maxT
 				);
-				String8 name = GetName(span->guid);
+				String8 name = GetName(span);
 				u32 colorIndex = u4(uptr(name.str)) % ArrayCount(colors);
 				V4 rectColor = colors[colorIndex];
 
@@ -1579,8 +1582,8 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 				if (IsInRectangle(spanRect, mousePos)) {
 					DebugSelectedSpan selectedSpanData;
 					selectedSpanData.type = SpanSelection_None;
-					selectedSpanData.byGuid = span->guid;
-					selectedSpanData.byPtr = event;
+					selectedSpanData.byVar = span->var;
+					selectedSpanData.byEvent = event;
 					if (IsVariableHot(state, selectedSpanData)) {
 						rectColor = V4{ 1, 1, 1, 1 };
 						if (name.str) {
@@ -1607,11 +1610,10 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 			frame = frame->next;
 		}
 		currentStoredEvent = currentStoredEvent->next;
-		if (SelectedByPtr(selectedSpan)) {
+		if (SelectedByEvent(selectedSpan)) {
 			break;
 		}
 	}
-	PRINT_DEBUGGING("Iter count: %d", iterCount);
 	V2 resizeCenter = view.rect.max;
 	V2 resizeSize = V2{ 8, 8 };
 	RenderResizeAnchor(state, resizeCenter, resizeSize, mousePos, &state->cpuProfiler.view.rect);
@@ -1812,7 +1814,7 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 					*at++ = ' ';
 				}
 				if (node->isGroup) {
-					String8 name = GetName(node->variable->parsedGuid);
+					String8 name = GetName(node->variable);
 					at += sprintf_s(at, end - at, "%.*s:", name.length, name.str);
 				}
 				else {
@@ -1871,7 +1873,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		}
 	}
 	if (WasPressed(state->controller->B.kP)) {
-		//DEBUG_Profiler_Pause.data_bool = !Profiler_Pause.data_bool;
+		PROFILER_PAUSE = !PROFILER_PAUSE;
 	}
 
 	// Set hot interaction
@@ -1926,10 +1928,10 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		} break;
 		case DebugInteractionObject::ProfilerSpan: {
 			if (WasPressed(controller.B.mouseLeft) && IsPressed(controller.B.kShift)) {
-				state->nextHotInteraction.selectedSpan.type = SpanSelection_ByPtr;
+				state->nextHotInteraction.selectedSpan.type = SpanSelection_ByEvent;
 				state->nextHotInteraction.type = DebugInteractionType::SelectProfilerSpan;
 			} else if (WasPressed(controller.B.mouseLeft)) {
-				state->nextHotInteraction.selectedSpan.type = SpanSelection_ByGuid;
+				state->nextHotInteraction.selectedSpan.type = SpanSelection_ByVar;
 				state->nextHotInteraction.type = DebugInteractionType::SelectProfilerSpan;
 			}
 		} break;
@@ -2067,8 +2069,8 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		}
 	} break;
 	case DebugInteractionType::SelectProfilerSpan: {
-		if (SelectedByPtr(state->interaction.selectedSpan)) {
-			//Profiler_Pause.data_bool = true;
+		if (SelectedByEvent(state->interaction.selectedSpan)) {
+			PROFILER_PAUSE = true;
 		}
 		Assert(state->cpuProfiler.selectedSpanCount < ArrayCount(state->cpuProfiler.selectedSpans) - 1);
 		state->cpuProfiler.selectedSpans[++state->cpuProfiler.selectedSpanCount] = state->interaction.selectedSpan;

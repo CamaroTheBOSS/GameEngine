@@ -87,15 +87,16 @@ struct DebugEvent {
 };
 
 struct DebugStoredEvent;
+struct DebugVariable;
 struct DebugProfilerSpan {
+	DebugVariable* var;
+	DebugStoredEvent* sibling;
+	DebugStoredEvent* firstChild;
+	
 	u64 cyclesStart;
 	u64 cyclesEnd;
 	u32 hitCount;
-	DebugParsedGUID guid;
 	u8 thread;
-
-	DebugStoredEvent* sibling;
-	DebugStoredEvent* firstChild;
 };
 
 struct DebugStoredEvent {
@@ -110,9 +111,7 @@ struct DebugStoredEvent {
 };
 
 struct DebugVariable {
-	DebugParsedGUID parsedGuid;
-	bool permanent;
-	bool timed;
+	DebugParsedGUID guid;
 
 	DebugVariable* nextInHash;
 	DebugStoredEvent* eventSentinel;
@@ -120,6 +119,9 @@ struct DebugVariable {
 	//Metrics (valid values only for variables with DebugProfilerSpan type of union in StoredEvent)
 	u64 eventHitSum;
 	u64 durationSum;
+
+	bool permanent;
+	bool timed;
 };
 
 struct PermanentDebugVariable {
@@ -382,13 +384,13 @@ struct DebugDraggedFloat {
 };
 enum DebugSpanSelectionType {
 	SpanSelection_None,
-	SpanSelection_ByPtr,
-	SpanSelection_ByGuid
+	SpanSelection_ByEvent,
+	SpanSelection_ByVar
 };
 struct DebugSelectedSpan {
 	DebugSpanSelectionType type;
-	DebugParsedGUID byGuid;
-	DebugStoredEvent* byPtr;
+	DebugVariable* byVar;
+	DebugStoredEvent* byEvent;
 };
 
 struct DebugInteractionTree {
@@ -445,7 +447,6 @@ debug_variable bool DEBUG_Debug_ShowEventsCount = 1;
 debug_variable bool DEBUG_Profiler_Memory;
 debug_variable bool DEBUG_Profiler_Cpu = 1;
 debug_variable bool DEBUG_Profiler_CpuShowMostExpensiveFunctions = 0;
-debug_variable bool DEBUG_Profiler_Pause;
 debug_variable bool DEBUG_Camera_Zoomout;
 debug_variable f32 DEBUG_Camera_ZoomoutValue = 10.f;
 debug_variable bool DEBUG_Renderer_WithSoftware = 1;

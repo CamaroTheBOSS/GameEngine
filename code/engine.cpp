@@ -998,8 +998,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 	{DEBUG_DATA_BLOCK("Profiler");
 		DEBUG_DATA(DEBUG_Profiler_Memory);
 		DEBUG_DATA(DEBUG_Profiler_Cpu);
-		DEBUG_DATA(DEBUG_Profiler_CpuShowMostExpensiveFunctions);
-		DEBUG_DATA(DEBUG_Profiler_Pause);}
+		DEBUG_DATA(DEBUG_Profiler_CpuShowMostExpensiveFunctions);}
 #endif
 
 	Platform = &memory.platformAPI;
@@ -1416,7 +1415,7 @@ extern "C" GAME_MAIN_LOOP_FRAME(GameMainLoopFrame) {
 #endif
 			AssetFeatures match = {};
 			AssetFeatures weight = {};
-			match[Feature_Height] = 2.5f;
+			match[Feature_Height] = 1.5f;
 			weight[Feature_Height] = 1.f;
 			BitmapId bmp = GetBestFitBitmapId(tranState->assets, Asset_Tree, match, weight, 10000);
 			PushBitmap(renderGroup, ScaledUprightTransform(treeHeight), bmp, groundLevelPos, V4{1, 0.f, 1.f, layerAlpha});
