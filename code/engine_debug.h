@@ -67,6 +67,8 @@ struct DebugEvent {
 	u16 reserved;
 	u16 threadId;
 	u64 cycles;
+	u32 hitCount;
+	u32 reserved2;
 	const char* GUID;
 	union {
 		void* generic;
@@ -170,7 +172,7 @@ struct DebugThreadStack {
 #define UniqueGUID_(name, file, line, counter) UniqueGUID__(name, file, line, counter)
 #define UniqueGUID(name) UniqueGUID_(name, __FILE__, __LINE__, __COUNTER__)
 #define DEBUG_NAME(name) UniqueGUID(name)
-#define RecordDebugEvent(eventtype, InputGUID) \
+#define RecordDebugEvent(eventtype, InputGUID, HitCount) \
 	u64 frameAndEventIndex_ = AtomicAddU64(&debugGlobalState->frameAndEventIndex, 1);\
 	u32 frameIndex_ = frameAndEventIndex_ >> 32;\
 	u32 eventIndex_ = frameAndEventIndex_ & U32_MAX;\
@@ -181,6 +183,7 @@ struct DebugThreadStack {
 	event_->coreId = u8(coreId);\
 	event_->type = eventtype;\
 	event_->GUID = InputGUID; \
+	event_->hitCount = HitCount; \
 	event_->threadId = u2(GetFastThreadId());
 
 #if INTERNAL_BUILD
@@ -188,10 +191,11 @@ struct DebugThreadStack {
 #define TIMED_FUNCTION_(line, GUID) TIMED_FUNCTION__(line, GUID)
 #define TIMED_FUNCTION TIMED_FUNCTION_(__LINE__, DEBUG_NAME(__FUNCTION__))
 
-#define TIMED_BLOCK_BEGIN__(GUID) { RecordDebugEvent(Event_Time_BlockBegin, GUID); }
-#define TIMED_BLOCK_BEGIN_(GUID) TIMED_BLOCK_BEGIN__(GUID)
-#define TIMED_BLOCK_BEGIN(name) TIMED_BLOCK_BEGIN_(DEBUG_NAME(#name))
-#define TIMED_BLOCK_END { RecordDebugEvent(Event_Time_BlockEnd, DEBUG_NAME("EndTimedBlock")); }
+#define TIMED_BLOCK_BEGIN__(GUID, hitCount) { RecordDebugEvent(Event_Time_BlockBegin, GUID, hitCount); }
+#define TIMED_BLOCK_BEGIN_(GUID, hitCount) TIMED_BLOCK_BEGIN__(GUID, hitCount)
+#define TIMED_BLOCK_BEGIN(name) TIMED_BLOCK_BEGIN_(DEBUG_NAME(#name), 1)
+#define TIMED_BLOCK_BEGIN_COUNTED(name, hitCount) TIMED_BLOCK_BEGIN_(DEBUG_NAME(#name), hitCount)
+#define TIMED_BLOCK_END { RecordDebugEvent(Event_Time_BlockEnd, DEBUG_NAME("EndTimedBlock"), 1); }
 
 #define MARKUP_FRAME_BEGIN \
 	debugGlobalState->frameStartCycles[debugGlobalState->currentFrameIndex] = __rdtsc();
@@ -210,7 +214,7 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did);
 
 #define DEBUG_DATA_BLOCK_DISPATCH_DEF(type) \
 	void DEBUG_DATA_BLOCK_DISPATCH(type& data, const char* GUID) { \
-		RecordDebugEvent(Event_Data_##type, GUID); \
+		RecordDebugEvent(Event_Data_##type, GUID, 1); \
 		if(debugGlobalState->swapEvent.GUID == GUID){ \
 			data = debugGlobalState->swapEvent.data_##type; \
 		}\
@@ -229,14 +233,14 @@ DEBUG_DATA_BLOCK_DISPATCH_DEF(Rect3);
 #define DEBUG_DATA_BLOCK__(line, GUID) DataBlock block##line(GUID)
 #define DEBUG_DATA_BLOCK_(line, GUID) DEBUG_DATA_BLOCK__(line, GUID)
 #define DEBUG_DATA_BLOCK(name) DEBUG_DATA_BLOCK_(__LINE__, DEBUG_NAME(name))
-#define DEBUG_BEGIN_DATA_BLOCK(GUID) { RecordDebugEvent(Event_Data_BlockBegin, GUID) }
-#define DEBUG_END_DATA_BLOCK { RecordDebugEvent(Event_Data_BlockEnd, DEBUG_NAME("EndDataBlock")) }
+#define DEBUG_BEGIN_DATA_BLOCK(GUID) { RecordDebugEvent(Event_Data_BlockBegin, GUID, 1) }
+#define DEBUG_END_DATA_BLOCK { RecordDebugEvent(Event_Data_BlockEnd, DEBUG_NAME("EndDataBlock"), 1) }
 #define DEBUG_DATA__(data, GUID) { DEBUG_DATA_BLOCK_DISPATCH(data, GUID); }
 #define DEBUG_DATA_(data, GUID) DEBUG_DATA__(data, GUID)
 #define DEBUG_DATA(data) DEBUG_DATA_(data, DEBUG_NAME(#data))
 
 #define RecordMemoryDebugEvent(type, arenaArg) \
-	RecordDebugEvent(type, DEBUG_NAME(#arenaArg)) \
+	RecordDebugEvent(type, DEBUG_NAME(#arenaArg), 1) \
 	event_->GUID = ptrcast(const char, &(arenaArg)); \
 	event_->data_MemoryArenaSnapshot.arena = arenaArg; \
 	event_->data_MemoryArenaSnapshot.parent = 0;
@@ -244,7 +248,7 @@ DEBUG_DATA_BLOCK_DISPATCH_DEF(Rect3);
 	RecordMemoryDebugEvent(Event_MemoryArenaInitialize, subarenaArg) \
 	event_->data_MemoryArenaSnapshot.parent = &(arenaArg); }
 #define RecordAssetMemoryBlockEvent(block) { \
-	RecordDebugEvent(Event_AssetMemoryBlock, DEBUG_NAME("AssetMemoryBlock")) \
+	RecordDebugEvent(Event_AssetMemoryBlock, DEBUG_NAME("AssetMemoryBlock"), 1) \
 	event_->data_AssetMemoryBlock = *(block); }
 
 #else
@@ -270,7 +274,7 @@ inline bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) { return false; }
 
 struct TimedBlock {
 	TimedBlock(const char* GUID, u32 hitCount = 1) {
-		TIMED_BLOCK_BEGIN__(GUID)
+		TIMED_BLOCK_BEGIN__(GUID, hitCount)
 	}
 
 	~TimedBlock() {

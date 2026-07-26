@@ -838,7 +838,7 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugP
 }
 
 inline
-DebugStoredEvent* _StoreTimedEvent(DebugState* state, DebugVariable* var, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, u64 startCycles, u64 endCycles, u8 thread) {
+DebugStoredEvent* _StoreTimedEvent(DebugState* state, DebugVariable* var, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, u64 startCycles, u64 endCycles, u8 thread, u32 hitCount) {
 	DebugStoredEvent* result = _StoreEvent(state, var);
 	var->eventHitSum++;
 	var->durationSum += endCycles - startCycles;
@@ -849,14 +849,14 @@ DebugStoredEvent* _StoreTimedEvent(DebugState* state, DebugVariable* var, DebugV
 	result->span.sibling = 0;
 	result->span.firstChild = 0;
 	result->span.thread = thread;
-	result->span.hitCount = 1;
+	result->span.hitCount = hitCount;
 	return result;
 }
 
 inline
 DebugStoredEvent* StoreTimedEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, u64 startCycles, u64 endCycles, u8 thread) {
 	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent, true);
-	DebugStoredEvent* result = _StoreTimedEvent(state, var, group, guid, permanent, startCycles, endCycles, thread);
+	DebugStoredEvent* result = _StoreTimedEvent(state, var, group, guid, permanent, startCycles, endCycles, thread, 1);
 	return result;
 }
 
@@ -1013,10 +1013,9 @@ void DebugCollateEvents(DebugState* state) {
 			DebugVariable* var = GetOrCreateDebugVariable(state, 0, block->parsedGuid, false, true);
 			DebugStoredEvent* storedEvent = _StoreTimedEvent(
 				state, var, 0, block->parsedGuid, false,
-				openEvent->cycles, event->cycles, stack->laneId
+				openEvent->cycles, event->cycles, stack->laneId, event->hitCount
 			);
 			DebugProfilerSpan* span = &storedEvent->span;
-			span->var = var;
 			span->firstChild = block->firstChild;
 			if (parentBlock) {
 #if 1
@@ -1405,6 +1404,12 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 				if (event->span.var == existing->span.var) {
 					existing->span.hitCount += event->span.hitCount;
 					existing->span.cyclesEnd += GetEventCyclesDuration(event);
+					DebugStoredEvent* lastNewChild = event->span.firstChild;
+					if (lastNewChild) {
+						while (lastNewChild->span.sibling) { lastNewChild = lastNewChild->span.sibling; }
+						lastNewChild->span.sibling = existing->span.firstChild;
+						existing->span.firstChild = lastNewChild->span.firstChild;
+					}
 
 					SortElement* sortElement = sortElements + existingEventIdx;
 					sortElement->key += -DurationToMs(GetEventCyclesDuration(event)) / event->span.hitCount;

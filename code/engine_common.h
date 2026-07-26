@@ -192,6 +192,11 @@ bool StringsAreEqual(const char* A, u32 ALength, const char* B, u32 BLength) {
 }
 
 inline
+String8 FromNullTerminated(const char* input) {
+	return String8{ input, StringLength(input) };
+}
+
+inline
 bool StringsAreEqual(String8 first, String8 second) {
 	return StringsAreEqual(first.str, first.length, second.str, second.length);
 }

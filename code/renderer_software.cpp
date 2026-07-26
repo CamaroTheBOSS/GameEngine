@@ -763,6 +763,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
 	u32 rowAdvance = bitmap.pitch;
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
+	TIMED_BLOCK_BEGIN_COUNTED(RenderRectangleOptimizedPerPixel, Maximum(0, (maxY - minY) * packsNum * 8))
 	LLVM_MCA_BEGIN(opt_render_rect);
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
@@ -932,6 +933,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 		row += rowAdvance;
 	}
 	LLVM_MCA_END(opt_render_rect);
+	TIMED_BLOCK_END;
 }
 
 inline
