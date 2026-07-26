@@ -187,9 +187,10 @@ struct DebugThreadStack {
 	event_->threadId = u2(GetFastThreadId());
 
 #if INTERNAL_BUILD
-#define TIMED_FUNCTION__(line, GUID) TimedBlock block##line(GUID)
-#define TIMED_FUNCTION_(line, GUID) TIMED_FUNCTION__(line, GUID)
-#define TIMED_FUNCTION TIMED_FUNCTION_(__LINE__, DEBUG_NAME(__FUNCTION__))
+#define TIMED_FUNCTION__(line, GUID, hitCount) TimedBlock block##line(GUID, hitCount)
+#define TIMED_FUNCTION_(line, GUID, hitCount) TIMED_FUNCTION__(line, GUID, hitCount)
+#define TIMED_FUNCTION TIMED_FUNCTION_(__LINE__, DEBUG_NAME(__FUNCTION__), 1)
+#define TIMED_BLOCK_COUNTED(name, hitCount) TIMED_FUNCTION_(__LINE__, DEBUG_NAME(#name), hitCount)
 
 #define TIMED_BLOCK_BEGIN__(GUID, hitCount) { RecordDebugEvent(Event_Time_BlockBegin, GUID, hitCount); }
 #define TIMED_BLOCK_BEGIN_(GUID, hitCount) TIMED_BLOCK_BEGIN__(GUID, hitCount)
@@ -253,10 +254,13 @@ DEBUG_DATA_BLOCK_DISPATCH_DEF(Rect3);
 
 #else
 #define TIMED_FUNCTION
+#define TIMED_BLOCK_COUNTED(...)
 #define TIMED_BLOCK_BEGIN__(...)
 #define TIMED_BLOCK_BEGIN(...)
 #define TIMED_BLOCK_END_(...)
 #define TIMED_BLOCK_END(...)
+#define TIMED_BLOCK_BEGIN_COUNTED(...)
+
 
 #define MARKUP_FRAME_BEGIN
 #define MARKUP_FRAME_END

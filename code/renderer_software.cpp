@@ -643,7 +643,6 @@ void RenderFilledRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V
 void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxis, V4 color,
 	LoadedBitmap& texture, Rect2i clipRect)
 {
-	TIMED_FUNCTION;
 	V2 points[4] = {
 		origin,
 		origin + xAxis,
@@ -671,6 +670,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 	if (!HasArea(fillRect)) {
 		return;
 	}
+	TIMED_FUNCTION;
 	i32 alignedMinX = AlignDown8(fillRect.minX);
 	__m256i startupClipMask = _mm256_set1_epi8(-1);
 	if (fillRect.minX != alignedMinX) {
@@ -763,7 +763,7 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 #define Ei(mm, i) ptrcast(u32, &mm)[i]
 	u32 rowAdvance = bitmap.pitch;
 	u8* row = ptrcast(u8, bitmap.data) + minY * bitmap.pitch + minX * BITMAP_BYTES_PER_PIXEL;
-	TIMED_BLOCK_BEGIN_COUNTED(RenderRectangleOptimizedPerPixel, Maximum(0, (maxY - minY) * packsNum * 8))
+	TIMED_BLOCK_COUNTED(RenderRectangleOptimizedPerPixel, Maximum(0, (maxY - minY) * packsNum * 8));
 	LLVM_MCA_BEGIN(opt_render_rect);
 	for (i32 Y = minY; Y < maxY; Y++) {
 		u32* dstPixel = ptrcast(u32, row);
@@ -933,7 +933,6 @@ void RenderRectangleOptimized(LoadedBitmap& bitmap, V2 origin, V2 xAxis, V2 yAxi
 		row += rowAdvance;
 	}
 	LLVM_MCA_END(opt_render_rect);
-	TIMED_BLOCK_END;
 }
 
 inline
