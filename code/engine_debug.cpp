@@ -381,8 +381,8 @@ bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) {
 }
 
 inline
-u32 GetFrameCount(DebugState* state) {
-	return state->framesSentinel.next->frameIndex - state->framesSentinel.prev->frameIndex;
+u32 GetCollationFrameCount(DebugState* state) {
+	return state->frameVariable->eventSentinel->next->captureFrameIndex - state->frameVariable->eventSentinel->prev->captureFrameIndex + 1;
 }
 
 inline
@@ -555,6 +555,111 @@ FontDrawContext InitializeStandardFontDrawContext(DebugState* state, V2 topline)
 }
 
 internal
+DebugVariableLink* AddVariableToGroup(DebugState* state, DebugVariableLink* parent, DebugVariable* var) {
+	Assert(parent->isGroup);
+	DebugVariableLink* link = PushStructSize(state->mainArena, DebugVariableLink);
+	link->variable = var;
+	link->parent = parent;
+	link->nextInHash = 0;
+	link->isGroup = false;
+	link->next = parent->firstChild;
+	parent->firstChild = link;
+	return link;
+}
+
+inline
+u32 GetStringHash(String8 string) {
+	// TODO: Better hash function!
+	internal u32 primes[] = {
+		3, 5, 7, 11, 13, 17, 19, 23, 29, 31,37,	41,	43,	47,	53,	59,	61,
+		67,	71, 73,	79,	83,	89,	97,	101,103,107,109,113,127,131,137,139,
+		149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211,
+		223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281,
+		283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367,
+		373, 379, 383, 389, 397, 401, 409, 419, 421, 431, 433, 439, 443,
+		449, 457, 461, 463, 467, 479, 487, 491, 499, 503, 509, 521, 523, 541
+	};
+	u32 hash = 0;
+	Assert(string.length < ArrayCount(primes))
+		for (u32 idx = 0; idx < string.length; idx++) {
+			hash += primes[idx] * (string.str[idx] - 'a');
+			hash ^= 524287;
+		}
+	return hash;
+}
+
+inline
+DebugVariable* _GetDebugVariable(DebugState* state, DebugParsedGUID& parsedGUID, u32 hashSlot) {
+	DebugVariable* result = 0;
+	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
+		if (StringsAreEqual(var->guid.GUID, parsedGUID.GUID)) {
+			result = var;
+			break;
+		}
+	}
+	return result;
+}
+
+inline
+DebugVariable* GetDebugVariable(DebugState* state, DebugParsedGUID& GUID) {
+	u32 hashSlot = GetStringHash(GUID.GUID) % ArrayCount(state->variableHash);
+	DebugVariable* result = _GetDebugVariable(state, GUID, hashSlot);
+	return result;
+}
+
+internal
+DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* group,
+	DebugParsedGUID& guid, bool permanent, bool timed) {
+	u32 hashSlot = GetStringHash(guid.GUID) % ArrayCount(state->variableHash);
+	DebugVariable* result = _GetDebugVariable(state, guid, hashSlot);
+	if (!result) {
+		result = PushStructSize(state->mainArena, DebugVariable);
+		result->eventSentinel = PushStructSize(state->mainArena, DebugStoredEvent);
+		*result->eventSentinel = {};
+		DLINKED_LIST_INIT(result->eventSentinel);
+		result->guid = DebugCopyGUID(state->mainArena, guid);
+		result->nextInHash = state->variableHash[hashSlot];
+		result->permanent = permanent;
+		result->timed = timed;
+		result->eventHitSum = 0;
+		result->durationSum = 0;
+		state->variableHash[hashSlot] = result;
+		if (group) {
+			AddVariableToGroup(state, group, result);
+		}
+	}
+	return result;
+}
+
+internal
+DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink* parentGroup, DebugParsedGUID& parsedGuid) {
+	TIMED_FUNCTION;
+	// TODO: Could I avoid hashing string?;
+	u32 hashSlot = GetStringHash(parsedGuid.GUID) % ArrayCount(state->groupHash);
+	DebugVariableLink* result = 0;
+	for (DebugVariableLink* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
+		DebugParsedGUID* candidate = &group->variable->guid;
+		if (StringsAreEqual(parsedGuid.GUID, candidate->GUID)) {
+			result = group;
+			break;
+		}
+	}
+	if (!result) {
+		result = PushStructSize(state->mainArena, DebugVariableLink);
+		result->isGroup = true;
+		result->firstChild = 0;
+		result->parent = parentGroup;
+		result->next = parentGroup->firstChild;
+		parentGroup->firstChild = result;
+		result->nextInHash = state->groupHash[hashSlot];
+		state->groupHash[hashSlot] = result;
+		result->variable = GetOrCreateDebugVariableForGroup(state, result, parsedGuid);
+	}
+	return result;
+}
+
+
+internal
 DebugTree* AddTree(DebugState* state, V2 pos, const char* name) {
 	DebugTree* tree = PushStructSize(state->mainArena, DebugTree);
 	tree->pos = pos;
@@ -611,8 +716,9 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 		state->cpuProfiler.view.projection = GetOrtographicProjection(bitmapWidth, bitmapHeight, 1);
 		state->cpuProfiler.view.zoom = state->cpuProfiler.view.projection.camera.focalLength;
 		state->rootCpuProfilerEvent = {};
-		state->rootCpuProfilerEvent.GUID = UniqueGUID("[Whole Frame]");
+		state->rootCpuProfilerEvent.GUID = DEBUG_NAME("[Whole Frame]");
 		state->rootCpuProfilerEventGuid = DebugParseGUID(state->rootCpuProfilerEvent.GUID);
+		state->frameVariable = GetOrCreateDebugVariable(state, 0, state->rootCpuProfilerEventGuid, false, true);
 
 		state->memProfiler.view.rect = Rect2{
 			V2{ state->cpuProfiler.view.rect.min.X, state->cpuProfiler.view.rect.max.Y + 30.f },
@@ -640,7 +746,6 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 
 		state->threadStacks = PushArray(state->mainArena, MAX_DEBUG_THREADS, DebugThreadStack);
 		DLINKED_LIST_INIT(&state->UISentinel);
-		DLINKED_LIST_INIT(&state->framesSentinel);
 
 		V2 leftTopCorner = V2{ state->overlayBoundaries.min.X, state->overlayBoundaries.max.Y };
 		V2 rightTopCorner = V2{ state->overlayBoundaries.max.X - 400.f, state->overlayBoundaries.max.Y };
@@ -651,6 +756,7 @@ DebugState* DebugBegin(InputData& input, RenderCommandBuffer* renderCommands, u3
 		DEBUG_CPU_FREQ = cpuInfo.cpuHz;
 		DEBUG_COLLATION_SCALE = f4(targetFrameRate) / DEBUG_CPU_FREQ;
 		DEBUG_SPAN_MERGE_CYCLES_THRESHOLD = u4(0.001'000f * DEBUG_CPU_FREQ); // 100us
+
 		state->isInitialized = true;
 	}
 	EndRendering(state->renderGroup);
@@ -713,88 +819,6 @@ void PopFromEventStack(DebugState* state, OpenDebugEvent** stack) {
 	state->openEventFreeList = block;
 }
 
-struct DebugVariableDefinitionContext {
-	u32 stackDepth;
-	DebugVariableLink* parentStack[64];
-};
-
-internal
-DebugVariableLink* AddVariableToGroup(DebugState* state, DebugVariableLink* parent, DebugVariable* var) {
-	Assert(parent->isGroup);
-	DebugVariableLink* link = PushStructSize(state->mainArena, DebugVariableLink);
-	link->variable = var;
-	link->parent = parent;
-	link->nextInHash = 0;
-	link->isGroup = false;
-	link->next = parent->firstChild;
-	parent->firstChild = link;
-	return link;
-}
-
-inline
-u32 GetStringHash(String8 string) {
-	// TODO: Better hash function!
-	internal u32 primes[] = {
-		3, 5, 7, 11, 13, 17, 19, 23, 29, 31,37,	41,	43,	47,	53,	59,	61,
-		67,	71, 73,	79,	83,	89,	97,	101,103,107,109,113,127,131,137,139,
-		149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211,
-		223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281,
-		283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367,
-		373, 379, 383, 389, 397, 401, 409, 419, 421, 431, 433, 439, 443,
-		449, 457, 461, 463, 467, 479, 487, 491, 499, 503, 509, 521, 523, 541
-	};
-	u32 hash = 0;
-	Assert(string.length < ArrayCount(primes))
-	for (u32 idx = 0; idx < string.length; idx++) {
-		hash += primes[idx] * (string.str[idx] - 'a');
-		hash ^= 524287;
-	}
-	return hash;
-}
-
-inline
-DebugVariable* _GetDebugVariable(DebugState* state, DebugParsedGUID& parsedGUID, u32 hashSlot) {
-	DebugVariable* result = 0;
-	for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-		if (StringsAreEqual(var->guid.GUID, parsedGUID.GUID)) {
-			result = var;
-			break;
-		}
-	}
-	return result;
-}
-
-inline
-DebugVariable* GetDebugVariable(DebugState* state, DebugParsedGUID& GUID) {
-	u32 hashSlot = GetStringHash(GUID.GUID) % ArrayCount(state->variableHash);
-	DebugVariable* result = _GetDebugVariable(state, GUID, hashSlot);
-	return result;
-}
-
-internal
-DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* group, 
-	DebugParsedGUID& guid, bool permanent, bool timed) {
-	u32 hashSlot = GetStringHash(guid.GUID) % ArrayCount(state->variableHash);
-	DebugVariable* result = _GetDebugVariable(state, guid, hashSlot);
-	if (!result) {
-		result = PushStructSize(state->mainArena, DebugVariable);
-		result->eventSentinel = PushStructSize(state->mainArena, DebugStoredEvent);
-		*result->eventSentinel = {};
-		DLINKED_LIST_INIT(result->eventSentinel);
-		result->guid = DebugCopyGUID(state->mainArena, guid);
-		result->nextInHash = state->variableHash[hashSlot];
-		result->permanent = permanent;
-		result->timed = timed;
-		result->eventHitSum = 0;
-		result->durationSum = 0;
-		state->variableHash[hashSlot] = result;
-		if (group) {
-			AddVariableToGroup(state, group, result);
-		}
-	}
-	return result;
-}
-
 inline
 void _DeallocEvent(DebugState* state, DebugVariable* var, DebugStoredEvent* event) {
 	state->deallocEventsSum++;
@@ -811,8 +835,7 @@ void _DeallocEvent(DebugState* state, DebugVariable* var, DebugStoredEvent* even
 internal
 void FreeOldestFrame(DebugState* state) {
 	TIMED_FUNCTION;
-	DebugCollationFrame* frame = state->framesSentinel.prev;
-	Assert(frame != &state->framesSentinel);
+	u32 lastFrameIndex = state->frameVariable->eventSentinel->prev->captureFrameIndex;
 	for (u32 hashSlot = 0; hashSlot < ArrayCount(state->variableHash); hashSlot++) {
 		for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
 			if (StringsAreEqual(GetName(var), FromNullTerminated("SoftwareRenderCommandsToBuffer"))) {
@@ -821,7 +844,7 @@ void FreeOldestFrame(DebugState* state) {
 			DebugStoredEvent* oldestEvent = GetOldestEvent(var);
 			DebugStoredEvent* newestEvent = GetNewestEvent(var);
 			bool hasOnlyOneEvent = (var->permanent && oldestEvent == newestEvent);
-			bool isOldestEventTooNew = oldestEvent->captureFrameIndex > frame->frameIndex;
+			bool isOldestEventTooNew = oldestEvent->captureFrameIndex > lastFrameIndex;
 			if (DLINKED_LIST_IS_EMPTY(var->eventSentinel) || hasOnlyOneEvent || isOldestEventTooNew) {
 				continue;
 			}
@@ -830,7 +853,7 @@ void FreeOldestFrame(DebugState* state) {
 			_DeallocEvent(state, var, firstEventToRemove);
 			
 			Assert(var->eventSentinel->captureFrameIndex == 0);
-			while (lastEventToRemove->prev != var->eventSentinel && lastEventToRemove->prev->captureFrameIndex <= frame->frameIndex) {
+			while (lastEventToRemove->prev != var->eventSentinel && lastEventToRemove->prev->captureFrameIndex <= lastFrameIndex) {
 				if (var->permanent && lastEventToRemove->prev == newestEvent) {
 					break;
 				}
@@ -845,25 +868,24 @@ void FreeOldestFrame(DebugState* state) {
 			lastEventToRemove->prev = 0;
 		}
 	}
-	DLINKED_LIST_REMOVE(frame);
-	frame->next = state->freeFrameList;
-	state->freeFrameList = frame;
-	state->deallocFramesSum++;
-	state->collationFrameCount--;
 }
 
 internal
 DebugStoredEvent* AllocateEvent(DebugState* state) {
 	DebugStoredEvent* storedEvent = 0;
+	u32 MAX_COLLATION_FRAMES = 600;
 	while (!storedEvent) {
 		storedEvent = state->freeStoredEventList;
 		if (storedEvent) {
 			state->freeStoredEventList = state->freeStoredEventList->next;
 		}
+		else if (GetCollationFrameCount(state) > MAX_COLLATION_FRAMES) {
+			FreeOldestFrame(state);
+		}
 		else if (HasArenaSpaceFor(state->collationFrameArena, sizeof(DebugStoredEvent))) {
 			storedEvent = PushStructSize(state->collationFrameArena, DebugStoredEvent);
 		}
-		else if (state->framesSentinel.next != &state->framesSentinel) {
+		else if (GetCollationFrameCount(state) > 1) {
 			FreeOldestFrame(state);
 		}
 		else {
@@ -910,6 +932,16 @@ DebugStoredEvent* StoreTimedEvent(DebugState* state, DebugVariableLink* group, D
 	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent, true);
 	DebugStoredEvent* result = _StoreTimedEvent(state, var, group, guid, permanent, startCycles, endCycles, thread, 1);
 	return result;
+}
+
+internal
+DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid) {
+	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, true, false);
+	DebugStoredEvent* stored = _StoreEvent(state, var);
+	stored->event.GUID = guid.GUID.str;
+	stored->event.type = Event_Data_bool;
+	stored->event.data_bool = false;
+	return var;
 }
 
 inline
@@ -1001,94 +1033,21 @@ DebugStoredEvent* StoreEventCopy(DebugState* state, DebugVariableLink* group, De
 }
 
 internal
-DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid) {
-	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, true, false);
-	DebugStoredEvent* stored = _StoreEvent(state, var);
-	stored->event.GUID = guid.GUID.str;
-	stored->event.type = Event_Data_bool;
-	stored->event.data_bool = false;
-	return var;
-}
-
-internal
-DebugVariableLink* GetOrCreateVariableGroup(DebugState* state, DebugVariableLink* parentGroup, DebugParsedGUID& parsedGuid) {
-	TIMED_FUNCTION;
-	// TODO: Could I avoid hashing string?;
-	u32 hashSlot = GetStringHash(parsedGuid.GUID) % ArrayCount(state->groupHash);
-	DebugVariableLink* result = 0;
-	for (DebugVariableLink* group = state->groupHash[hashSlot]; group; group = group->nextInHash) {
-		DebugParsedGUID* candidate = &group->variable->guid;
-		if (StringsAreEqual(parsedGuid.GUID, candidate->GUID)) {
-			result = group;
-			break;
-		}
-	}
-	if (!result) {
-		result = PushStructSize(state->mainArena, DebugVariableLink);
-		result->isGroup = true;
-		result->firstChild = 0;
-		result->parent = parentGroup;
-		result->next = parentGroup->firstChild;
-		parentGroup->firstChild = result;
-		result->nextInHash = state->groupHash[hashSlot];
-		state->groupHash[hashSlot] = result;
-		result->variable = GetOrCreateDebugVariableForGroup(state, result, parsedGuid);
-	}
-	return result;
-}
-
-inline
-u32 GetCollationFrameCount(DebugState* state) {
-	return state->framesSentinel.next->frameIndex - state->framesSentinel.prev->frameIndex + 1;
-}
-
-internal
-DebugCollationFrame* AllocateNewDebugFrame(DebugState* state) {
-	DebugCollationFrame* newFrame = 0;
-	u32 MAX_FRAME_COUNT = 600;
-	while (!newFrame) {
-		newFrame = state->freeFrameList;
-		if (newFrame) {
-			state->freeFrameList = state->freeFrameList->next;
-		}
-		else if (GetCollationFrameCount(state) > MAX_FRAME_COUNT) {
-			FreeOldestFrame(state);
-		}
-		else if (HasArenaSpaceFor(state->collationFrameArena, sizeof(DebugCollationFrame))) {
-			newFrame = PushStructSize(state->collationFrameArena, DebugCollationFrame);
-		}
-		else {
-			FreeOldestFrame(state);
-		}
-	}
-	state->collationFrameCount++;
-	state->allocFramesSum++;
-	u32 tableIndex = !debugGlobalState->currentFrameIndex;
-	newFrame->eventsCount = debugGlobalState->eventsCount[tableIndex];
-	newFrame->startCycles = debugGlobalState->frameStartCycles[tableIndex];
-	newFrame->endCycles = debugGlobalState->frameEndCycles[tableIndex];
-	newFrame->startCyclesDebugFinishFrame = debugGlobalState->frameStartCyclesDebugFinishFrame[tableIndex];
-	newFrame->endCyclesDebugFinishFrame = debugGlobalState->frameEndCyclesDebugFinishFrame[tableIndex];
-	newFrame->frameIndex = state->totalFrameCount;
-	DLINKED_LIST_ADD(&state->framesSentinel, newFrame);
-	return newFrame;
-}
-
-internal
 void DebugCollateEvents(DebugState* state) {
 	TIMED_FUNCTION;
 	if (PROFILER_PAUSE) {
 		return;
 	}
 
-	u32 frameIndex = !debugGlobalState->currentFrameIndex;
-	DebugEvent* eventsInFrame = debugGlobalState->events[frameIndex];
-	u32 eventsInFrameCount = debugGlobalState->eventsCount[frameIndex];
-	DebugCollationFrame* newFrame = AllocateNewDebugFrame(state);
+	u32 tableIndex = !debugGlobalState->currentFrameIndex;
+	DebugEvent* eventsInFrame = debugGlobalState->events[tableIndex];
+	u32 eventsInFrameCount = debugGlobalState->eventsCount[tableIndex];
+	u64 frameStartCycles = debugGlobalState->frameStartCycles[tableIndex];
+	u64 frameEndCycles = debugGlobalState->frameEndCycles[tableIndex];
 
 	DebugStoredEvent* rootTimeEvent = StoreTimedEvent(
 		state, 0, state->rootCpuProfilerEventGuid, 
-		false, newFrame->startCycles, newFrame->endCycles, 0
+		false, frameStartCycles, frameEndCycles, 0
 	);
 	for (u32 eventIndex = 0; eventIndex < eventsInFrameCount; eventIndex++) {
 		DebugEvent* event = eventsInFrame + eventIndex;
@@ -1108,9 +1067,6 @@ void DebugCollateEvents(DebugState* state) {
 			Assert(!parentBlock || parentBlock->event.threadId == event->threadId);
 
 			DebugVariable* var = GetOrCreateDebugVariable(state, 0, block->parsedGuid, false, true);
-			if (StringsAreEqual(GetName(var), FromNullTerminated("RenderRectangleOptimizedPerPixel"))) {
-				int breakhere = 2;
-			}
 			DebugStoredEvent* storedEvent = _StoreTimedEvent(
 				state, var, 0, block->parsedGuid, false,
 				openEvent->cycles, event->cycles, stack->laneId, openEvent->hitCount
@@ -1639,7 +1595,7 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 		V4{0.5f, 0.5f, 0.5f, 1},
 	};
 	f32 frameWidth = f4(state->threadStacksCount) * threadLaneTotalWidth + frameLaneSpace;
-	f32 maxWidth = Maximum(state->collationFrameCount * frameWidth, viewDim.X);
+	f32 maxWidth = Maximum(GetCollationFrameCount(state) * frameWidth, viewDim.X);
 	if (isHot) {
 		view.offset += V2{ state->controller->mouseWheelTicks * 30.f, 0.f };
 	}
@@ -1648,9 +1604,10 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 	f32 currentWidth = frameWidth - view.offset.X;
 	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
 	PushRect(state->renderGroup, DefaultFlatTransform(), view.rect, -1.f, backgroundColor);
-	DebugCollationFrame* frame = state->framesSentinel.next;
-	u32 newestFrameIndex = frame->frameIndex;
 
+	DebugStoredEvent* frame = state->frameVariable->eventSentinel->next;
+	u32 newestFrameIndex = frame->captureFrameIndex;
+	
 	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
 	DebugStoredEvent* terminationStoredEvent = 0;
 	if (SelectedByEvent(selectedSpan)) {
@@ -1673,8 +1630,8 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 			DebugStoredEvent* firstEvent = rootSpan->firstChild;
 			for (DebugStoredEvent* event = firstEvent; event; event = event->span.sibling) {
 				DebugProfilerSpan* span = &event->span;
-				f32 minT = f4(span->cyclesStart - frame->startCycles) * DEBUG_COLLATION_SCALE;
-				f32 maxT = f4(span->cyclesEnd - frame->startCycles) * DEBUG_COLLATION_SCALE;
+				f32 minT = f4(span->cyclesStart - frame->span.cyclesStart) * DEBUG_COLLATION_SCALE;
+				f32 maxT = f4(span->cyclesEnd - frame->span.cyclesStart) * DEBUG_COLLATION_SCALE;
 				f32 threshold = 0.01f;
 				if (maxT - minT < threshold) {
 					continue;
@@ -2288,38 +2245,22 @@ void DebugRenderOverlay(DebugState* state) {
 			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 		}
 #endif
-		MemoryArena* arenas[] = { &state->collationFrameArena, &state->mainArena };
-		const char* arenaNames[] = { "CollationFrame", "Main" };
-		{
 #if 0
-			{
-				char buffer[256];
-				char* at = buffer;
-				char* end = buffer + sizeof(buffer);
-				at += sprintf_s(at, end - at, "Arena remaining sizes:   ");
-				for (u32 arenaIndex = 0; arenaIndex < ArrayCount(arenas); arenaIndex++) {
-					u64 arenaRemainingSize = GetArenaFreeSpaceSize(*arenas[arenaIndex]) / 1024;
-					at += sprintf_s(at, end - at, "%s: %lldkB   ", arenaNames[arenaIndex], arenaRemainingSize);
-				}
-				DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
+		{
+			MemoryArena* arenas[] = { &state->collationFrameArena, &state->mainArena };
+			const char* arenaNames[] = { "CollationFrame", "Main" };
+			char buffer[256];
+			char* at = buffer;
+			char* end = buffer + sizeof(buffer);
+			at += sprintf_s(at, end - at, "Arena remaining sizes:   ");
+			for (u32 arenaIndex = 0; arenaIndex < ArrayCount(arenas); arenaIndex++) {
+				u64 arenaRemainingSize = GetArenaFreeSpaceSize(*arenas[arenaIndex]) / 1024;
+				at += sprintf_s(at, end - at, "%s: %lldkB   ", arenaNames[arenaIndex], arenaRemainingSize);
 			}
-#endif
-#if 1
-			{
-				char buffer[256];
-				u32 allocs[] = { state->allocFramesSum, state->allocEventsSum , state->allocSpansSum };
-				u32 deallocs[] = { state->deallocFramesSum, state->deallocEventsSum , state->deallocSpansSum };
-				const char* varNames[] = { "Frames: ", "Events: ", "Spans: " };
-				char* at = buffer;
-				char* end = buffer + sizeof(buffer);
-				at += sprintf_s(at, end - at, "Dealloc/Alloc count: ");
-				for (u32 index = 0; index < ArrayCount(allocs); index++) {
-					at += sprintf_s(at, end - at, "%s%d/%d   ", varNames[index], deallocs[index], allocs[index]);
-				}
-				DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
-			}
-#endif
+			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 		}
+#endif
+		PRINT_DEBUGGING("Event Dealloc/Alloc count: %d/%d", state->deallocEventsSum, state->allocEventsSum);
 #if 0
 		{
 			DebugCollationFrame* frame = state->framesSentinel.next;

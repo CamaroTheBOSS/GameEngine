@@ -99,11 +99,8 @@ struct DebugState {
 	MemoryArena collationFrameArena;
 	OpenDebugEvent* openEventFreeList;
 	u32 totalFrameCount;
-	u32 collationFrameCount;
-	DebugCollationFrame framesSentinel;
-	DebugCollationFrame* freeFrameList;
 	DebugStoredEvent* freeStoredEventList;
-	DebugProfilerSpan* spanFreeList;
+	DebugVariable* frameVariable;
 	DebugVariable* variableHash[512];
 	DebugVariableLink* groupHash[128];
 	
@@ -136,12 +133,8 @@ struct DebugState {
 	DebugParsedGUID rootCpuProfilerEventGuid;
 
 	// Debug in debug :)
-	u32 allocFramesSum;
-	u32 deallocFramesSum;
 	u32 allocEventsSum;
 	u32 deallocEventsSum;
-	u32 allocSpansSum;
-	u32 deallocSpansSum;
 
 	bool isInitialized;
 };
