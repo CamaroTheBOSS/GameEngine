@@ -137,15 +137,20 @@ bool IsVariableHot(DebugState* state, DebugSelectedSpan& selectedSpan) {
 }
 
 inline
-bool IsVariableHot(DebugState* state, DebugProfilerSpan* span) {
+bool IsVariableHot(DebugState* state, DebugStoredEvent* event) {
 	if (state->hotInteraction.obj != DebugInteractionObject::ProfilerSpan) {
 		return false;
 	}
 	DebugSelectedSpan& hotSelectedSpan = state->hotInteraction.selectedSpan;
+	bool eventsAreEqual = hotSelectedSpan.byEvent == event;
+	bool varsAreEqual = hotSelectedSpan.byVar == event->span.var;
 	if (SelectedByVar(hotSelectedSpan)) {
-		return hotSelectedSpan.byVar == span->var;
+		return varsAreEqual;
 	}
-	return false;
+	else if (SelectedByEvent(hotSelectedSpan)) {
+		return eventsAreEqual;
+	}
+	return eventsAreEqual || varsAreEqual;
 }
 
 inline
@@ -266,9 +271,9 @@ DebugInteraction InteractionDragIncrease(Rect2 bbox, f32* dragged, f32 amountPer
 }
 
 inline 
-DebugSelectedSpan BuildSelectedSpan(DebugVariable* var, DebugStoredEvent* event) {
+DebugSelectedSpan BuildSelectedSpan(DebugVariable* var, DebugStoredEvent* event, DebugSpanSelectionType type) {
 	DebugSelectedSpan selected;
-	selected.type = SpanSelection_None;
+	selected.type = type;
 	selected.byVar = var;
 	selected.byEvent = event;
 	return selected;
@@ -284,9 +289,9 @@ DebugInteraction InteractionProfilerSpan(Rect2 bbox, DebugSelectedSpan selectedS
 }
 
 inline
-DebugInteraction InteractionProfilerSpan(DebugVariable* var, DebugStoredEvent* event, Rect2 bbox) {
+DebugInteraction InteractionProfilerSpan(DebugVariable* var, DebugStoredEvent* event, Rect2 bbox, DebugSpanSelectionType type) {
 	DebugProfilerSpan* newestSpan = &GetNewestEvent(var)->span;
-	DebugSelectedSpan selected = BuildSelectedSpan(newestSpan->var, event);
+	DebugSelectedSpan selected = BuildSelectedSpan(newestSpan->var, event, type);
 	return InteractionProfilerSpan(bbox, selected);
 }
 
@@ -1424,7 +1429,7 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 			GetVarMetricsByText(var, buffer, ArrayCount(buffer), currentSortIndex + 1, 0);
 			Rect2 bb = GetTextBoundingBox(state, buffer, fontContext);
 			if (IsInRectangle(bb, mousePos)) {
-				state->nextHotInteraction = InteractionProfilerSpan(var, 0, bb);
+				state->nextHotInteraction = InteractionProfilerSpan(var, 0, bb, SpanSelection_ByVar);
 				DebugRenderLineWithOutline(state, buffer, fontContext, color, V4{ 0, 0, 0, 1 }, 1.f);
 			}
 			else {
@@ -1481,6 +1486,7 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 		parentVar = rootSpan->var;
 		parentEvent = selectedSpan.byEvent;
 		for (DebugStoredEvent* child = rootSpan->firstChild; child; child = child->span.sibling) {
+#if 0 //NOTE Enable if we would like to merge the same type of event when specific event is selected
 			bool found = false;
 			for (u32 existingEventIdx = 0; existingEventIdx < elementCount; existingEventIdx++) {
 				DebugStoredEvent* existing = events + existingEventIdx;
@@ -1496,6 +1502,10 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 			}
 			if (found) {
 				continue;
+			}
+#endif
+			if (elementCount >= (maxElements - 1)) {
+				break;
 			}
 
 			SortElement* sortElement = sortElements + elementCount;
@@ -1571,8 +1581,9 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 			GetVarMetricsByText(var, buffer, ArrayCount(buffer), rank, aggregatedEvent);
 			Rect2 spanRect = GetTextBoundingBox(state, buffer, fontContext);
 			if (IsInRectangle(spanRect, mousePos)) {
-				DebugStoredEvent* firstOriginalEvent = aggregatedEvent ? aggregatedEvent->next : 0;
-				state->nextHotInteraction = InteractionProfilerSpan(var, firstOriginalEvent, spanRect);
+				DebugStoredEvent* originalEvent = aggregatedEvent ? aggregatedEvent->next : 0;
+				DebugSpanSelectionType interactionType = originalEvent ? SpanSelection_ByEvent : SpanSelection_ByVar;
+				state->nextHotInteraction = InteractionProfilerSpan(var, originalEvent, spanRect, interactionType);
 				DebugRenderLineWithOutline(state, buffer, fontContext, color, V4{ 0, 0, 0, 1 }, 1.f);
 			}
 			else {
@@ -1676,25 +1687,23 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 				V4 rectColor = colors[colorIndex];
 
 
-				if (IsVariableHot(state, span)) {
+				if (IsVariableHot(state, event)) {
 					rectColor = V4{ 1, 1, 1, 1 };
 				}
 				if (IsInRectangle(spanRect, mousePos)) {
-					DebugSelectedSpan selectedSpanData = BuildSelectedSpan(span->var, event);
-					if (IsVariableHot(state, selectedSpanData)) {
-						rectColor = V4{ 1, 1, 1, 1 };
-						if (name.str) {
-							char buffer[256];
-							sprintf_s(buffer, "%.*s", name.length, name.str);
-							V4 color = V4{ 1, 1, 1, 1 };
-							f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
-							V2 textPos = mousePos + V2{ 0, lineAdvance };
-							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
-							textPos += V2{ 0, lineAdvance };
-							sprintf_s(buffer, "t<%4f,%4f>, hitCount: %d", minT, maxT, span->hitCount);
-							DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
-						}
+					rectColor = V4{ 1, 1, 1, 1 };
+					if (name.str) {
+						char buffer[256];
+						sprintf_s(buffer, "%.*s", name.length, name.str);
+						V4 color = V4{ 1, 1, 1, 1 };
+						f32 lineAdvance = state->fontContext.scale * f4(GetFontLineAdvance(state->font));
+						V2 textPos = mousePos + V2{ 0, lineAdvance };
+						DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
+						textPos += V2{ 0, lineAdvance };
+						sprintf_s(buffer, "t<%4f,%4f>, hitCount: %d", minT, maxT, span->hitCount);
+						DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 					}
+					DebugSelectedSpan selectedSpanData = BuildSelectedSpan(span->var, event, SpanSelection_ByEvent);
 					state->nextHotInteraction = InteractionProfilerSpan(spanRect, selectedSpanData);
 				}
 				if (IsValid(spanRect) && GetHeight(spanRect) > 1.0f) {
@@ -2170,7 +2179,9 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 		if (SelectedByEvent(state->interaction.selectedSpan)) {
 			PROFILER_PAUSE = true;
 		}
-		Assert(state->cpuProfiler.selectedSpanCount < ArrayCount(state->cpuProfiler.selectedSpans) - 1);
+		if (state->cpuProfiler.selectedSpanCount >= ArrayCount(state->cpuProfiler.selectedSpans) - 1) {
+			state->cpuProfiler.selectedSpanCount = 0;
+		}
 		state->cpuProfiler.selectedSpans[++state->cpuProfiler.selectedSpanCount] = state->interaction.selectedSpan;
 		interactionEnded = true;
 	} break;
