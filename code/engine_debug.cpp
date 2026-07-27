@@ -1374,10 +1374,10 @@ void GetVarMetricsByText(DebugVariable* var, char* dst, size_t dstSize, u32 rank
 
 internal
 void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2 mousePos) {
-	TIMED_FUNCTION;
 	if (!DEBUG_Profiler_CpuShowMostExpensiveFunctions) {
 		return;
 	}
+	TIMED_FUNCTION;
 	DebugVirtualView& view = state->cpuTimingsView;
 	bool isHot = IsInRectangle(view.rect, mousePos);
 	if (isHot) {
@@ -1487,12 +1487,6 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 				if (child->span.var == existing->span.var) {
 					existing->span.hitCount += child->span.hitCount;
 					existing->span.cyclesEnd += GetEventCyclesDuration(child);
-					DebugStoredEvent* lastNewChild = child->span.firstChild;
-					if (lastNewChild) {
-						while (lastNewChild->span.sibling) { lastNewChild = lastNewChild->span.sibling; }
-						lastNewChild->span.sibling = existing->span.firstChild;
-						existing->span.firstChild = lastNewChild->span.firstChild;
-					}
 
 					SortElement* sortElement = sortElements + existingEventIdx;
 					sortElement->key += -GetEventAvgDurationMs(child);
