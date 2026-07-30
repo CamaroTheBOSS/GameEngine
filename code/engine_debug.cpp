@@ -1,22 +1,6 @@
 #include "engine.h"
 #include "renderer_software.cpp"
 
-/* TODO:
-* Better profiler 
-* - regions should be debug variables and be used in interaction system!
-* - should display frames starting from the newest! The oldest should be dropped when outside the screen
-* - should display frame information: duration, events count and other stuff
-* - should be another tree displayed in different way -> Pause / Resize / Move / Clickable regions
-* 
-* Profiler for memory
-* - all the stack allocators should be visible
-* - memory from asset system should be visible
-* 
-* Entity introspection
-* - entity selection
-* - checking and modifing values!
-*/
-
 #if 1
 #define PRINT_DEBUGGING(format, ...) \
 	{ char buffer[256]; \
@@ -36,7 +20,6 @@ DebugGlobalState* debugGlobalState = &debugGlobalState_;
 inline bool IsPressed(Button& button);
 inline bool WasPressed(Button& button);
 inline bool WasReleased(Button& button);
-#define DEBUG_CONFIG_PATH "..\\code\\engine_debug_config.h"
 static u64 DEBUG_CPU_FREQ = 1;
 static f32 DEBUG_COLLATION_SCALE = 1.f;
 static u32 DEBUG_SPAN_MERGE_CYCLES_THRESHOLD = 1;
@@ -115,10 +98,6 @@ inline
 bool SelectedByEvent(DebugSelectedSpan& span) {
 	return span.type == SpanSelection_ByEvent;
 }
-
-struct SelectedSpanIter {
-	DebugStoredEvent* terminationEvent;
-};
 
 inline
 bool IsVariableHot(DebugState* state, DebugSelectedSpan& selectedSpan) {

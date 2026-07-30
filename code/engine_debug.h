@@ -34,10 +34,6 @@ enum DebugEventType : u8 {
 	Event_Count,
 };
 
-struct DebugEventCountMetrics {
-	u32 count[Event_Count + 1];
-};
-
 struct MemoryArenaSnapshot {
 	MemoryArena arena;
 	MemoryArena* parent;
@@ -121,12 +117,6 @@ struct DebugVariable {
 
 	bool permanent;
 	bool timed;
-};
-
-struct PermanentDebugVariable {
-	DebugVariable* var;
-	const char* blockName;
-	PermanentDebugVariable* next;
 };
 
 struct DebugGlobalState {
