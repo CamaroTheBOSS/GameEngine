@@ -105,11 +105,21 @@ struct DebugStoredEvent {
 	DebugStoredEvent* prev;
 };
 
+struct DebugVariableFrame {
+	DebugStoredEvent eventSentinel;
+
+	//Metrics (valid values only for variables with DebugProfilerSpan type of union in StoredEvent)
+	u64 durationSum;
+	u64 eventHitSum;
+};
+#define MAX_COLLATION_FRAMES 64
 struct DebugVariable {
 	DebugParsedGUID guid;
 
 	DebugVariable* nextInHash;
-	DebugStoredEvent* eventSentinel;
+	u32 oldestEventFrameOrdinal;
+	u32 newestEventFrameOrdinal;
+	
 
 	//Metrics (valid values only for variables with DebugProfilerSpan type of union in StoredEvent)
 	u64 eventHitSum;
@@ -117,6 +127,8 @@ struct DebugVariable {
 
 	bool permanent;
 	bool timed;
+
+	DebugVariableFrame frames[MAX_COLLATION_FRAMES];
 };
 
 struct DebugGlobalState {
@@ -294,18 +306,6 @@ struct DebugVariableLink {
 	bool isGroup;
 };
 
-struct DebugCollationFrame {
-	u64 startCycles;
-	u64 endCycles;
-	u64 startCyclesDebugFinishFrame;
-	u64 endCyclesDebugFinishFrame;
-	u32 eventsCount;
-	u32 frameIndex;
-
-	DebugCollationFrame* next;
-	DebugCollationFrame* prev;
-};
-
 struct DebugTree {
 	V2 pos;
 	DebugVariableLink rootGroup;
@@ -386,6 +386,7 @@ struct DebugSelectedSpan {
 	DebugSpanSelectionType type;
 	DebugVariable* byVar;
 	DebugStoredEvent* byEvent;
+	u32 frameOrdinal;
 };
 
 struct DebugInteractionTree {

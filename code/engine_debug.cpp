@@ -27,14 +27,51 @@ static u32 DEBUG_SPAN_MERGE_CYCLES_THRESHOLD = 1;
 internal DebugVariable* GetOrCreateDebugVariableForGroup(DebugState* state, DebugVariableLink* link, DebugParsedGUID& guid);
 debug_variable bool PROFILER_PAUSE = false;
 
+inline
+DebugVariableFrame* GetNewestFrame(DebugState* state, DebugVariable* var) {
+	return var->frames + state->newestFrameOrdinal;
+}
+
+inline
+DebugVariableFrame* GetCollationFrame(DebugState* state, DebugVariable* var) {
+	return var->frames + state->collationFrameOrdinal;
+}
+
+inline
+u32 SubtractFrameOrdinals(u32 newer, u32 older) {
+	u32 result;
+	if (newer > older) {
+		result = newer - older;
+	}
+	else {
+		result = MAX_COLLATION_FRAMES - older + newer;
+	}
+	return result;
+}
+
+
+inline
+DebugStoredEvent* GetNewestEventSentinel(DebugVariable* var) {
+	u32 index = var->newestEventFrameOrdinal;
+	return &var->frames[index].eventSentinel;
+}
+
+inline
+DebugStoredEvent* GetOldestEventSentinel(DebugVariable* var) {
+	u32 index = var->oldestEventFrameOrdinal;
+	return &var->frames[index].eventSentinel;
+}
+
 inline 
 DebugStoredEvent* GetNewestEvent(DebugVariable* var) {
-	return var->eventSentinel->next;
+	DebugStoredEvent* sentinel = GetNewestEventSentinel(var);
+	return sentinel->next;
 }
 
 inline
 DebugStoredEvent* GetOldestEvent(DebugVariable* var) {
-	return var->eventSentinel->prev;
+	DebugStoredEvent* sentinel = GetOldestEventSentinel(var);
+	return sentinel->prev;
 }
 
 inline
@@ -113,6 +150,21 @@ bool IsVariableHot(DebugState* state, DebugSelectedSpan& selectedSpan) {
 		result = hotSelectedSpan.byVar == selectedSpan.byVar;
 	}
 	return result;
+}
+
+inline
+bool IsProfiledEventHot(DebugState* state, DebugStoredEvent* event) {
+	if (state->hotInteraction.obj != DebugInteractionObject::ProfilerSpan) {
+		return false;
+	}
+	DebugSelectedSpan& hotSelectedSpan = state->hotInteraction.selectedSpan;
+	if (SelectedByVar(hotSelectedSpan)) {
+		return hotSelectedSpan.byVar == event->span.var;
+	}
+	if (SelectedByEvent(hotSelectedSpan)) {
+		return hotSelectedSpan.byEvent == event;
+	}
+	return false;
 }
 
 inline
@@ -250,11 +302,12 @@ DebugInteraction InteractionDragIncrease(Rect2 bbox, f32* dragged, f32 amountPer
 }
 
 inline 
-DebugSelectedSpan BuildSelectedSpan(DebugVariable* var, DebugStoredEvent* event, DebugSpanSelectionType type) {
+DebugSelectedSpan BuildSelectedSpan(DebugVariable* var, DebugStoredEvent* event, DebugSpanSelectionType type, u32 frameOrdinal) {
 	DebugSelectedSpan selected;
 	selected.type = type;
 	selected.byVar = var;
 	selected.byEvent = event;
+	selected.frameOrdinal = frameOrdinal;
 	return selected;
 }
 
@@ -270,7 +323,7 @@ DebugInteraction InteractionProfilerSpan(Rect2 bbox, DebugSelectedSpan selectedS
 inline
 DebugInteraction InteractionProfilerSpan(DebugVariable* var, DebugStoredEvent* event, Rect2 bbox, DebugSpanSelectionType type) {
 	DebugProfilerSpan* newestSpan = &GetNewestEvent(var)->span;
-	DebugSelectedSpan selected = BuildSelectedSpan(newestSpan->var, event, type);
+	DebugSelectedSpan selected = BuildSelectedSpan(newestSpan->var, event, type, var->newestEventFrameOrdinal);
 	return InteractionProfilerSpan(bbox, selected);
 }
 
@@ -361,12 +414,8 @@ bool DEBUG_DATA_BLOCK_REQUESTED(DebugId did) {
 
 inline
 u32 GetCollationFrameCount(DebugState* state) {
-	return state->frameVariable->eventSentinel->next->captureFrameIndex - state->frameVariable->eventSentinel->prev->captureFrameIndex + 1;
-}
-
-inline
-u32 GetVariableEventSpan(DebugVariable* var) {
-	return var->eventSentinel->next->captureFrameIndex - var->eventSentinel->prev->captureFrameIndex + 1;
+	u32 result = SubtractFrameOrdinals(state->newestFrameOrdinal, state->oldestFrameOrdinal);
+	return result;
 }
 
 internal
@@ -593,15 +642,20 @@ DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* gr
 	DebugVariable* result = _GetDebugVariable(state, guid, hashSlot);
 	if (!result) {
 		result = PushStructSize(state->mainArena, DebugVariable);
-		result->eventSentinel = PushStructSize(state->mainArena, DebugStoredEvent);
-		*result->eventSentinel = {};
-		DLINKED_LIST_INIT(result->eventSentinel);
+		ZeroSize_(ptrcast(u8, result->frames), sizeof(result->frames));
+		for (u32 frameIndex = 0; frameIndex < ArrayCount(result->frames); frameIndex++) {
+			DebugVariableFrame* frame = result->frames + frameIndex;
+			DebugStoredEvent* sentinel = &frame->eventSentinel;
+			DLINKED_LIST_INIT(sentinel);
+		}
 		result->guid = DebugCopyGUID(state->mainArena, guid);
 		result->nextInHash = state->variableHash[hashSlot];
 		result->permanent = permanent;
 		result->timed = timed;
 		result->eventHitSum = 0;
 		result->durationSum = 0;
+		result->newestEventFrameOrdinal = state->collationFrameOrdinal;
+		result->oldestEventFrameOrdinal = state->collationFrameOrdinal;
 		state->variableHash[hashSlot] = result;
 		if (group) {
 			AddVariableToGroup(state, group, result);
@@ -799,67 +853,62 @@ void PopFromEventStack(DebugState* state, OpenDebugEvent** stack) {
 }
 
 inline
-void _DeallocEvent(DebugState* state, DebugVariable* var, DebugStoredEvent* event) {
-	state->deallocEventsSum++;
-	if (var->timed) {
-		u64 duration = GetEventCyclesDuration(event);
-		Assert(var->eventHitSum >= event->span.hitCount);
-		Assert(var->durationSum >= duration);
-		
-		var->eventHitSum -= event->span.hitCount;
-		var->durationSum -= duration;
-	}
+u32 AdvanceFrameOrdinal(u32 base, i32 advancer) {
+	return (base + advancer) & (MAX_COLLATION_FRAMES - 1);
+}
+
+inline
+u32 NextFrameOrdinal(u32 base) {
+	return (base + 1) & (MAX_COLLATION_FRAMES - 1);
+}
+
+inline
+u32 PrevFrameOrdinal(u32 base) {
+	return (base - 1) & (MAX_COLLATION_FRAMES - 1);
 }
 
 internal
 void FreeOldestFrame(DebugState* state) {
 	TIMED_FUNCTION;
-	u32 lastFrameIndex = state->frameVariable->eventSentinel->prev->captureFrameIndex;
 	for (u32 hashSlot = 0; hashSlot < ArrayCount(state->variableHash); hashSlot++) {
 		for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
-			if (StringsAreEqual(GetName(var), FromNullTerminated("SoftwareRenderCommandsToBuffer"))) {
-				int breakhere = 2;
-			}
-			DebugStoredEvent* oldestEvent = GetOldestEvent(var);
-			DebugStoredEvent* newestEvent = GetNewestEvent(var);
-			bool hasOnlyOneEvent = (var->permanent && oldestEvent == newestEvent);
-			bool isOldestEventTooNew = oldestEvent->captureFrameIndex > lastFrameIndex;
-			if (DLINKED_LIST_IS_EMPTY(var->eventSentinel) || hasOnlyOneEvent || isOldestEventTooNew) {
+			DebugVariableFrame* frame = var->frames + state->oldestFrameOrdinal;
+			DebugStoredEvent* sentinel = &frame->eventSentinel;
+			if (DLINKED_LIST_IS_EMPTY(sentinel)) {
 				continue;
 			}
-			DebugStoredEvent* firstEventToRemove = oldestEvent;
-			DebugStoredEvent* lastEventToRemove = oldestEvent;
-			_DeallocEvent(state, var, firstEventToRemove);
-			
-			Assert(var->eventSentinel->captureFrameIndex == 0);
-			while (lastEventToRemove->prev != var->eventSentinel && lastEventToRemove->prev->captureFrameIndex <= lastFrameIndex) {
-				if (var->permanent && lastEventToRemove->prev == newestEvent) {
+			var->durationSum -= frame->durationSum;
+			var->eventHitSum -= frame->eventHitSum;
+			bool eventFound = false;
+			for (u32 frameOrdinal = NextFrameOrdinal(state->oldestFrameOrdinal); frameOrdinal != state->newestFrameOrdinal; frameOrdinal = NextFrameOrdinal(frameOrdinal)) {
+				DebugVariableFrame* varframe = var->frames + frameOrdinal;
+				if (varframe->eventSentinel.next != &varframe->eventSentinel) {
+					var->oldestEventFrameOrdinal = frameOrdinal;
+					eventFound = true;
 					break;
 				}
-				lastEventToRemove = lastEventToRemove->prev;
-				_DeallocEvent(state, var, lastEventToRemove);
 			}
-			DebugStoredEvent* newOldest = lastEventToRemove->prev;
-			newOldest->next = var->eventSentinel;
-			var->eventSentinel->prev = newOldest;
-			firstEventToRemove->next = state->freeStoredEventList;
-			state->freeStoredEventList = lastEventToRemove;
-			lastEventToRemove->prev = 0;
+			if (!eventFound) {
+				var->oldestEventFrameOrdinal = var->newestEventFrameOrdinal;
+			}
+
+			sentinel->prev->next = state->freeStoredEventList;
+			state->freeStoredEventList = sentinel->next;
+			sentinel->next->prev = 0;
+			*frame = {};
+			DLINKED_LIST_INIT(sentinel);
 		}
 	}
+	state->oldestFrameOrdinal = NextFrameOrdinal(state->oldestFrameOrdinal);
 }
 
 internal
 DebugStoredEvent* AllocateEvent(DebugState* state) {
 	DebugStoredEvent* storedEvent = 0;
-	u32 MAX_COLLATION_FRAMES = 600;
 	while (!storedEvent) {
 		storedEvent = state->freeStoredEventList;
 		if (storedEvent) {
 			state->freeStoredEventList = state->freeStoredEventList->next;
-		}
-		else if (GetCollationFrameCount(state) > MAX_COLLATION_FRAMES) {
-			FreeOldestFrame(state);
 		}
 		else if (HasArenaSpaceFor(state->collationFrameArena, sizeof(DebugStoredEvent))) {
 			storedEvent = PushStructSize(state->collationFrameArena, DebugStoredEvent);
@@ -879,7 +928,8 @@ DebugStoredEvent* AllocateEvent(DebugState* state) {
 inline
 DebugStoredEvent* _StoreEvent(DebugState* state, DebugVariable* var) {
 	DebugStoredEvent* storedEvent = AllocateEvent(state);
-	DLINKED_LIST_ADD(var->eventSentinel, storedEvent);
+	DebugStoredEvent* sentinel = &GetCollationFrame(state, var)->eventSentinel;
+	DLINKED_LIST_ADD(sentinel, storedEvent);
 	return storedEvent;
 }
 
@@ -892,10 +942,16 @@ DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugP
 
 inline
 DebugStoredEvent* _StoreTimedEvent(DebugState* state, DebugVariable* var, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, u64 startCycles, u64 endCycles, u8 thread, u32 hitCount) {
-	DebugStoredEvent* result = _StoreEvent(state, var);
+	u64 duration = endCycles - startCycles;
 	var->eventHitSum += hitCount;
-	var->durationSum += endCycles - startCycles;
+	var->durationSum += duration;
+	var->newestEventFrameOrdinal = state->collationFrameOrdinal;
 
+	DebugVariableFrame* frame = GetCollationFrame(state, var);
+	frame->eventHitSum += hitCount;
+	frame->durationSum += duration;
+
+	DebugStoredEvent* result = _StoreEvent(state, var);
 	result->span.cyclesStart = startCycles;
 	result->span.cyclesEnd = endCycles;
 	result->span.var = var;
@@ -934,11 +990,18 @@ internal
 void _MergeEvents(DebugState* state, DebugStoredEvent* oldMergedEvent, DebugStoredEvent* newMergedEvent) {
 	Assert(oldMergedEvent->span.var == newMergedEvent->span.var); // Parents have to be the same var to make any sense
 	Assert(oldMergedEvent->span.thread == newMergedEvent->span.thread);
+	Assert(oldMergedEvent != newMergedEvent);
+	Assert(&oldMergedEvent->span != &newMergedEvent->span);
 
 	//NOTE Adjust durationSum based on the cycles difference between merged events
 	// start1|     end1|    start2|     end2| -> between e1 - s2 we have additional gap
 	// which is covered by this addition
-	oldMergedEvent->span.var->durationSum += newMergedEvent->span.cyclesStart - oldMergedEvent->span.cyclesEnd;
+	DebugVariableFrame* frame = GetCollationFrame(state, oldMergedEvent->span.var);
+	u64 diffCycles = newMergedEvent->span.cyclesStart - oldMergedEvent->span.cyclesEnd;
+	oldMergedEvent->span.var->durationSum += diffCycles;
+	frame->durationSum += diffCycles;
+	
+
 
 	oldMergedEvent->span.hitCount += newMergedEvent->span.hitCount;
 	oldMergedEvent->span.cyclesEnd = newMergedEvent->span.cyclesEnd;
@@ -1018,6 +1081,10 @@ void DebugCollateEvents(DebugState* state) {
 		return;
 	}
 
+	if (NextFrameOrdinal(state->newestFrameOrdinal) == state->oldestFrameOrdinal) {
+		FreeOldestFrame(state);
+	}
+	
 	u32 tableIndex = !debugGlobalState->currentFrameIndex;
 	DebugEvent* eventsInFrame = debugGlobalState->events[tableIndex];
 	u32 eventsInFrameCount = debugGlobalState->eventsCount[tableIndex];
@@ -1142,6 +1209,9 @@ void DebugCollateEvents(DebugState* state) {
 		} break;
 		}
 	}
+
+	state->newestFrameOrdinal = state->collationFrameOrdinal;
+	state->collationFrameOrdinal = NextFrameOrdinal(state->collationFrameOrdinal);
 }
 
 enum DebugVarToTextFlags {
@@ -1154,8 +1224,9 @@ enum DebugVarToTextFlags {
 u64 DebugVariableToText(DebugVariable* variable, char* buffer, u64 size, u32 flags) {
 	char* at = buffer;
 	char* end = buffer + size;
-	DebugStoredEvent* newestEvent = GetNewestEvent(variable);
-	if (newestEvent != variable->eventSentinel) {
+	DebugStoredEvent* sentinel = GetNewestEventSentinel(variable);
+	DebugStoredEvent* newestEvent = sentinel->next;
+	if (newestEvent != sentinel) {
 		DebugEvent* event = &newestEvent->event;
 		if (flags & DebugVarToText_ConfigPrefix) {
 			at += sprintf_s(at, end - at, "#define CONSTANT_");
@@ -1281,9 +1352,8 @@ bool IsVariableTimed(DebugVariable* var) { return var->timed; }
 
 
 inline
-void GetVarMetricsByText(DebugVariable* var, char* dst, size_t dstSize, u32 rank, DebugStoredEvent* event) {
+void GetVarMetricsByText(DebugState* state, DebugVariable* var, char* dst, size_t dstSize, u32 rank, DebugStoredEvent* event) {
 	String8 name = GetName(var);
-	u32 variableSpan = GetVariableEventSpan(var);
 
 	f32 sumTimingMs, avgTimingMs;
 	u64 callsCount, avgCycles;
@@ -1298,7 +1368,7 @@ void GetVarMetricsByText(DebugVariable* var, char* dst, size_t dstSize, u32 rank
 		sumTimingMs = DurationToMs(var->durationSum);
 		avgTimingMs = sumTimingMs / var->eventHitSum;
 		avgCycles = var->durationSum / var->eventHitSum;
-		callsCount = var->eventHitSum / variableSpan;
+		callsCount = var->eventHitSum / GetCollationFrameCount(state);
 	}
 	
 	
@@ -1337,7 +1407,6 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 	for (u32 hashSlot = 0; hashSlot < ArrayCount(state->variableHash); hashSlot++) {
 		for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
 			if (var->eventHitSum == 0 || !IsVariableTimed(var)) { continue; }
-			Assert(var->eventSentinel->captureFrameIndex == 0);
 			Assert(elementCount < (maxElements - 1));
 			SortElement* sortElement = sortElements + elementCount;
 			sortElement->key = -DurationToMs(var->durationSum) / var->eventHitSum;
@@ -1358,10 +1427,9 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 	while (currentSortIndex < elementCount) {
 		SortElement* sortElement = sortElements + currentSortIndex;
 		DebugVariable* var = variables[sortElement->offset];
-		Assert(var->eventSentinel->captureFrameIndex == 0);
 		if (fontContext.leftTopCurrent.Y > view.rect.min.Y) {
 			V4 color = V4{ 1, 1, 1, 1 };
-			GetVarMetricsByText(var, buffer, ArrayCount(buffer), currentSortIndex + 1, 0);
+			GetVarMetricsByText(state, var, buffer, ArrayCount(buffer), currentSortIndex + 1, 0);
 			Rect2 bb = GetTextBoundingBox(state, buffer, fontContext);
 			if (IsInRectangle(bb, mousePos)) {
 				state->nextHotInteraction = InteractionProfilerSpan(var, 0, bb, SpanSelection_ByVar);
@@ -1421,24 +1489,6 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 		parentVar = rootSpan->var;
 		parentEvent = selectedSpan.byEvent;
 		for (DebugStoredEvent* child = rootSpan->firstChild; child; child = child->span.sibling) {
-#if 0 //NOTE Enable if we would like to merge the same type of event when specific event is selected
-			bool found = false;
-			for (u32 existingEventIdx = 0; existingEventIdx < elementCount; existingEventIdx++) {
-				DebugStoredEvent* existing = events + existingEventIdx;
-				if (child->span.var == existing->span.var) {
-					existing->span.hitCount += child->span.hitCount;
-					existing->span.cyclesEnd += GetEventCyclesDuration(child);
-
-					SortElement* sortElement = sortElements + existingEventIdx;
-					sortElement->key += -GetEventAvgDurationMs(child);
-					found = true;
-					break;
-				}
-			}
-			if (found) {
-				continue;
-			}
-#endif
 			if (elementCount >= (maxElements - 1)) {
 				break;
 			}
@@ -1463,27 +1513,33 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 		parentVar = var;
 		u32 collectionIter = 0;
 		u32 MAX_COLLECTION_ITERS = 20; //NOTE: For performance reasons just check last 20 events for children collection
-		for (DebugStoredEvent* event = var->eventSentinel->next; event != var->eventSentinel; event = event->next) {
-			for (DebugStoredEvent* child = event->span.firstChild; child; child = child->span.sibling) {
-				DebugVariable* childVar = child->span.var;
-				bool found = false;
-				for (u32 existingVarIdx = 0; existingVarIdx < elementCount; existingVarIdx++) {
-					DebugVariable* other = variables[existingVarIdx];
-					if (childVar == other) {
-						found = true;
-						break;
+		for (u32 frameOrdinal = state->newestFrameOrdinal; frameOrdinal != state->oldestFrameOrdinal; frameOrdinal = PrevFrameOrdinal(frameOrdinal)) {
+			DebugStoredEvent* sentinel = &var->frames[frameOrdinal].eventSentinel;
+			for (DebugStoredEvent* event = sentinel->next; event != sentinel; event = event->next) {
+				for (DebugStoredEvent* child = event->span.firstChild; child; child = child->span.sibling) {
+					DebugVariable* childVar = child->span.var;
+					bool found = false;
+					for (u32 existingVarIdx = 0; existingVarIdx < elementCount; existingVarIdx++) {
+						DebugVariable* other = variables[existingVarIdx];
+						if (childVar == other) {
+							found = true;
+							break;
+						}
 					}
+					if (found) {
+						continue;
+					}
+					Assert(elementCount < (maxElements - 1));
+					SortElement* sortElement = sortElements + elementCount;
+					sortElement->key = -GetVariableAvgDurationMs(childVar);
+					sortElement->offset = elementCount++;
+					*variablesIt++ = childVar;
 				}
-				if (found) {
-					continue;
+				collectionIter++;
+				if (collectionIter >= MAX_COLLECTION_ITERS) {
+					break;
 				}
-				Assert(elementCount < (maxElements - 1));
-				SortElement* sortElement = sortElements + elementCount;
-				sortElement->key = -GetVariableAvgDurationMs(childVar);
-				sortElement->offset = elementCount++;
-				*variablesIt++ = childVar;
 			}
-			collectionIter++;
 			if (collectionIter >= MAX_COLLECTION_ITERS) {
 				break;
 			}
@@ -1501,19 +1557,18 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	view.offset.Y = Clip(view.offset.Y, 0, maxHeight - viewDim.Y);
 
 	char buffer[256];
-	GetVarMetricsByText(parentVar, buffer, ArrayCount(buffer), 0, parentEvent);
+	GetVarMetricsByText(state, parentVar, buffer, ArrayCount(buffer), 0, parentEvent);
 	DebugRenderLine(state, buffer, fontContext, V4{ 1, 1, 1, 1 });
 
 	u32 rank = currentSortIndex + 1;
 	while (currentSortIndex < elementCount) {
 		SortElement* sortElement = sortElements + currentSortIndex;
 		DebugVariable* var = variables[sortElement->offset];
-		Assert(var->eventSentinel->captureFrameIndex == 0);
 		f32 timingMs = -sortElement->key;
 		if (fontContext.leftTopCurrent.Y > view.rect.min.Y) {
 			V4 color = V4{ 1, 1, 1, 1 };
 			DebugStoredEvent* aggregatedEvent = parentEvent ? events + sortElement->offset : 0;
-			GetVarMetricsByText(var, buffer, ArrayCount(buffer), rank, aggregatedEvent);
+			GetVarMetricsByText(state, var, buffer, ArrayCount(buffer), rank, aggregatedEvent);
 			Rect2 spanRect = GetTextBoundingBox(state, buffer, fontContext);
 			if (IsInRectangle(spanRect, mousePos)) {
 				DebugStoredEvent* originalEvent = aggregatedEvent ? aggregatedEvent->next : 0;
@@ -1584,33 +1639,37 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 	V4 backgroundColor = V4{ 0.03f, 0.03f, 0.03f, 0.75f };
 	PushRect(state->renderGroup, DefaultFlatTransform(), view.rect, -1.f, backgroundColor);
 
-	DebugStoredEvent* frame = state->frameVariable->eventSentinel->next;
-	u32 newestFrameIndex = frame->captureFrameIndex;
-	
+	u32 startFrameOrdinal = state->newestFrameOrdinal;
+	u32 endFrameOrdinal = state->oldestFrameOrdinal;
 	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
-	DebugStoredEvent* terminationStoredEvent = 0;
+	DebugVariable* rootVar = state->frameVariable;
 	if (SelectedByEvent(selectedSpan)) {
-		u32 frameDiffCount = newestFrameIndex - selectedSpan.byEvent->captureFrameIndex;
+		startFrameOrdinal = selectedSpan.frameOrdinal;
+		endFrameOrdinal = PrevFrameOrdinal(startFrameOrdinal);
+
+		i32 frameDiffCount = GetNewestEvent(state->frameVariable)->captureFrameIndex - selectedSpan.byEvent->captureFrameIndex;
 		currentWidth += frameDiffCount * frameWidth;
-		terminationStoredEvent = selectedSpan.byEvent->prev;
-		while (frameDiffCount--) { frame = frame->next; }
+
+		rootVar = selectedSpan.byEvent->span.var;
 	}
 	else if (SelectedByVar(selectedSpan)) {
-		terminationStoredEvent = selectedSpan.byVar->eventSentinel;
+		rootVar = selectedSpan.byVar;
 	}
-	else {
-		DebugVariable* var = GetDebugVariable(state, state->rootCpuProfilerEventGuid);
-		terminationStoredEvent = var->eventSentinel;
-	}
-	DebugStoredEvent* currentStoredEvent = terminationStoredEvent->next;
-	while (currentWidth < viewDim.X + frameWidth && currentStoredEvent != terminationStoredEvent) {
-		if (currentWidth >= 0) {
-			DebugProfilerSpan* rootSpan = &currentStoredEvent->span;
-			DebugStoredEvent* firstEvent = rootSpan->firstChild;
-			for (DebugStoredEvent* event = firstEvent; event; event = event->span.sibling) {
+
+	for (u32 frameOrdinal = startFrameOrdinal;
+		frameOrdinal != endFrameOrdinal;
+		frameOrdinal = PrevFrameOrdinal(frameOrdinal)) 
+	{
+		DebugStoredEvent* rootSentinel = &rootVar->frames[frameOrdinal].eventSentinel;
+		DebugStoredEvent* frameEvent = state->frameVariable->frames[frameOrdinal].eventSentinel.next;
+		DebugStoredEvent* rootEvent = SelectedByEvent(selectedSpan) ?
+			selectedSpan.byEvent :
+			rootSentinel->next;
+		for (; rootEvent != rootSentinel; rootEvent = rootEvent->next) {
+			for (DebugStoredEvent* event = rootEvent->span.firstChild; event; event = event->span.sibling) {
 				DebugProfilerSpan* span = &event->span;
-				f32 minT = f4(span->cyclesStart - frame->span.cyclesStart) * DEBUG_COLLATION_SCALE;
-				f32 maxT = f4(span->cyclesEnd - frame->span.cyclesStart) * DEBUG_COLLATION_SCALE;
+				f32 minT = f4(span->cyclesStart - frameEvent->span.cyclesStart) * DEBUG_COLLATION_SCALE;
+				f32 maxT = f4(span->cyclesEnd - frameEvent->span.cyclesStart) * DEBUG_COLLATION_SCALE;
 				f32 threshold = 0.01f;
 				if (maxT - minT < threshold) {
 					continue;
@@ -1639,22 +1698,18 @@ void DebugRenderCpuProfiler(DebugState* state, Controller& controller, V2 mouseP
 						sprintf_s(buffer, "t<%4f,%4f>, hitCount: %d", minT, maxT, span->hitCount);
 						DebugRenderLineWithOutline(state, buffer, textPos, state->fontContext.scale, color, V4{ 0, 0, 0, 1 }, 1.f);
 					}
-					DebugSelectedSpan selectedSpanData = BuildSelectedSpan(span->var, event, SpanSelection_ByEvent);
+					DebugSelectedSpan selectedSpanData = BuildSelectedSpan(span->var, event, SpanSelection_ByEvent, frameOrdinal);
 					state->nextHotInteraction = InteractionProfilerSpan(spanRect, selectedSpanData);
 				}
 				if (IsValid(spanRect) && GetHeight(spanRect) > 1.0f) {
 					PushRect(state->renderGroup, DefaultFlatTransform(), spanRect, 0, rectColor);
 				}
 			}
+			if (SelectedByEvent(selectedSpan)) {
+				break;
+			}
 		}
-		if (currentStoredEvent->captureFrameIndex != currentStoredEvent->next->captureFrameIndex) {
-			currentWidth += frameWidth;
-			frame = frame->next;
-		}
-		currentStoredEvent = currentStoredEvent->next;
-		if (SelectedByEvent(selectedSpan)) {
-			break;
-		}
+		currentWidth += frameWidth;
 	}
 	V2 resizeCenter = view.rect.max;
 	V2 resizeSize = V2{ 8, 8 };
@@ -1843,8 +1898,8 @@ void DebugRenderVariablesMenu(DebugState* state, Controller& controller, V2 mous
 			char* end = buffer + sizeof(buffer);
 			V4 itemColor = V4{ 1, 1, 1, 1 };
 			V4 hotItemColor = V4{ 0.2f, 0.5f, 1.0f, 1 };
-
-			if (GetNewestEvent(node->variable) != node->variable->eventSentinel) {
+			DebugStoredEvent* sentinel = GetNewestEventSentinel(node->variable);
+			if (sentinel->next != sentinel) {
 				bool isHot = IsVariableHot(state, node);
 				if (isHot) {
 					itemColor = hotItemColor;

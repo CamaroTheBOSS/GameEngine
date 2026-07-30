@@ -100,6 +100,9 @@ struct DebugState {
 	OpenDebugEvent* openEventFreeList;
 	u32 totalFrameCount;
 	DebugStoredEvent* freeStoredEventList;
+	u32 oldestFrameOrdinal;
+	u32 newestFrameOrdinal;
+	u32 collationFrameOrdinal;
 	DebugVariable* frameVariable;
 	DebugVariable* variableHash[512];
 	DebugVariableLink* groupHash[128];
