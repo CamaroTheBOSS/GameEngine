@@ -127,6 +127,7 @@ struct DebugVariable {
 
 	bool permanent;
 	bool timed;
+	bool isIntrospectionGroup;
 
 	DebugVariableFrame frames[MAX_COLLATION_FRAMES];
 };

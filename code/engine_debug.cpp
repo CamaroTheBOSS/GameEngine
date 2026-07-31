@@ -321,9 +321,9 @@ DebugInteraction InteractionProfilerSpan(Rect2 bbox, DebugSelectedSpan selectedS
 }
 
 inline
-DebugInteraction InteractionProfilerSpan(DebugVariable* var, DebugStoredEvent* event, Rect2 bbox, DebugSpanSelectionType type) {
+DebugInteraction InteractionProfilerSpan(DebugVariable* var, DebugStoredEvent* event, Rect2 bbox, DebugSpanSelectionType type, u32 frameOrdinal) {
 	DebugProfilerSpan* newestSpan = &GetNewestEvent(var)->span;
-	DebugSelectedSpan selected = BuildSelectedSpan(newestSpan->var, event, type, var->newestEventFrameOrdinal);
+	DebugSelectedSpan selected = BuildSelectedSpan(newestSpan->var, event, type, frameOrdinal);
 	return InteractionProfilerSpan(bbox, selected);
 }
 
@@ -637,7 +637,7 @@ DebugVariable* GetDebugVariable(DebugState* state, DebugParsedGUID& GUID) {
 
 internal
 DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* group,
-	DebugParsedGUID& guid, bool permanent, bool timed) {
+	DebugParsedGUID& guid, bool isIntrospectionGroup, bool timed) {
 	u32 hashSlot = GetStringHash(guid.GUID) % ArrayCount(state->variableHash);
 	DebugVariable* result = _GetDebugVariable(state, guid, hashSlot);
 	if (!result) {
@@ -650,7 +650,7 @@ DebugVariable* GetOrCreateDebugVariable(DebugState* state, DebugVariableLink* gr
 		}
 		result->guid = DebugCopyGUID(state->mainArena, guid);
 		result->nextInHash = state->variableHash[hashSlot];
-		result->permanent = permanent;
+		result->isIntrospectionGroup = isIntrospectionGroup;
 		result->timed = timed;
 		result->eventHitSum = 0;
 		result->durationSum = 0;
@@ -874,7 +874,7 @@ void FreeOldestFrame(DebugState* state) {
 		for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
 			DebugVariableFrame* frame = var->frames + state->oldestFrameOrdinal;
 			DebugStoredEvent* sentinel = &frame->eventSentinel;
-			if (DLINKED_LIST_IS_EMPTY(sentinel)) {
+			if (DLINKED_LIST_IS_EMPTY(sentinel) || var->isIntrospectionGroup) {
 				continue;
 			}
 			var->durationSum -= frame->durationSum;
@@ -930,28 +930,29 @@ DebugStoredEvent* _StoreEvent(DebugState* state, DebugVariable* var) {
 	DebugStoredEvent* storedEvent = AllocateEvent(state);
 	DebugStoredEvent* sentinel = &GetCollationFrame(state, var)->eventSentinel;
 	DLINKED_LIST_ADD(sentinel, storedEvent);
+	var->newestEventFrameOrdinal = state->collationFrameOrdinal;
 	return storedEvent;
 }
 
 inline
-DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, bool timed) {
-	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent, timed);
+DebugStoredEvent* StoreEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, bool isIntrospectionGroup, bool timed) {
+	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, isIntrospectionGroup, timed);
 	DebugStoredEvent* result = _StoreEvent(state, var);
 	return result;
 }
 
 inline
-DebugStoredEvent* _StoreTimedEvent(DebugState* state, DebugVariable* var, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, u64 startCycles, u64 endCycles, u8 thread, u32 hitCount) {
+DebugStoredEvent* _StoreTimedEvent(DebugState* state, DebugVariable* var, DebugVariableLink* group, DebugParsedGUID& guid, bool isIntrospectionGroup, u64 startCycles, u64 endCycles, u8 thread, u32 hitCount) {
+	DebugVariableFrame* frame = GetCollationFrame(state, var);
+	DebugStoredEvent* result = _StoreEvent(state, var);
+	
 	u64 duration = endCycles - startCycles;
 	var->eventHitSum += hitCount;
 	var->durationSum += duration;
-	var->newestEventFrameOrdinal = state->collationFrameOrdinal;
 
-	DebugVariableFrame* frame = GetCollationFrame(state, var);
 	frame->eventHitSum += hitCount;
 	frame->durationSum += duration;
-
-	DebugStoredEvent* result = _StoreEvent(state, var);
+	
 	result->span.cyclesStart = startCycles;
 	result->span.cyclesEnd = endCycles;
 	result->span.var = var;
@@ -963,9 +964,9 @@ DebugStoredEvent* _StoreTimedEvent(DebugState* state, DebugVariable* var, DebugV
 }
 
 inline
-DebugStoredEvent* StoreTimedEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, bool permanent, u64 startCycles, u64 endCycles, u8 thread) {
-	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, permanent, true);
-	DebugStoredEvent* result = _StoreTimedEvent(state, var, group, guid, permanent, startCycles, endCycles, thread, 1);
+DebugStoredEvent* StoreTimedEvent(DebugState* state, DebugVariableLink* group, DebugParsedGUID& guid, u64 startCycles, u64 endCycles, u8 thread) {
+	DebugVariable* var = GetOrCreateDebugVariable(state, group, guid, false, true);
+	DebugStoredEvent* result = _StoreTimedEvent(state, var, group, guid, false, startCycles, endCycles, thread, 1);
 	return result;
 }
 
@@ -1068,8 +1069,8 @@ DebugProfilerSpan* TryMergeSibling(DebugState* state, DebugVariable* var, DebugS
 }
 
 inline
-DebugStoredEvent* StoreEventCopy(DebugState* state, DebugVariableLink* group, DebugEvent* event, DebugParsedGUID& guid, bool permanent) {
-	DebugStoredEvent* result = StoreEvent(state, group, guid, permanent, false);
+DebugStoredEvent* StoreEventCopy(DebugState* state, DebugVariableLink* group, DebugEvent* event, DebugParsedGUID& guid) {
+	DebugStoredEvent* result = StoreEvent(state, group, guid, false, false);
 	result->event = *event;
 	return result;
 }
@@ -1093,7 +1094,7 @@ void DebugCollateEvents(DebugState* state) {
 
 	DebugStoredEvent* rootTimeEvent = StoreTimedEvent(
 		state, 0, state->rootCpuProfilerEventGuid, 
-		false, frameStartCycles, frameEndCycles, 0
+		frameStartCycles, frameEndCycles, 0
 	);
 	for (u32 eventIndex = 0; eventIndex < eventsInFrameCount; eventIndex++) {
 		DebugEvent* event = eventsInFrame + eventIndex;
@@ -1205,7 +1206,7 @@ void DebugCollateEvents(DebugState* state) {
 			break;
 #endif
 		default: {
-			StoreEventCopy(state, stack->dataEvents->group, event, parsedGuid, true);
+			StoreEventCopy(state, stack->dataEvents->group, event, parsedGuid);
 		} break;
 		}
 	}
@@ -1432,7 +1433,7 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 			GetVarMetricsByText(state, var, buffer, ArrayCount(buffer), currentSortIndex + 1, 0);
 			Rect2 bb = GetTextBoundingBox(state, buffer, fontContext);
 			if (IsInRectangle(bb, mousePos)) {
-				state->nextHotInteraction = InteractionProfilerSpan(var, 0, bb, SpanSelection_ByVar);
+				state->nextHotInteraction = InteractionProfilerSpan(var, 0, bb, SpanSelection_ByVar, var->newestEventFrameOrdinal);
 				DebugRenderLineWithOutline(state, buffer, fontContext, color, V4{ 0, 0, 0, 1 }, 1.f);
 			}
 			else {
@@ -1483,11 +1484,12 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 	DebugSelectedSpan& selectedSpan = state->cpuProfiler.selectedSpans[state->cpuProfiler.selectedSpanCount];
 	DebugVariable* parentVar = 0;
 	DebugStoredEvent* parentEvent = 0;
-
+	u32 selectedEventFrameOrdinal = state->newestFrameOrdinal;
 	if (SelectedByEvent(selectedSpan)) {
 		DebugProfilerSpan* rootSpan = &selectedSpan.byEvent->span;
 		parentVar = rootSpan->var;
 		parentEvent = selectedSpan.byEvent;
+		selectedEventFrameOrdinal = selectedSpan.frameOrdinal;
 		for (DebugStoredEvent* child = rootSpan->firstChild; child; child = child->span.sibling) {
 			if (elementCount >= (maxElements - 1)) {
 				break;
@@ -1572,8 +1574,9 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 			Rect2 spanRect = GetTextBoundingBox(state, buffer, fontContext);
 			if (IsInRectangle(spanRect, mousePos)) {
 				DebugStoredEvent* originalEvent = aggregatedEvent ? aggregatedEvent->next : 0;
+				u32 frameOrdinal = aggregatedEvent ? selectedEventFrameOrdinal : var->newestEventFrameOrdinal;
 				DebugSpanSelectionType interactionType = originalEvent ? SpanSelection_ByEvent : SpanSelection_ByVar;
-				state->nextHotInteraction = InteractionProfilerSpan(var, originalEvent, spanRect, interactionType);
+				state->nextHotInteraction = InteractionProfilerSpan(var, originalEvent, spanRect, interactionType, frameOrdinal);
 				DebugRenderLineWithOutline(state, buffer, fontContext, color, V4{ 0, 0, 0, 1 }, 1.f);
 			}
 			else {
