@@ -213,8 +213,8 @@ u64 GetEventCyclesDuration(DebugStoredEvent* event) {
 }
 
 inline
-f32 GetVariableAvgDurationMs(DebugVariable* var) {
-	return DurationToMs(var->durationSum) / var->eventHitSum;
+f32 GetVariableFrameAvgDurationMs(DebugVariableFrame* frame) {
+	return DurationToMs(frame->durationSum) / frame->eventHitSum;
 }
 
 inline
@@ -994,16 +994,6 @@ void _MergeEvents(DebugState* state, DebugStoredEvent* oldMergedEvent, DebugStor
 	Assert(oldMergedEvent != newMergedEvent);
 	Assert(&oldMergedEvent->span != &newMergedEvent->span);
 
-	//NOTE Adjust durationSum based on the cycles difference between merged events
-	// start1|     end1|    start2|     end2| -> between e1 - s2 we have additional gap
-	// which is covered by this addition
-	DebugVariableFrame* frame = GetCollationFrame(state, oldMergedEvent->span.var);
-	u64 diffCycles = newMergedEvent->span.cyclesStart - oldMergedEvent->span.cyclesEnd;
-	oldMergedEvent->span.var->durationSum += diffCycles;
-	frame->durationSum += diffCycles;
-	
-
-
 	oldMergedEvent->span.hitCount += newMergedEvent->span.hitCount;
 	oldMergedEvent->span.cyclesEnd = newMergedEvent->span.cyclesEnd;
 	Assert(newMergedEvent->span.sibling == 0);
@@ -1366,10 +1356,11 @@ void GetVarMetricsByText(DebugState* state, DebugVariable* var, char* dst, size_
 		callsCount = event->span.hitCount;
 	}
 	else {
-		sumTimingMs = DurationToMs(var->durationSum);
-		avgTimingMs = sumTimingMs / var->eventHitSum;
-		avgCycles = var->durationSum / var->eventHitSum;
-		callsCount = var->eventHitSum / GetCollationFrameCount(state);
+		DebugVariableFrame* frame = GetNewestFrame(state, var);
+		sumTimingMs = DurationToMs(frame->durationSum);
+		avgTimingMs = sumTimingMs / frame->eventHitSum;
+		avgCycles = frame->durationSum / frame->eventHitSum;
+		callsCount = frame->eventHitSum;
 	}
 	
 	
@@ -1409,8 +1400,9 @@ void DebugRenderCpuProfilerTimings(DebugState* state, Controller& controller, V2
 		for (DebugVariable* var = state->variableHash[hashSlot]; var; var = var->nextInHash) {
 			if (var->eventHitSum == 0 || !IsVariableTimed(var)) { continue; }
 			Assert(elementCount < (maxElements - 1));
+			DebugVariableFrame* frame = GetNewestFrame(state, var);
 			SortElement* sortElement = sortElements + elementCount;
-			sortElement->key = -DurationToMs(var->durationSum) / var->eventHitSum;
+			sortElement->key = -GetVariableFrameAvgDurationMs(frame);
 			sortElement->offset = elementCount++;
 			*variablesIt++ = var;
 		}
@@ -1515,33 +1507,30 @@ void DebugRenderCpuProfilerTimingsHierarchy(DebugState* state, Controller& contr
 		parentVar = var;
 		u32 collectionIter = 0;
 		u32 MAX_COLLECTION_ITERS = 20; //NOTE: For performance reasons just check last 20 events for children collection
-		for (u32 frameOrdinal = state->newestFrameOrdinal; frameOrdinal != state->oldestFrameOrdinal; frameOrdinal = PrevFrameOrdinal(frameOrdinal)) {
-			DebugStoredEvent* sentinel = &var->frames[frameOrdinal].eventSentinel;
-			for (DebugStoredEvent* event = sentinel->next; event != sentinel; event = event->next) {
-				for (DebugStoredEvent* child = event->span.firstChild; child; child = child->span.sibling) {
-					DebugVariable* childVar = child->span.var;
-					bool found = false;
-					for (u32 existingVarIdx = 0; existingVarIdx < elementCount; existingVarIdx++) {
-						DebugVariable* other = variables[existingVarIdx];
-						if (childVar == other) {
-							found = true;
-							break;
-						}
+		DebugVariableFrame* frame = GetNewestFrame(state, var);
+		DebugStoredEvent* sentinel = &frame->eventSentinel;
+		for (DebugStoredEvent* event = sentinel->next; event != sentinel; event = event->next) {
+			for (DebugStoredEvent* child = event->span.firstChild; child; child = child->span.sibling) {
+				DebugVariable* childVar = child->span.var;
+				bool found = false;
+				for (u32 existingVarIdx = 0; existingVarIdx < elementCount; existingVarIdx++) {
+					DebugVariable* other = variables[existingVarIdx];
+					if (childVar == other) {
+						found = true;
+						break;
 					}
-					if (found) {
-						continue;
-					}
-					Assert(elementCount < (maxElements - 1));
-					SortElement* sortElement = sortElements + elementCount;
-					sortElement->key = -GetVariableAvgDurationMs(childVar);
-					sortElement->offset = elementCount++;
-					*variablesIt++ = childVar;
 				}
-				collectionIter++;
-				if (collectionIter >= MAX_COLLECTION_ITERS) {
-					break;
+				if (found) {
+					continue;
 				}
+				DebugVariableFrame* childFrame = GetNewestFrame(state, childVar);
+				Assert(elementCount < (maxElements - 1));
+				SortElement* sortElement = sortElements + elementCount;
+				sortElement->key = -GetVariableFrameAvgDurationMs(childFrame);
+				sortElement->offset = elementCount++;
+				*variablesIt++ = childVar;
 			}
+			collectionIter++;
 			if (collectionIter >= MAX_COLLECTION_ITERS) {
 				break;
 			}
