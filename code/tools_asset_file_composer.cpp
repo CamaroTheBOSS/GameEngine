@@ -119,7 +119,7 @@ LoadedBitmap LoadBmpFile(const char* filename, V2 bottomUpAlignRatio = V2{ 0.5f,
 }
 
 internal
-LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleCount) {
+LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32* sampleCount, u32 chunkSampleCount) {
 #define CHUNK_ID(a, b, c, d) ((d << 24) + (c << 16) + (b << 8) + a)
 #pragma pack(push, 1)
 	struct RiffHeader {
@@ -166,7 +166,7 @@ LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleC
 		switch (header->chunkId) {
 		case CHUNK_ID('f', 'm', 't', ' '): {
 			FmtHeader* fmt = ptrcast(FmtHeader, ptr);
-			Assert(fmt->nSamplesPerSec == 48000);
+			//Assert(fmt->nSamplesPerSec == 48000);
 			Assert(fmt->bitsPerSample == 16);
 			Assert(fmt->nChannels <= 2);
 			nChannels = fmt->nChannels;
@@ -184,6 +184,9 @@ LoadedSound LoadWAV(const char* filename, u32 firstSampleIndex, u32 chunkSampleC
 		chunkSampleCount = U32_MAX;
 	}
 	u32 wavSampleCount = samplesSizeInBytes / (sizeof(i16) * nChannels);
+	if (sampleCount) {
+		*sampleCount = wavSampleCount;
+	}
 	Assert(samplesSizeInBytes > 0);
 	Assert(wavSampleCount > firstSampleIndex);
 	Assert(nChannels == 2);
@@ -244,9 +247,9 @@ void AddBmpAsset(Assets& assets, AssetTypeID id, const char* filename, V2 alignm
 }
 
 inline
-SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 firstSampleIndex = 0, u32 chunkSampleCount = 0) {
+SoundId AddSoundAsset(Assets& assets, AssetTypeID id, const char* filename, u32 firstSampleIndex = 0, u32* sampleCount = 0, u32 chunkSampleCount = 0) {
 	Asset* asset = AddAsset(assets, id, AssetGroup_Sound);
-	asset->memory->sound = LoadWAV(filename, firstSampleIndex, chunkSampleCount);
+	asset->memory->sound = LoadWAV(filename, firstSampleIndex, sampleCount, chunkSampleCount);
 	AssetFileSoundInfo* info = &assets.metadatas[asset->metadataId]._soundInfo;
 	info->chain = { SoundChain::None, 0 };
 	info->nChannels = asset->memory->sound.nChannels;
@@ -587,14 +590,14 @@ void WriteAssetsToFile(Assets& assets, const char* filename) {
 
 void WriteSounds() {
 	Assets assets = InitializeAssets();
-	u32 silksongSampleCount = 7762944;
+	u32 sampleCount = 1;
 	u32 chunkSampleCount = 4 * 48000;
 	u32 firstSampleIndex = 0;
 	Asset* prevAsset = 0;
 	// TODO: What with feature based asset retrieval? It is possible for asset system to return
 	// not first music chunk?
-	while (firstSampleIndex < silksongSampleCount) {
-		SoundId nextAssetId = AddSoundAsset(assets, Asset_Music, "sound/silksong.wav", firstSampleIndex, chunkSampleCount);
+	while (firstSampleIndex < sampleCount) {
+		SoundId nextAssetId = AddSoundAsset(assets, Asset_Music, "sound/music_classic_public_domain.wav", firstSampleIndex, &sampleCount, chunkSampleCount);
 		Asset* nextAsset = GetAsset(assets, nextAssetId.id);
 		if (prevAsset) {
 			AssetMetadata* metadata = GetAssetMetadata(assets, prevAsset->metadataId);
@@ -609,25 +612,19 @@ void WriteSounds() {
 
 void WriteBitmaps() {
 	Assets assets = InitializeAssets();
-	AddBmpAsset(assets, Asset_Tree, "test/tree.bmp", V2{ 0.5f, 0.25f });
+	AddBmpAsset(assets, Asset_Tree, "sprite/tree.bmp", V2{ 0.5f, 0.25f });
 	AddFeature(assets, Feature_Height, 1.f);
-	AddBmpAsset(assets, Asset_Tree, "test/tree2.bmp", V2{ 0.5f, 0.25f });
-	AddFeature(assets, Feature_Height, 3.f);
-	AddBmpAsset(assets, Asset_Tree, "test/tree3.bmp", V2{ 0.5f, 0.25f });
+	AddBmpAsset(assets, Asset_Tree, "sprite/tree2.bmp", V2{ 0.5f, 0.25f });
 	AddFeature(assets, Feature_Height, 2.f);
-	AddBmpAsset(assets, Asset_Ground, "test/ground0.bmp");
-	AddBmpAsset(assets, Asset_Ground, "test/ground1.bmp");
-	AddBmpAsset(assets, Asset_Grass, "test/grass0.bmp");
-	AddBmpAsset(assets, Asset_Grass, "test/grass1.bmp");
 
 	V2 playerBitmapsAlignment = V2{ 0.5f, 0.2f };
-	AddBmpAsset(assets, Asset_Player, "test/hero-right.bmp", playerBitmapsAlignment);
+	AddBmpAsset(assets, Asset_Player, "sprite/hero-right.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.f * TAU);
-	AddBmpAsset(assets, Asset_Player, "test/hero-up.bmp", playerBitmapsAlignment);
+	AddBmpAsset(assets, Asset_Player, "sprite/hero-up.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.25f * TAU);
-	AddBmpAsset(assets, Asset_Player, "test/hero-left.bmp", playerBitmapsAlignment);
+	AddBmpAsset(assets, Asset_Player, "sprite/hero-left.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.5f * TAU);
-	AddBmpAsset(assets, Asset_Player, "test/hero-down.bmp", playerBitmapsAlignment);
+	AddBmpAsset(assets, Asset_Player, "sprite/hero-down.bmp", playerBitmapsAlignment);
 	AddFeature(assets, Feature_FacingDirection, 0.75f * TAU);
 
 	WriteAssetsToFile(assets, "bitmaps.assf");
