@@ -36,6 +36,8 @@ set DllExports=-Xlinker /export:GameMainLoopFrame -Xlinker /export:GameFillSound
 pushd ..\build
   echo %cd%
   del *.pdb > NUL 2> NUL
+  REM Asset Composer
+  %ClangExe% %CompilerFlags% ..\code\tools_asset_file_composer.cpp -o tools_asset_file_composer.exe -l gdi32 -l user32 %WIN_LIB_FLAGS% 
   REM %ClangExe% %CompilerFlags% -S ..\code\engine.cpp -- -S for assembly => for optimization
   %ClangExe% %CompilerFlags% ..\code\engine.cpp -shared -o engine.dll %WIN_LIB_FLAGS% %DllExports% -Xlinker /pdb:engine%random%.pdb 
   %ClangExe% %CompilerFlags% ..\code\win32_main.cpp -o win32_main.exe -Wl,%LinkerFlags%
