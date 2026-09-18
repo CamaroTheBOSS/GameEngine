@@ -1444,23 +1444,17 @@ int CALLBACK WinMain(
 		return -1;
 	}
 	HGLRC glContext = Win32InitOpenGL(window);
-	{
-		constexpr u32 threadCount = 8;
-		ThreadProcArgs threadArgs[threadCount] = {};
-		for (u32 thread = 0; thread < ArrayCount(threadArgs); thread++) {
-			threadArgs[thread] = CreateThreadProcArgs(&globalHighPriorityQueue, 0, 0);
-		}
-		InitializeQueue(threadArgs, ArrayCount(threadArgs));
+	ThreadProcArgs highPriorityQueueThreadArgs[8] = {};
+	ThreadProcArgs lowPriorityQueueThreadArgs[2] = {};
+	for (u32 thread = 0; thread < ArrayCount(highPriorityQueueThreadArgs); thread++) {
+		highPriorityQueueThreadArgs[thread] = CreateThreadProcArgs(&globalHighPriorityQueue, 0, 0);
 	}
-	{
-		HDC dc = GetDC(window);
-		constexpr u32 threadCount = 2;
-		ThreadProcArgs threadArgs[threadCount] = {};
-		for (u32 thread = 0; thread < ArrayCount(threadArgs); thread++) {
-			threadArgs[thread] = CreateThreadProcArgs(&globalLowPriorityQueue, dc, glContext);
-		}
-		InitializeQueue(threadArgs, ArrayCount(threadArgs));
+	InitializeQueue(highPriorityQueueThreadArgs, ArrayCount(highPriorityQueueThreadArgs));
+	HDC dcForWorker = GetDC(window);
+	for (u32 thread = 0; thread < ArrayCount(lowPriorityQueueThreadArgs); thread++) {
+		lowPriorityQueueThreadArgs[thread] = CreateThreadProcArgs(&globalLowPriorityQueue, dcForWorker, glContext);
 	}
+	InitializeQueue(lowPriorityQueueThreadArgs, ArrayCount(lowPriorityQueueThreadArgs));
 
 	RECT rect;
 	GetClientRect(window, &rect);
