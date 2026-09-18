@@ -2,23 +2,29 @@
 IF NOT EXIST ..\build (
 	mkdir ..\build
 )
-REM Set up Visual studio env variables
-setlocal
-REM Adjust these in your environment
-set VS_TOOLKIT_VERSION=14.44.35207
-set VS_SDK_VERSION=10.0.26100.0
-set VS_INSTALL_DIR=C:\Program Files\Microsoft Visual Studio\2022\Community
-set VS_SDK_DIR=C:\Program Files (x86)\Windows Kits\10
 
-set VS_TOOLKIT_DIR=%VS_INSTALL_DIR%\VC\Tools\MSVC\%VS_TOOLKIT_VERSION%
-set MSVC_TOOLS_PATH=%VS_TOOLKIT_DIR%\bin\Hostx64\x64
-set WIN_INCLUDE_FLAGS=/I "%VS_TOOLKIT_DIR%\include"
-set WIN_INCLUDE_FLAGS=%WIN_INCLUDE_FLAGS% /I "%VS_SDK_DIR%\Include\%VS_SDK_VERSION%\ucrt"
-set WIN_INCLUDE_FLAGS=%WIN_INCLUDE_FLAGS% /I "%VS_SDK_DIR%\Include\%VS_SDK_VERSION%\um"
-set WIN_INCLUDE_FLAGS=%WIN_INCLUDE_FLAGS% /I "%VS_SDK_DIR%\Include\%VS_SDK_VERSION%\shared"
-set WIN_LIB_FLAGS=/LIBPATH:"%VS_TOOLKIT_DIR%\lib\x64"
-set WIN_LIB_FLAGS=%WIN_LIB_FLAGS% /LIBPATH:"%VS_SDK_DIR%\Lib\%VS_SDK_VERSION%\um\x64"
-set WIN_LIB_FLAGS=%WIN_LIB_FLAGS% /LIBPATH:"%VS_SDK_DIR%\Lib\%VS_SDK_VERSION%\ucrt\x64"
+
+REM Set up Visual studio env variables
+REM Use VS developer command prompt or adjust these in your environment
+REM Variables mirrors what Developer command prompt sets
+setlocal
+IF DEFINED VCToolsVersion GOTO :VS_VARIABLES_ARE_SET_UP
+set VCToolsVersion=14.44.35207
+set WindowsSDKVersion=10.0.26100.0
+set VCINSTALLDIR=C:\Program Files\Microsoft Visual Studio\2022\Community\VC
+set WindowsSdkDir=C:\Program Files (x86)\Windows Kits\10
+set VCToolsInstallDir=%VCINSTALLDIR%\Tools\MSVC\%VCToolsVersion%
+
+
+:VS_VARIABLES_ARE_SET_UP
+set MSVC_TOOLS_PATH=%VCToolsInstallDir%\bin\Hostx64\x64
+set WIN_INCLUDE_FLAGS=/I "%VCToolsInstallDir%\include"
+set WIN_INCLUDE_FLAGS=%WIN_INCLUDE_FLAGS% /I "%WindowsSdkDir%\Include\%WindowsSDKVersion%\ucrt"
+set WIN_INCLUDE_FLAGS=%WIN_INCLUDE_FLAGS% /I "%WindowsSdkDir%\Include\%WindowsSDKVersion%\um"
+set WIN_INCLUDE_FLAGS=%WIN_INCLUDE_FLAGS% /I "%WindowsSdkDir%\Include\%WindowsSDKVersion%\shared"
+set WIN_LIB_FLAGS=/LIBPATH:"%VCToolsInstallDir%\lib\x64"
+set WIN_LIB_FLAGS=%WIN_LIB_FLAGS% /LIBPATH:"%WindowsSdkDir%\Lib\%WindowsSDKVersion%\um\x64"
+set WIN_LIB_FLAGS=%WIN_LIB_FLAGS% /LIBPATH:"%WindowsSdkDir%\Lib\%WindowsSDKVersion%\ucrt\x64"
 set PATH=%MSVC_TOOLS_PATH%;%PATH%
 
 set CompilerFlags= /Zc:nrvo- -Od -nologo -GR- -MTd -Oi -W4 -WX -wd4100 -wd4189 -wd4505 -wd4005 -Zi -Fm -std:c++20 %WIN_INCLUDE_FLAGS%

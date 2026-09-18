@@ -1987,6 +1987,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 					);
 				}
 			} break;
+			default: break;
 			}
 			if (IsPressed(controller.B.kShift) && WasPressed(controller.B.mouseLeft)) {
 				state->nextHotInteraction = InteractionWithTree(
@@ -2025,6 +2026,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				state->nextHotInteraction.type = DebugInteractionType::SelectProfilerSpan;
 			}
 		} break;
+		default: break;
 		}
 		state->nextHotInteraction.startMousePos = mousePos;
 	}
@@ -2107,6 +2109,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 				GetNewestEvent(state->interaction.var)->event.data_Rect2 = *rect2.actual;
 			}
 		} break;
+		default: break;
 		}
 	}
 
@@ -2123,6 +2126,7 @@ void DebugInteract(DebugState* state, V2 mousePos, Controller& controller) {
 			CASE_VALUE_TO_STRING(DebugInteractionType::Select, interaction);
 			CASE_VALUE_TO_STRING(DebugInteractionType::SelectProfilerSpan, interaction);
 			CASE_VALUE_TO_STRING(DebugInteractionType::Tear, interaction);
+			default: break;
 		} 
 		PRINT_DEBUGGING("%s", interaction);
 	}
@@ -2241,7 +2245,8 @@ void DebugDumpStruct(DebugState* state, MemberDefinition* memberArray, u32 membe
 			sprintf_s(at, end - at, "%s:", member->name);
 			DebugRenderLine(state, buffer, state->fontContext, V4{ 1, 1, 1, 1 });
 			DebugDumpStruct(state, MembersOf_CollisionVolumeGroup, ArrayCount(MembersOf_CollisionVolumeGroup), memberAddress, indentLevel + 1);
-		}
+		} break;
+		default: break;
 		}
 	}
 	
